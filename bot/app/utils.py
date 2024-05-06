@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-# @Time    : 2023/11/18 上午12:51
-# @Author  : sudoskys
-# @File    : utils.py
-# @Software: PyCharm
-
 
 def parse_command(command):
     if not command:
