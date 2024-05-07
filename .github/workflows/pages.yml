@@ -5,6 +5,7 @@ on:
     branches: ['main']
     paths:
       - frontend/**
+      - .github
   workflow_dispatch:
 
 permissions:
