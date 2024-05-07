@@ -3,6 +3,9 @@ import ReactDOM from 'react-dom/client';
 import {
   useThemeParams,
   WebAppProvider,
+  useInitData,
+  useWebApp,
+
 } from '@vkruglikov/react-telegram-web-app';
 import { ConfigProvider, theme } from 'antd';
 import 'antd/dist/reset.css';
@@ -24,7 +27,12 @@ const DemoApp: FC<{
   const [colorScheme, themeParams] = useThemeParams();
   const [isBetaVersion, handleRequestBeta] = useBetaVersion(false);
   const [activeBtn, setActiveBtn] = useState(true);
+  const [initDataUnsafe, initData] = useInitData();
+  const WebApp = useWebApp();
 
+  console.log(WebApp.version);
+  console.log('initData', initData);
+  console.log('initDataUnsafe', initDataUnsafe);
   return (
     <div>
       <ConfigProvider
@@ -80,6 +88,11 @@ const DemoApp: FC<{
               }}
             />
           )}
+          <span>WebApp version: {WebApp.version}</span>
+          <span>WebApp version: {WebApp.platform}</span>
+          <span>initData: {JSON.stringify(initData)}</span>
+          <span>initDataUnsafe: {JSON.stringify(initDataUnsafe)}</span>
+
           <BackButtonDemo />
           <ShowPopupDemo />
           <HapticFeedbackDemo />
@@ -94,7 +107,9 @@ const App = () => {
   const [smoothButtonsTransition, setSmoothButtonsTransition] = useState(false);
 
   return (
-    <WebAppProvider options={{ smoothButtonsTransition }}>
+    <WebAppProvider options={{ 
+      smoothButtonsTransition 
+      }}>
       <DemoApp
         onChangeTransition={() => setSmoothButtonsTransition(state => !state)}
       />
