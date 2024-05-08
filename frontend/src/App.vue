@@ -4,16 +4,10 @@ import {useWebAppBiometricManager} from 'vue-tg';
 import {useWebAppPopup} from 'vue-tg'
 import {ref} from "vue";
 
-console.log('1705')
-// 响应式数据
 const token = ref<string | undefined>(undefined)
 const popup = useWebAppPopup()
 const WebApp = useWebApp();
 const WebAppBiometricManager = useWebAppBiometricManager();
-WebApp.ready()
-WebAppBiometricManager.initBiometric()
-console.log(WebApp.platform)
-
 const openAuthSettings = () => {
   WebAppBiometricManager.openBiometricSettings()
 }
@@ -63,19 +57,19 @@ if (WebAppBiometricManager.isBiometricAccessGranted) {
       }
   )
 }
+WebApp.ready()
 </script>
 
 <template>
   <div
   >
     <v-card
-        class="mx-auto ma-5"
-        width="400"
+        class="mx-5 ma-5"
         prepend-icon="$vuetify"
-
+        v-if="WebApp.version>='5.2'"
     >
       <template v-slot:title>
-        <span class="font-weight-black">Token</span>
+        <span class="font-weight-black">Biometric Auth</span>
       </template>
       <v-card-text class="bg-surface-light pt-4" v-if="token">
         {{ token }}
@@ -87,6 +81,7 @@ if (WebAppBiometricManager.isBiometricAccessGranted) {
           Auth
         </v-btn>
         <v-btn
+            v-if="!WebAppBiometricManager.isBiometricAccessGranted"
             @click="openAuthSettings"
         >
           Settings
