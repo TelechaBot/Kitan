@@ -2,12 +2,13 @@
 import {useWebApp} from "vue-tg";
 import {BiometricManager} from "vue-tg";
 import {useWebAppBiometricManager} from 'vue-tg';
+import {useWebAppPopup} from 'vue-tg'
 import {ref} from "vue";
 
 
 // 响应式数据
 const token = ref<string | undefined>(undefined)
-
+const popup = useWebAppPopup()
 const WebApp = useWebApp();
 const WebAppBiometricManager = useWebAppBiometricManager();
 WebApp.ready()
@@ -20,13 +21,13 @@ const authBiometric = () => {
     token.value = auth_token
   }
   if (!WebAppBiometricManager.isBiometricInited) {
-    console.log('Biometric not inited')
-    token.value = 'Biometric not initialized'
+    console.log('Biometric not initialized')
+    popup.showAlert('Biometric not initialized')
     return
   }
   if (!WebAppBiometricManager.isBiometricAvailable) {
     console.log('Biometric not supported')
-    token.value = 'Biometric not supported'
+    popup.showAlert('Biometric not supported')
     return
   }
   const result = WebAppBiometricManager.requestBiometricAccess(
