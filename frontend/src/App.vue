@@ -29,10 +29,13 @@ const authBiometric = () => {
     popup.showAlert('Biometric not supported')
     return
   }
+  WebAppBiometricManager.openBiometricSettings()
+  console.log(JSON.stringify(WebAppBiometricManager))
   const result = WebAppBiometricManager.requestBiometricAccess(
       {reason: 'Please authenticate to continue'},
       callback
   )
+  console.log("End of authBiometric")
   console.log(result)
 }
 WebAppBiometricManager.initBiometric()
