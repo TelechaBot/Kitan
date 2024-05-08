@@ -16,6 +16,12 @@ function App() {
                     <Typography variant="body2" component="p">
                         {WebApp.isExpanded ? 'This is an expanded view' : 'This is a compact view'}
                     </Typography>
+                    <Typography variant="body2" component="p">
+                        {WebApp.initData}
+                        {JSON.stringify(WebApp.initDataUnsafe)}
+                        {WebApp.version}
+                        {WebApp.platform}
+                    </Typography>
                 </CardContent>
             </Card>
             <div className="card">
