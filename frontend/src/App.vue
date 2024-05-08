@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {useWebApp} from "vue-tg";
-import {BiometricManager} from "vue-tg";
 import {useWebAppBiometricManager} from 'vue-tg';
 import {useWebAppPopup} from 'vue-tg'
 import {ref} from "vue";
@@ -36,10 +35,7 @@ const authBiometric = () => {
   )
   console.log(result)
 }
-const handleInit = () => {
-  console.log('BiometricManager initialized')
-}
-
+WebAppBiometricManager.initBiometric()
 </script>
 
 <template>
@@ -66,7 +62,6 @@ const handleInit = () => {
       </v-card-actions>
     </v-card>
     <div class="flex flex-col items-center justify-center">
-      <BiometricManager @init="handleInit"/>
       Platform: <span>{{ WebApp.platform }}</span>
       <br>
       Version: <span>{{ WebApp.version }}</span>
