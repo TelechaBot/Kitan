@@ -19,7 +19,17 @@ const authBiometric = () => {
     console.log(auth_token)
     token.value = auth_token
   }
-  const result = WebAppBiometricManager.authenticateBiometric(
+  if (!WebAppBiometricManager.isBiometricInited) {
+    console.log('Biometric not inited')
+    token.value = 'Biometric not initialized'
+    return
+  }
+  if (!WebAppBiometricManager.isBiometricAvailable) {
+    console.log('Biometric not supported')
+    token.value = 'Biometric not supported'
+    return
+  }
+  const result = WebAppBiometricManager.requestBiometricAccess(
       {reason: 'Please authenticate to continue'},
       callback
   )
