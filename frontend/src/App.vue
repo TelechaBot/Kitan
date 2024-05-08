@@ -13,11 +13,20 @@ const WebAppBiometricManager = useWebAppBiometricManager();
 WebApp.ready()
 WebAppBiometricManager.initBiometric()
 console.log(WebApp.platform)
+
+const openAuthSettings = () => {
+  WebAppBiometricManager.openBiometricSettings()
+}
+
 const authBiometric = () => {
   const callback = (is_authed: boolean, auth_token?: (string | undefined)) => {
     console.log(is_authed)
     console.log(auth_token)
-    token.value = auth_token
+    if (!auth_token) {
+      token.value = `Auth Not Passed ${is_authed}`
+    } else {
+      token.value = auth_token
+    }
   }
   if (!WebAppBiometricManager.isBiometricInited) {
     console.log('Biometric not initialized')
@@ -29,20 +38,30 @@ const authBiometric = () => {
     popup.showAlert('Biometric not supported')
     return
   }
-
-  const result = WebAppBiometricManager.requestBiometricAccess(
+  const result = WebAppBiometricManager.authenticateBiometric(
       {reason: 'Please authenticate to continue'},
       callback
   )
   console.log("End of authBiometric")
   console.log(result)
 }
+
 WebAppBiometricManager.initBiometric()
 if (WebAppBiometricManager.isBiometricAccessGranted) {
   console.log('Biometric available')
 } else {
   console.log('Biometric not available')
-  WebAppBiometricManager.openBiometricSettings()
+  WebAppBiometricManager.requestBiometricAccess(
+      {reason: 'Please authenticate to continue'},
+      (isAccessGranted: boolean) => {
+        if (isAccessGranted) {
+          console.log('Biometric access granted')
+        } else {
+          console.log('Biometric access denied')
+          popup.showAlert('Biometric access denied')
+        }
+      }
+  )
 }
 </script>
 
@@ -66,6 +85,11 @@ if (WebAppBiometricManager.isBiometricAccessGranted) {
             @click="authBiometric"
         >
           Auth
+        </v-btn>
+        <v-btn
+            @click="openAuthSettings"
+        >
+          Settings
         </v-btn>
       </v-card-actions>
     </v-card>
