@@ -77,12 +77,17 @@ import MCaptchaWidget from './components/MCaptchaWidget.vue';
 const config = {
   widgetLink: new URL('https://demo.mcaptcha.org/widget/?sitekey=Ud6YUN2CQJHcqxzmVzRR7Y21gBd4Q8lc'),
 };
+
+const call_callback = (token: string) => {
+  console.log(token)
+}
+
 </script>
 
 <template>
   <div
   >
-    <m-captcha-widget :config="config"/>
+    <m-captcha-widget :config="config" :callback="call_callback"/>
     <v-card
         class="mx-5 ma-5"
         prepend-icon="$vuetify"

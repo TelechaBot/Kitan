@@ -46,7 +46,11 @@ export default {
     config: {
       type: Object,
       required: true,
-    }
+    },
+    callback: {
+      type: Function,
+      required: false,
+    },
   },
   setup(props) {
     const containerStyle = {
@@ -58,6 +62,9 @@ export default {
     // Instantiate new widget
     const widget = new Widget(props.config, val => {
       token.value = val
+      if (props.callback) {
+        props.callback(val)
+      }
     })
 
     onMounted(() => {
