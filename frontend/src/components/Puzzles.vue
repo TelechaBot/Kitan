@@ -4,17 +4,6 @@
 import {ref} from 'vue';
 // 谜题
 const puzzles = ref<number[]>([1, 2, 3, 4, 5, 6, 7, 8, 0]);
-
-const shuffle = () => {
-  // 打乱
-  puzzles.value.sort(() => Math.random() - 0.5);
-  // 检查是否可还原
-  while (!check()) {
-    puzzles.value.sort(() => Math.random() - 0.5);
-  }
-};
-// 初始先打乱
-shuffle();
 const check = () => {
   // 检查是否可还原,逆序奇偶性
   let count = 0;
@@ -31,6 +20,17 @@ const check = () => {
   }
   return count % 2 != 0;
 }
+const shuffle = () => {
+  // 打乱
+  puzzles.value.sort(() => Math.random() - 0.5);
+  // 检查是否可还原
+  while (!check()) {
+    puzzles.value.sort(() => Math.random() - 0.5);
+  }
+};
+// 初始先打乱
+shuffle();
+
 
 const move = (puzzle: number) => {
   // 如果点击的拼图与0相邻，则交换位置
