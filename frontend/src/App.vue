@@ -34,10 +34,14 @@ const handleInit = () => {
 <template>
   <div>
     <BiometricManager @init="handleInit"/>
-    <span>{{ WebApp.version }}</span>
+    Platform: <span>{{ WebApp.platform }}</span>
+    <br>
+    Version: <span>{{ WebApp.version }}</span>
+    <br>
     Device ID: <span>{{ WebAppBiometricManager.biometricDeviceId }}</span>
     <br>
     Token: <span>{{ token }}</span>
+    <br>
     <button @click="authBiometric">Authenticate</button>
   </div>
   <HelloWorld msg="Vite + Vue"/>
