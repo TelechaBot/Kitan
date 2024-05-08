@@ -9,29 +9,26 @@ import WebApp from '@twa-dev/sdk'
 function App() {
     const [count, setCount] = useState(0)
     const [isExpanded, setIsExpanded] = useState(WebApp.isExpanded)
-
     useEffect(() => {
-        const interval = setInterval(() => {
+        const updateExpanded = () => {
             setIsExpanded(WebApp.isExpanded)
-        }, 1000)
-
+        };
+        WebApp.onEvent('viewportChanged', updateExpanded)
         return () => {
-            clearInterval(interval)
+            WebApp.offEvent('viewportChanged', updateExpanded)
         }
     }, [])
     return (
         <>
             <Card>
                 <CardContent>
-                    <Typography variant="body2" component="p">
+                    <Typography
+                        variant="body2"
+                        component="p"
+                        noWrap
+                    >
                         {isExpanded ? 'Expanded' : 'Not Expanded'}
-                        \n
-                        {WebApp.initData}
-                        \n
-                        {JSON.stringify(WebApp.initDataUnsafe)}
-                        \n
                         {WebApp.version}
-                        \n
                         {WebApp.platform}
                     </Typography>
                 </CardContent>
