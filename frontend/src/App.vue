@@ -3,8 +3,7 @@ import {useWebApp} from "vue-tg";
 import {useWebAppBiometricManager} from 'vue-tg';
 import {useWebAppPopup} from 'vue-tg'
 import {ref} from "vue";
-
-
+console.log('1705')
 // 响应式数据
 const token = ref<string | undefined>(undefined)
 const popup = useWebAppPopup()
