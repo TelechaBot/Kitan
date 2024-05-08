@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import HelloWorld from './components/HelloWorld.vue'
 import {useWebApp} from "vue-tg";
 import {BiometricManager} from "vue-tg";
 import {useWebAppBiometricManager} from 'vue-tg';
 import {ref} from "vue";
+
 
 // 响应式数据
 const token = ref<string | undefined>(undefined)
@@ -32,34 +32,39 @@ const handleInit = () => {
 </script>
 
 <template>
-  <div>
-    <BiometricManager @init="handleInit"/>
-    Platform: <span>{{ WebApp.platform }}</span>
-    <br>
-    Version: <span>{{ WebApp.version }}</span>
-    <br>
-    Device ID: <span>{{ WebAppBiometricManager.biometricDeviceId }}</span>
-    <br>
-    Token: <span>{{ token }}</span>
-    <br>
-    <button @click="authBiometric">Authenticate</button>
+  <div
+  >
+    <v-card
+        class="mx-auto mt-5"
+        width="400"
+        prepend-icon="$vuetify"
+
+    >
+      <template v-slot:title>
+        <span class="font-weight-black">Token</span>
+      </template>
+      <v-card-text class="bg-surface-light pt-4" v-if="token">
+        {{ token }}
+      </v-card-text>
+      <v-card-actions>
+        <v-btn
+            @click="authBiometric"
+        >
+          Auth
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+    <div class="flex flex-col items-center justify-center">
+      <BiometricManager @init="handleInit"/>
+      Platform: <span>{{ WebApp.platform }}</span>
+      <br>
+      Version: <span>{{ WebApp.version }}</span>
+      <br>
+      Device ID: <span>{{ WebAppBiometricManager.biometricDeviceId }}</span>
+      <br>
+    </div>
   </div>
-  <HelloWorld msg="Vite + Vue"/>
 </template>
 
 <style scoped>
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #42b883aa);
-}
 </style>
