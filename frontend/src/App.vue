@@ -98,8 +98,6 @@ if (WebAppBiometricManager.isBiometricAccessGranted) {
       <br>
       Version: <span>{{ WebApp.version }}</span>
       <br>
-      Device ID: <span>{{ WebAppBiometricManager.biometricDeviceId }}</span>
-      <br>
     </div>
   </div>
 </template>
