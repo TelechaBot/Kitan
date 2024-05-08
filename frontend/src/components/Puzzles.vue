@@ -13,7 +13,8 @@ const shuffle = () => {
     puzzles.value.sort(() => Math.random() - 0.5);
   }
 };
-
+// 初始先打乱
+shuffle();
 const check = () => {
   // 检查是否可还原,逆序奇偶性
   let count = 0;
