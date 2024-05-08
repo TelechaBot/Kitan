@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mcaptcha/core-glue": "^0.1.0-alpha-5",
     "vue": "^3.4.21",
     "vue-tg": "^0.6.1",
     "vuetify": "^3.6.4"

@@ -9,6 +9,7 @@ const isBiometricInitialized = ref<boolean>(false)
 const popup = useWebAppPopup()
 const WebApp = useWebApp();
 const WebAppBiometricManager = useWebAppBiometricManager();
+
 const openAuthSettings = () => {
   WebAppBiometricManager.openBiometricSettings()
 }
@@ -69,12 +70,19 @@ if (WebAppBiometricManager.isBiometricAccessGranted) {
       }
   )
 }
+
 WebApp.ready()
+import MCaptchaWidget from './components/MCaptchaWidget.vue';
+
+const config = {
+  widgetLink: new URL('https://demo.mcaptcha.org/widget/?sitekey=Ud6YUN2CQJHcqxzmVzRR7Y21gBd4Q8lc'),
+};
 </script>
 
 <template>
   <div
   >
+    <m-captcha-widget :config="config"/>
     <v-card
         class="mx-5 ma-5"
         prepend-icon="$vuetify"
@@ -100,6 +108,7 @@ WebApp.ready()
         </v-btn>
       </v-card-actions>
     </v-card>
+    <div class="cf-turnstile" data-sitekey="0x4AAAAAAAZpMmyEcy3nfzIa" data-callback="javascriptCallback"></div>
     <div class="flex flex-col items-center justify-center">
       Platform: <span>{{ WebApp.platform }}</span>
       <br>
