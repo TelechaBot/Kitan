@@ -1,4 +1,4 @@
-import {useState} from 'react'
+import {useEffect, useState} from 'react'
 import './App.css'
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
@@ -8,18 +8,30 @@ import WebApp from '@twa-dev/sdk'
 
 function App() {
     const [count, setCount] = useState(0)
+    const [isExpanded, setIsExpanded] = useState(WebApp.isExpanded)
 
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setIsExpanded(WebApp.isExpanded)
+        }, 1000)
+
+        return () => {
+            clearInterval(interval)
+        }
+    }, [])
     return (
         <>
             <Card>
                 <CardContent>
                     <Typography variant="body2" component="p">
-                        {WebApp.isExpanded ? 'This is an expanded view' : 'This is a compact view'}
-                    </Typography>
-                    <Typography variant="body2" component="p">
+                        {isExpanded ? 'Expanded' : 'Not Expanded'}
+                        \n
                         {WebApp.initData}
+                        \n
                         {JSON.stringify(WebApp.initDataUnsafe)}
+                        \n
                         {WebApp.version}
+                        \n
                         {WebApp.platform}
                     </Typography>
                 </CardContent>
