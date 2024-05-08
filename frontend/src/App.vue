@@ -3,7 +3,7 @@ import {useWebApp} from "vue-tg";
 import {useWebAppBiometricManager} from 'vue-tg';
 import {useWebAppPopup} from 'vue-tg'
 import {ref} from "vue";
-
+import Puzzles from "./components/Puzzles.vue";
 const token = ref<string | undefined>(undefined)
 const isBiometricInitialized = ref<boolean>(false)
 const popup = useWebAppPopup()
@@ -72,22 +72,13 @@ if (WebAppBiometricManager.isBiometricAccessGranted) {
 }
 
 WebApp.ready()
-import MCaptchaWidget from './components/MCaptchaWidget.vue';
-
-const config = {
-  widgetLink: new URL('https://demo.mcaptcha.org/widget/?sitekey=Ud6YUN2CQJHcqxzmVzRR7Y21gBd4Q8lc'),
-};
-
-const call_callback = (token: string) => {
-  console.log(token)
-}
 
 </script>
 
 <template>
+  <Puzzles/>
   <div
   >
-    <m-captcha-widget :config="config" :callback="call_callback"/>
     <v-card
         class="mx-5 ma-5"
         prepend-icon="$vuetify"
@@ -113,7 +104,6 @@ const call_callback = (token: string) => {
         </v-btn>
       </v-card-actions>
     </v-card>
-    <div class="cf-turnstile" data-sitekey="0x4AAAAAAAZpMmyEcy3nfzIa" data-callback="javascriptCallback"></div>
     <div class="flex flex-col items-center justify-center">
       Platform: <span>{{ WebApp.platform }}</span>
       <br>
