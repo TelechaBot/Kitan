@@ -42,7 +42,7 @@ WebAppBiometricManager.initBiometric()
   <div
   >
     <v-card
-        class="mx-auto mt-5"
+        class="mx-auto ma-5"
         width="400"
         prepend-icon="$vuetify"
 
