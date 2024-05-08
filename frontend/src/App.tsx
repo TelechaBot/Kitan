@@ -3,12 +3,13 @@ import './App.css'
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Typography from '@mui/material/Typography';
-
+import useGyroscopeExists from './hook/useGyroscopeExists.ts';
 import WebApp from '@twa-dev/sdk'
 
 function App() {
     const [count, setCount] = useState(0)
     const [isExpanded, setIsExpanded] = useState(WebApp.isExpanded)
+    const gyroscopeExists = useGyroscopeExists();
     useEffect(() => {
         const updateExpanded = () => {
             setIsExpanded(WebApp.isExpanded)
@@ -20,6 +21,9 @@ function App() {
     }, [])
     return (
         <>
+            <div>
+                {gyroscopeExists ? "支持陀螺仪" : "不支持陀螺仪"}
+            </div>
             <Card>
                 <CardContent>
                     <Typography
