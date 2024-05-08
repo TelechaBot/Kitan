@@ -5,7 +5,7 @@ import {useWebAppPopup} from 'vue-tg'
 import {ref} from "vue";
 
 const token = ref<string | undefined>(undefined)
-const isBiometricInited = ref<boolean>(false)
+const isBiometricInitialized = ref<boolean>(false)
 const popup = useWebAppPopup()
 const WebApp = useWebApp();
 const WebAppBiometricManager = useWebAppBiometricManager();
@@ -46,10 +46,10 @@ WebAppBiometricManager.initBiometric(
       console.log('Biometric initialized')
       if (WebAppBiometricManager.isBiometricAvailable) {
         console.log('Biometric available')
-        isBiometricInited.value = true
+        isBiometricInitialized.value = true
       } else {
         console.log('Biometric not available')
-        isBiometricInited.value = false
+        isBiometricInitialized.value = false
       }
     }
 )
@@ -78,7 +78,7 @@ WebApp.ready()
     <v-card
         class="mx-5 ma-5"
         prepend-icon="$vuetify"
-        v-if="WebApp.version>='5.2' && isBiometricInited"
+        v-if="WebApp.version>='5.2' && isBiometricInitialized"
     >
       <template v-slot:title>
         <span class="font-weight-black">Biometric Auth</span>
