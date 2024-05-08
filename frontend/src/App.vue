@@ -3,6 +3,7 @@ import {useWebApp} from "vue-tg";
 import {useWebAppBiometricManager} from 'vue-tg';
 import {useWebAppPopup} from 'vue-tg'
 import {ref} from "vue";
+
 console.log('1705')
 // 响应式数据
 const token = ref<string | undefined>(undefined)
@@ -28,8 +29,7 @@ const authBiometric = () => {
     popup.showAlert('Biometric not supported')
     return
   }
-  WebAppBiometricManager.openBiometricSettings()
-  console.log(JSON.stringify(WebAppBiometricManager))
+
   const result = WebAppBiometricManager.requestBiometricAccess(
       {reason: 'Please authenticate to continue'},
       callback
@@ -38,6 +38,12 @@ const authBiometric = () => {
   console.log(result)
 }
 WebAppBiometricManager.initBiometric()
+if (WebAppBiometricManager.isBiometricAccessGranted) {
+  console.log('Biometric available')
+} else {
+  console.log('Biometric not available')
+  WebAppBiometricManager.openBiometricSettings()
+}
 </script>
 
 <template>
