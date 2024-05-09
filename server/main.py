@@ -5,7 +5,7 @@ import sys
 from dotenv import load_dotenv
 from loguru import logger
 
-from app.controller import BotRunner
+from bot.controller import BotRunner
 
 load_dotenv()
 # 移除默认的日志处理器
@@ -25,7 +25,9 @@ logger.info("Log Is Secret, Please Don't Share It To Others")
 
 
 async def main():
-    await asyncio.gather(BotRunner().run())
+    await asyncio.gather(
+        BotRunner().run()
+    )
 
 
 loop = asyncio.get_event_loop()

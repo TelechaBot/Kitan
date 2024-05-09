@@ -37,6 +37,15 @@ class BotRunner(object):
             asyncio_helper.proxy = BotSetting.proxy_address
             logger.info("Proxy tunnels are being used!")
 
+        @bot.chat_join_request_handler()
+        async def new_request(message):
+            """
+            创建验证数据，并给用户发送验证信息
+            """
+            return await bot.reply_to(
+                message, text="Welcome to join us!", parse_mode="MarkdownV2"
+            )
+
         @bot.message_handler(
             commands="sfw", chat_types=["supergroup", "group", "private"]
         )
