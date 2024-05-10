@@ -4,10 +4,15 @@ import {useWebAppBiometricManager} from 'vue-tg';
 import {useWebAppPopup} from 'vue-tg'
 import {ref} from "vue";
 import Puzzles from "./components/Puzzles.vue";
+import {useGyroscopeExists} from "./hook/useGyroscopeExists.ts";
+import {useAccelerometerExists} from "./hook/useAccelerometerExists.ts";
+
 const token = ref<string | undefined>(undefined)
 const isBiometricInitialized = ref<boolean>(false)
 const popup = useWebAppPopup()
 const WebApp = useWebApp();
+const gyroscope = useGyroscopeExists();
+const accelerometer = useAccelerometerExists();
 const WebAppBiometricManager = useWebAppBiometricManager();
 
 const openAuthSettings = () => {
@@ -76,7 +81,11 @@ WebApp.ready()
 </script>
 
 <template>
-  <Puzzles/>
+  <span>{{ gyroscope ? 'Gyroscope exists' : 'Gyroscope does not exist' }}</span>
+  <span>{{ accelerometer ? 'Accelerometer exists' : 'Accelerometer does not exist' }}</span>
+  <Puzzles :difficulty-level="2" :on-success="() => {
+    console.log('success')
+  }"/>
   <div
   >
     <v-card

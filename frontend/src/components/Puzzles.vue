@@ -1,47 +1,91 @@
 <script setup lang="ts">
-// 制作一个3*3的拼图游戏，8块拼图。有一个打乱按钮，每次打乱时如果此组合不能复原，则重新打乱再检查。当用户成功复原时弹出提示。
-// 将此程序制作为组件，传入图片列表参数，切分后分配到拼图蒙版上，打乱会重新选择图像。
-import {ref} from 'vue';
-// 谜题
+import {ref, watch} from 'vue';
+
 const puzzles = ref<number[]>([1, 2, 3, 4, 5, 6, 7, 8, 0]);
-const check = () => {
-  // 检查是否可还原,逆序奇偶性
+const props = defineProps({
+  difficultyLevel: {
+    type: Number,
+    default: 1,
+    validator: (value: number) => value >= 1 && value <= 10  // 确保其在合理范围内
+  },
+  // 添加新的Prop用来接受成功回调
+  onSuccess: {
+    type: Function,
+    default: () => {
+    },
+  }
+});
+
+
+// 当难度等级变化时，自动打乱拼图
+watch(() => props.difficultyLevel, () => {
+  shuffleUntilSolvable();
+});
+
+const move = (index: number, zeroIndex: number) => {
+  const temp = puzzles.value[index];
+  puzzles.value[index] = puzzles.value[zeroIndex];
+  puzzles.value[zeroIndex] = temp;
+}
+
+const invCount = (arr: number[]) => {
   let count = 0;
-  for (let i = 0; i < 9; i++) {
-    if (puzzles.value[i] === 0) {
-      count += i / 3 + 1;
-    } else {
-      for (let j = i + 1; j < 9; j++) {
-        if (puzzles.value[j] < puzzles.value[i]) {
-          count++;
-        }
-      }
+  for (let i = 0; i < 9 - 1; i++)
+    for (let j = i + 1; j < 9; j++)
+      if (arr[j] && arr[i] && arr[i] > arr[j])
+        count++;
+  return count;
+}
+
+const isSolvable = (puzzle: number[]) => {
+  const invCountNum = invCount(puzzle);
+
+  let zeroIndex = puzzle.indexOf(0);
+  if (zeroIndex % 2) return !(invCountNum % 2);
+  else return invCountNum % 2;
+}
+
+const shuffle = () => {
+  let zeroIndex = puzzles.value.indexOf(0);
+  for (let i = 0; i < (500 * props.difficultyLevel + 500); i++) {
+    const direction = Math.floor(Math.random() * 4);
+    if (direction === 0 && zeroIndex >= 3) {
+      move(zeroIndex, zeroIndex - 3);
+      zeroIndex -= 3;
+    } else if (direction === 1 && zeroIndex % 3 !== 2) {
+      move(zeroIndex, zeroIndex + 1);
+      zeroIndex += 1;
+    } else if (direction === 2 && zeroIndex <= 5) {
+      move(zeroIndex, zeroIndex + 3);
+      zeroIndex += 3;
+    } else if (direction === 3 && zeroIndex % 3 !== 0) {
+      move(zeroIndex, zeroIndex - 1);
+      zeroIndex -= 1;
     }
   }
-  return count % 2 != 0;
-}
-const shuffle = () => {
-  // 打乱
-  puzzles.value.sort(() => Math.random() - 0.5);
-  // 检查是否可还原
-  while (!check()) {
-    puzzles.value.sort(() => Math.random() - 0.5);
-  }
 };
-// 初始先打乱
-shuffle();
 
+const shuffleUntilSolvable = () => {
+  shuffle();
+  if (!isSolvable(puzzles.value)) {
+    shuffleUntilSolvable();
+  }
+}
 
-const move = (puzzle: number) => {
-  // 如果点击的拼图与0相邻，则交换位置
+shuffleUntilSolvable();
+
+const moveBlock = (puzzle: number) => {
   const index = puzzles.value.indexOf(puzzle);
   const zeroIndex = puzzles.value.indexOf(0);
-  if (index === zeroIndex - 1 || index === zeroIndex + 1 || index === zeroIndex - 3 || index === zeroIndex + 3) {
+  if ((index === zeroIndex - 1 && Math.floor(index / 3) === Math.floor(zeroIndex / 3)) ||
+      (index === zeroIndex + 1 && Math.floor(index / 3) === Math.floor(zeroIndex / 3)) ||
+      index === zeroIndex - 3 || index === zeroIndex + 3) {
     puzzles.value[zeroIndex] = puzzle;
     puzzles.value[index] = 0;
   }
   if (puzzles.value.join('') === '123456780') {
-    alert('恭喜你，拼图成功！');
+    // 拼图成功，调用 onSuccess 回调
+    props.onSuccess();
   }
 };
 
@@ -50,11 +94,11 @@ const move = (puzzle: number) => {
 <template>
   <div class="box">
     <v-row no-gutters>
-      <v-col cols="4" v-for="puzzle in puzzles" :key="puzzle" @click="move(puzzle)">
+      <v-col cols="4" v-for="puzzle in puzzles" :key="puzzle" @click="moveBlock(puzzle)">
         <v-card class="puzzle" v-if="puzzle !== 0">{{ puzzle }}</v-card>
       </v-col>
     </v-row>
-    <button @click="shuffle">打乱</button>
+    <button @click="shuffleUntilSolvable">打乱</button>
   </div>
 </template>
 
