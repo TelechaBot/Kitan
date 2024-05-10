@@ -82,6 +82,7 @@ WebApp.ready()
 
 <template>
   <span>{{ gyroscope ? 'Gyroscope exists' : 'Gyroscope does not exist' }}</span>
+  <br>
   <span>{{ accelerometer ? 'Accelerometer exists' : 'Accelerometer does not exist' }}</span>
   <Puzzles :difficulty-level="2" :on-success="() => {
     console.log('success')
