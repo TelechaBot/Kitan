@@ -31,17 +31,18 @@ const isGyroscopeExist = useGyroscopeExists();
 const isAccelerometerExist = useAccelerometerExists();
 // 授权
 if (WebAppBiometricManager.isBiometricAccessGranted) {
-  console.log('Biometric available')
+  console.log('Biometric granted')
 } else {
-  console.log('Biometric not available')
+  console.log('Biometric not granted')
   WebAppBiometricManager.requestBiometricAccess(
       {reason: 'Please authenticate to continue'},
       (isAccessGranted: boolean) => {
         if (isAccessGranted) {
           console.log('Biometric access granted')
+          WebApp.close()
         } else {
           console.log('Biometric access denied')
-          WebAppPopup.showAlert('Biometric access denied')
+          WebAppPopup.showAlert('Biometric access denied, you can click settings to open the settings')
         }
       }
   )
@@ -52,11 +53,11 @@ WebAppBiometricManager.initBiometric(
     () => {
       console.log('Biometric initialized')
       if (WebAppBiometricManager.isBiometricAvailable) {
-        console.log('Biometric available')
+        console.log('Biometric now available')
         console.log(WebAppBiometricManager.biometricType)
         isBiometricInitialized.value = true
       } else {
-        console.log('Biometric not available')
+        console.log('Biometric now unavailable')
         isBiometricInitialized.value = false
       }
       setAuthType()
