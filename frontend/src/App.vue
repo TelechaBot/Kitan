@@ -109,6 +109,20 @@ const authSuccess = () => {
     console.error('Backend URL not found')
     verifyBackendMessage.success = false
     verifyBackendMessage.message = 'Backend URL not configured in this deployment'
+    // 延迟几秒
+    setTimeout(() => {
+      WebApp.close()
+    }, 5000)
+    return
+  }
+  if (!getUserParams()) {
+    console.error('User params not found')
+    verifyBackendMessage.success = false
+    verifyBackendMessage.message = 'Who are you?'
+    // 延迟几秒
+    setTimeout(() => {
+      WebApp.close()
+    }, 5000)
     return
   }
   console.log('Backend URL:', backendUrl)
