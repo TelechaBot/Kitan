@@ -8,11 +8,14 @@ const props = defineProps({
     default: 1,
     validator: (value: number) => value >= 1 && value <= 10  // 确保其在合理范围内
   },
-  // 添加新的Prop用来接受成功回调
   onSuccess: {
     type: Function,
     default: () => {
     },
+  },
+  imageSrc: {
+    type: String,
+    default: ''
   }
 });
 
@@ -88,18 +91,26 @@ const moveBlock = (puzzle: number) => {
     props.onSuccess();
   }
 };
-
+const calculatePosition = (puzzle: number) => {
+  puzzle -= 1;  //的到ki正确的宽度和高度索引
+  const xIndex = puzzle % 3;
+  const yIndex = Math.floor(puzzle / 3);
+  return `${-xIndex * 100}px ${-yIndex * 100}px`;
+}
 </script>
 
 <template>
   <div class="box">
     <v-row no-gutters>
       <v-col cols="4" v-for="puzzle in puzzles" :key="puzzle" @click="moveBlock(puzzle)">
-        <v-card class="puzzle" v-if="puzzle !== 0">{{ puzzle }}</v-card>
+        <v-card v-if="puzzle !== 0" class="puzzle"
+                :style="props.imageSrc ? {backgroundImage: `url(${props.imageSrc})`, backgroundPosition: calculatePosition(puzzle), backgroundSize: '300px 300px' } : {}">
+          <span v-if="!props.imageSrc">{{ puzzle }}</span>
+        </v-card>
       </v-col>
     </v-row>
-    <button @click="shuffleUntilSolvable">打乱</button>
   </div>
+  <button @click="shuffleUntilSolvable">打乱</button>
 </template>
 
 <style scoped>
@@ -118,6 +129,7 @@ const moveBlock = (puzzle: number) => {
   text-align: center;
   border: 1px solid #000;
   font-size: 24px;
+  background-repeat: no-repeat;
 }
 
 .fade-enter-active, .fade-leave-active {
