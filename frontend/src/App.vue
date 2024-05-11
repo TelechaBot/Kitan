@@ -36,6 +36,8 @@ const getUserParams = () => {
   }
 }
 
+console.log(getUserParams())
+
 // 验证类型
 const setAuthType = computed(() => {
   // 验证类型
