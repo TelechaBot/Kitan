@@ -18,6 +18,7 @@ onMounted(() => {
 enum AuthType {
   POW = 'pow',
   BIOMETRIC = 'biometric',
+  OUTLINE = 'outline',
 }
 
 const authType = ref<AuthType>(AuthType.POW)
@@ -28,6 +29,52 @@ const WebApp = useWebApp();
 const WebAppBiometricManager = useWebAppBiometricManager();
 const isGyroscopeExist = useGyroscopeExists();
 const isAccelerometerExist = useAccelerometerExists();
+WebAppBiometricManager.initBiometric(
+    () => {
+      console.log('Biometric initialized')
+      if (WebAppBiometricManager.isBiometricAvailable) {
+        console.log('Biometric available')
+        console.log(WebAppBiometricManager.biometricType)
+        userAcc.biometric = true
+        isBiometricInitialized.value = true
+      } else {
+        console.log('Biometric not available')
+        isBiometricInitialized.value = false
+      }
+    }
+)
+if (WebAppBiometricManager.isBiometricAccessGranted) {
+  console.log('Biometric available')
+} else {
+  console.log('Biometric not available')
+  WebAppBiometricManager.requestBiometricAccess(
+      {reason: 'Please authenticate to continue'},
+      (isAccessGranted: boolean) => {
+        if (isAccessGranted) {
+          console.log('Biometric access granted')
+        } else {
+          console.log('Biometric access denied')
+          WebAppPopup.showAlert('Biometric access denied')
+        }
+      }
+  )
+}
+
+// 验证类型
+const setAuthType = () => {
+  // 验证类型
+  if (WebApp.platform === 'unknown') {
+    authType.value = AuthType.OUTLINE
+  } else if (WebApp.version >= '7.2' && isBiometricInitialized) {
+    authType.value = AuthType.BIOMETRIC
+  } else {
+    authType.value = AuthType.POW
+  }
+}
+setAuthType()
+watch(() => isBiometricInitialized, () => {
+  setAuthType()
+})
 
 // 构造用户可信度信息
 const buildUserAcc = () => {
@@ -37,10 +84,11 @@ const buildUserAcc = () => {
     biometric: WebAppBiometricManager.isBiometricAvailable.value,
     platform: WebApp.platform,
     version: WebApp.version,
-    timeStamp: new Date().getTime()
+    timeStamp: new Date().getTime(),
+    deviceId: WebAppBiometricManager.biometricDeviceId,
   }
 }
-console.log(buildUserAcc())
+const userAcc = buildUserAcc()
 
 const openAuthSettings = () => {
   WebAppBiometricManager.openBiometricSettings()
@@ -73,47 +121,6 @@ const authBiometric = () => {
   console.log(result)
 }
 
-WebAppBiometricManager.initBiometric(
-    () => {
-      console.log('Biometric initialized')
-      if (WebAppBiometricManager.isBiometricAvailable) {
-        console.log('Biometric available')
-        isBiometricInitialized.value = true
-      } else {
-        console.log('Biometric not available')
-        isBiometricInitialized.value = false
-      }
-    }
-)
-if (WebAppBiometricManager.isBiometricAccessGranted) {
-  console.log('Biometric available')
-} else {
-  console.log('Biometric not available')
-  WebAppBiometricManager.requestBiometricAccess(
-      {reason: 'Please authenticate to continue'},
-      (isAccessGranted: boolean) => {
-        if (isAccessGranted) {
-          console.log('Biometric access granted')
-        } else {
-          console.log('Biometric access denied')
-          WebAppPopup.showAlert('Biometric access denied')
-        }
-      }
-  )
-}
-const setAuthType = () => {
-  // 验证类型
-  if (WebApp.version >= '7.2' && isBiometricInitialized) {
-    authType.value = AuthType.BIOMETRIC
-  } else {
-    authType.value = AuthType.POW
-  }
-}
-setAuthType()
-watch(() => isBiometricInitialized, () => {
-  setAuthType()
-})
-
 WebApp.ready()
 /*
 // 从列表里选一个 user ：110453675 110453675
@@ -125,12 +132,28 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
 
 <template>
   <div class="mx-5 ma-5">
+    <v-card
+        class="mx-5 ma-5"
+        prepend-icon="mdi-lock"
+        color="indigo"
+        variant="outlined"
+        v-if="authType === AuthType.OUTLINE"
+    >
+      <template v-slot:title>
+        <span class="font-weight-black">You Are Offline</span>
+      </template>
+      <v-card-text class="bg-surface
+      -light pt-4">
+        Please connect to the internet
+      </v-card-text>
+    </v-card>
+
     <Puzzles
         v-if="authType === AuthType.POW"
         :difficulty-level="2"
         :on-success="() => {console.log('success')}"
-
     />
+
     <v-card
         class="mx-5 ma-5"
         prepend-icon="mdi-fingerprint"
