@@ -57,6 +57,7 @@ const setAuthType = () => {
   } else {
     authType.value = AuthType.POW
   }
+  console.log('Auth type:', authType.value)
 }
 setAuthType()
 // 获取生物识别信息
