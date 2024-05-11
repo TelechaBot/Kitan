@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ref} from "vue";
+import {computed, ref} from "vue";
 import {useRoute} from 'vue-router';
 
 const route = useRoute();
@@ -9,11 +9,6 @@ import {useWebAppBiometricManager} from 'vue-tg';
 import {useWebAppPopup} from 'vue-tg'
 import {useGyroscopeExists} from "./hook/useGyroscopeExists.ts";
 import {useAccelerometerExists} from "./hook/useAccelerometerExists.ts";
-import {onMounted} from 'vue';
-
-onMounted(() => {
-  console.log("获取到的参数", route.query)
-});
 
 enum AuthType {
   POW = 'pow',
@@ -21,7 +16,6 @@ enum AuthType {
   OUTLINE = 'outline',
 }
 
-const authType = ref<AuthType>(AuthType.POW)
 const authToken = ref<string | undefined>(undefined)
 const isBiometricInitialized = ref<boolean>(false)
 const WebAppPopup = useWebAppPopup()
@@ -29,53 +23,33 @@ const WebApp = useWebApp();
 const WebAppBiometricManager = useWebAppBiometricManager();
 const isGyroscopeExist = useGyroscopeExists();
 const isAccelerometerExist = useAccelerometerExists();
-// 授权
-if (WebAppBiometricManager.isBiometricAccessGranted) {
-  console.log('Biometric granted')
-} else {
-  console.log('Biometric not granted')
-  WebAppBiometricManager.requestBiometricAccess(
-      {reason: 'Please authenticate to continue'},
-      (isAccessGranted: boolean) => {
-        if (isAccessGranted) {
-          console.log('Biometric access granted')
-          WebApp.close()
-        } else {
-          console.log('Biometric access denied')
-          WebAppPopup.showAlert('Biometric access denied, you can click settings to open the settings')
-        }
-      }
-  )
-}
-// 验证类型
-const setAuthType = () => {
-  // 验证类型
-  if (WebApp.platform === 'unknown') {
-    authType.value = AuthType.OUTLINE
-  } else if (WebApp.version >= '7.2' && isBiometricInitialized) {
-    authType.value = AuthType.BIOMETRIC
-  } else {
-    authType.value = AuthType.POW
+
+const getUserParams = () => {
+  if (!route.query.chat_id || !route.query.msg_id || !route.query.timestamp || !route.query.signature) {
+    return null
   }
-  console.log('Auth type:', authType.value)
+  return {
+    chat_id: route.query.chat_id as string,
+    msg_id: route.query.msg_id as string,
+    timestamp: route.query.timestamp as string,
+    signature: route.query.signature as string,
+  }
 }
-setAuthType()
-// 获取生物识别信息
-WebAppBiometricManager.initBiometric(
-    () => {
-      console.log('Biometric initialized')
-      if (WebAppBiometricManager.isBiometricAvailable) {
-        console.log('Biometric now available')
-        console.log(WebAppBiometricManager.biometricType)
-        isBiometricInitialized.value = true
-      } else {
-        console.log('Biometric now unavailable')
-        isBiometricInitialized.value = false
-      }
-      // 再次设置验证类型
-      setAuthType()
-    }
-)
+
+// 验证类型
+const setAuthType = computed(() => {
+  // 验证类型
+  if (WebApp.platform === 'unknown' || !WebApp.initData) {
+    console.log('OUTLINE')
+    return AuthType.OUTLINE
+  } else if (WebApp.version >= '7.2' && isBiometricInitialized) {
+    console.log('BIOMETRIC')
+    return AuthType.BIOMETRIC
+  } else {
+    console.log('POW')
+    return AuthType.POW
+  }
+});
 // 构造用户可信度信息
 const buildUserAcc = () => {
   return {
@@ -88,12 +62,9 @@ const buildUserAcc = () => {
     deviceId: WebAppBiometricManager.biometricDeviceId,
   }
 }
-console.log(buildUserAcc())
-
 const openAuthSettings = () => {
   WebAppBiometricManager.openBiometricSettings()
 }
-
 const authBiometric = () => {
   const biometricCallback = (is_authed: boolean, auth_token?: (string | undefined)) => {
     if (is_authed) {
@@ -121,6 +92,43 @@ const authBiometric = () => {
   console.log(result)
 }
 
+
+// 授权
+if (WebAppBiometricManager.isBiometricAccessGranted) {
+  console.log('Biometric granted')
+} else {
+  console.log('Biometric not granted')
+  WebAppBiometricManager.requestBiometricAccess(
+      {reason: 'Please authenticate to continue'},
+      (isAccessGranted: boolean) => {
+        if (isAccessGranted) {
+          console.log('Biometric access granted')
+          WebApp.close()
+        } else {
+          console.log('Biometric access denied')
+          WebAppPopup.showAlert('Biometric access denied, you can click settings to open the settings')
+        }
+      }
+  )
+}
+
+// 获取生物识别信息
+WebAppBiometricManager.initBiometric(
+    () => {
+      console.log('Biometric initialized')
+      if (WebAppBiometricManager.isBiometricAvailable) {
+        console.log('Biometric now available')
+        console.log(WebAppBiometricManager.biometricType)
+        isBiometricInitialized.value = true
+      } else {
+        console.log('Biometric now unavailable')
+        isBiometricInitialized.value = false
+      }
+      // 再次设置验证类型
+    }
+)
+
+console.log(buildUserAcc())
 WebApp.ready()
 /*
 // 从列表里选一个 user ：110453675 110453675
@@ -137,7 +145,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         prepend-icon="mdi-lock"
         color="indigo"
         variant="outlined"
-        v-if="authType === AuthType.OUTLINE"
+        v-if="setAuthType === AuthType.OUTLINE"
     >
       <template v-slot:title>
         <span class="font-weight-black">You Are Offline</span>
@@ -149,7 +157,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
     </v-card>
 
     <Puzzles
-        v-if="authType === AuthType.POW"
+        v-if="setAuthType === AuthType.POW"
         :difficulty-level="2"
         :on-success="() => {console.log('success')}"
     />
@@ -158,7 +166,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         class="mx-5 ma-5"
         prepend-icon="mdi-fingerprint"
         color="indigo"
-        v-if="authType === AuthType.BIOMETRIC"
+        v-if="setAuthType === AuthType.BIOMETRIC"
         variant="outlined"
     >
       <template v-slot:title>
