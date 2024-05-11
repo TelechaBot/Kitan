@@ -76,7 +76,7 @@ const authBiometric = () => {
   const biometricCallback = (is_authed: boolean, auth_token?: (string | undefined)) => {
     if (is_authed) {
       console.log('Biometric authenticated')
-      authToken.value = auth_token || `authenticated as ${WebAppBiometricManager.biometricType} type`
+      authToken.value = auth_token || `authenticated as ${WebAppBiometricManager.biometricType.value} type`
       authSuccess()
     } else {
       console.log('Biometric not authenticated')
