@@ -123,7 +123,8 @@ const calculatePosition = (puzzle: number) => {
     <v-btn
         @click="shuffleUntilSolvable"
         block
-        variant="outlined"
+        variant="flat"
+        class="mt-2"
         color="primary"
     >
       Shuffle
@@ -140,7 +141,7 @@ const calculatePosition = (puzzle: number) => {
   align-items: center;
   background-color: #f5f5f5;
   border: 1px solid #ddd;
-  border-radius: 4px;
+  border-radius: 0;
   box-shadow: 0 0.5em 1em -0.125em rgba(10, 10, 10, .1), 0 0.25em 0.5em -0.25em rgba(10, 10, 10, .02);
 }
 
@@ -156,10 +157,10 @@ const calculatePosition = (puzzle: number) => {
   flex-basis: 33.33%;
   box-sizing: border-box;
   height: 100px;
-  font-size: 2rem;
+  font-size: 1.7rem;
   line-height: 100px;
   text-align: center;
-  border: 1px solid #232323;
+  border: 1px solid #ddd;
   background-repeat: no-repeat;
   border-radius: 3px;
   transition: all 0.3s ease;
