@@ -11,7 +11,6 @@ import {useGyroscopeExists} from "./hook/useGyroscopeExists.ts";
 import {useAccelerometerExists} from "./hook/useAccelerometerExists.ts";
 import {onMounted} from 'vue';
 
-
 onMounted(() => {
   console.log("获取到的参数", route.query)
 });
@@ -51,7 +50,7 @@ const authBiometric = () => {
   const biometricCallback = (is_authed: boolean, auth_token?: (string | undefined)) => {
     if (is_authed) {
       console.log('Biometric authenticated')
-      authToken.value = auth_token
+      authToken.value = auth_token || 'Biometric authenticated'
     } else {
       console.log('Biometric not authenticated')
       WebAppPopup.showAlert('Biometric not authenticated')
