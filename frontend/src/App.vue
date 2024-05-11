@@ -130,7 +130,9 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
     <v-card
         class="mx-5 ma-5"
         prepend-icon="mdi-fingerprint"
-        v-if="authType === AuthType.BIOMETRIC"
+        color="indigo"
+        v-if="authType !== AuthType.BIOMETRIC"
+        variant="outlined"
     >
       <template v-slot:title>
         <span class="font-weight-black">Biometric Auth</span>
@@ -139,14 +141,12 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         {{ authToken }}
       </v-card-text>
       <v-card-actions>
-        <v-btn
-            @click="authBiometric"
-        >
+        <v-btn @click="authBiometric">
           Auth
         </v-btn>
         <v-btn
-            v-if="!WebAppBiometricManager.isBiometricAccessGranted"
             @click="openAuthSettings"
+            v-if="!WebAppBiometricManager.isBiometricAccessGranted"
         >
           Settings
         </v-btn>
