@@ -43,13 +43,6 @@ const buildUserAcc = () => {
 }
 console.log(buildUserAcc())
 
-// 验证类型
-if (WebApp.version >= '7.2' && isBiometricInitialized) {
-  authType.value = AuthType.BIOMETRIC
-} else {
-  authType.value = AuthType.POW
-}
-
 const openAuthSettings = () => {
   WebAppBiometricManager.openBiometricSettings()
 }
@@ -109,7 +102,12 @@ if (WebAppBiometricManager.isBiometricAccessGranted) {
       }
   )
 }
-
+// 验证类型
+if (WebApp.version >= '7.2' && isBiometricInitialized) {
+  authType.value = AuthType.BIOMETRIC
+} else {
+  authType.value = AuthType.POW
+}
 WebApp.ready()
 /*
 // 从列表里选一个 user ：110453675 110453675
