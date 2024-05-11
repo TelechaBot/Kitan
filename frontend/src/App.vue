@@ -131,7 +131,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         class="mx-5 ma-5"
         prepend-icon="mdi-fingerprint"
         color="indigo"
-        v-if="authType !== AuthType.BIOMETRIC"
+        v-if="authType === AuthType.BIOMETRIC"
         variant="outlined"
     >
       <template v-slot:title>
