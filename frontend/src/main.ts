@@ -19,10 +19,14 @@ const router = createRouter({
     history: createWebHistory(),
     routes,
 })
+import '@mdi/font/css/materialdesignicons.css'
 // Components
 const vuetify = createVuetify({
     components,
     directives,
+    icons: {
+        defaultSet: 'mdi', // This is already the default value - only for display purposes
+    },
 })
 
 createApp(App).use(vuetify).use(VueTelegram).use(router).mount('#app')

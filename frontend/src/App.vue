@@ -111,10 +111,12 @@ if (WebAppBiometricManager.isBiometricAccessGranted) {
 }
 
 WebApp.ready()
+/*
 // 从列表里选一个 user ：110453675 110453675
 const users = [110453675, 16256221, 59048777]
 const user = users[Math.floor(Math.random() * users.length)]
 const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
+*/
 </script>
 
 <template>
@@ -127,7 +129,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
     />
     <v-card
         class="mx-5 ma-5"
-        prepend-icon="$vuetify"
+        prepend-icon="mdi-fingerprint"
         v-if="authType === AuthType.BIOMETRIC"
     >
       <template v-slot:title>

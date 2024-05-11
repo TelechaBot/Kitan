@@ -156,10 +156,10 @@ const calculatePosition = (puzzle: number) => {
   flex-basis: 33.33%;
   box-sizing: border-box;
   height: 100px;
+  font-size: 2rem;
   line-height: 100px;
   text-align: center;
   border: 1px solid #232323;
-  font-size: 24px;
   background-repeat: no-repeat;
   border-radius: 3px;
   transition: all 0.3s ease;
