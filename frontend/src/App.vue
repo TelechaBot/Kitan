@@ -47,7 +47,18 @@ if (WebAppBiometricManager.isBiometricAccessGranted) {
       }
   )
 }
-
+// 验证类型
+const setAuthType = () => {
+  // 验证类型
+  if (WebApp.platform === 'unknown') {
+    authType.value = AuthType.OUTLINE
+  } else if (WebApp.version >= '7.2' && isBiometricInitialized) {
+    authType.value = AuthType.BIOMETRIC
+  } else {
+    authType.value = AuthType.POW
+  }
+}
+setAuthType()
 // 获取生物识别信息
 WebAppBiometricManager.initBiometric(
     () => {
@@ -60,22 +71,10 @@ WebAppBiometricManager.initBiometric(
         console.log('Biometric now unavailable')
         isBiometricInitialized.value = false
       }
+      // 再次设置验证类型
       setAuthType()
     }
 )
-
-// 验证类型
-const setAuthType = () => {
-  // 验证类型
-  if (WebApp.platform === 'unknown') {
-    authType.value = AuthType.OUTLINE
-  } else if (WebApp.version >= '7.2' && isBiometricInitialized) {
-    authType.value = AuthType.BIOMETRIC
-  } else {
-    authType.value = AuthType.POW
-  }
-}
-
 // 构造用户可信度信息
 const buildUserAcc = () => {
   return {
