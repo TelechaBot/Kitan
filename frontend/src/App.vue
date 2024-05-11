@@ -118,12 +118,12 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
 </script>
 
 <template>
-  <div>
+  <div class="mx-5 ma-5">
     <Puzzles
         v-if="authType === AuthType.POW"
         :difficulty-level="2"
         :on-success="() => {console.log('success')}"
-        :image-src="imageSrc"
+
     />
     <v-card
         class="mx-5 ma-5"
@@ -150,12 +150,6 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         </v-btn>
       </v-card-actions>
     </v-card>
-  </div>
-  <div class="flex flex-col items-center justify-center">
-    Platform: <span>{{ WebApp.platform }}</span>
-    <br>
-    Version: <span>{{ WebApp.version }}</span>
-    <br>
   </div>
 </template>
 

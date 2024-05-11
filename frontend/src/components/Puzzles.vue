@@ -100,36 +100,69 @@ const calculatePosition = (puzzle: number) => {
 </script>
 
 <template>
-  <div class="box">
-    <v-row no-gutters>
-      <v-col cols="4" v-for="puzzle in puzzles" :key="puzzle" @click="moveBlock(puzzle)">
-        <v-card v-if="puzzle !== 0" class="puzzle"
-                :style="props.imageSrc ? {backgroundImage: `url(${props.imageSrc})`, backgroundPosition: calculatePosition(puzzle), backgroundSize: '300px 300px' } : {}">
-          <span v-if="!props.imageSrc">{{ puzzle }}</span>
-        </v-card>
-      </v-col>
-    </v-row>
+  <div class="puzzle-container">
+    <div class="puzzle-grid">
+      <v-row no-gutters>
+        <v-col
+            cols="4"
+            v-for="puzzle in puzzles"
+            :key="puzzle"
+            @click="moveBlock(puzzle)"
+        >
+          <v-card
+              elevation="0"
+              variant="flat"
+              v-if="puzzle !== 0"
+              class="puzzle-block"
+              :style="props.imageSrc ? {backgroundImage: `url(${props.imageSrc})`, backgroundPosition: calculatePosition(puzzle), backgroundSize: '300px 300px' } : {}">
+            <span v-if="!props.imageSrc">{{ puzzle }}</span>
+          </v-card>
+        </v-col>
+      </v-row>
+    </div>
+    <v-btn
+        @click="shuffleUntilSolvable"
+        block
+        variant="outlined"
+        color="primary"
+    >
+      Shuffle
+    </v-btn>
   </div>
-  <button @click="shuffleUntilSolvable">打乱</button>
 </template>
 
 <style scoped>
-.box {
+.puzzle-container {
   display: flex;
-  flex-wrap: wrap;
+  margin: 0 auto;
   width: 300px;
-  height: 300px;
+  flex-direction: column;
+  align-items: center;
+  background-color: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 0.5em 1em -0.125em rgba(10, 10, 10, .1), 0 0.25em 0.5em -0.25em rgba(10, 10, 10, .02);
 }
 
-.puzzle {
+.puzzle-grid {
+  display: flex;
+  width: 300px;
+  height: 300px;
+  justify-content: center;
+  align-items: center;
+}
+
+.puzzle-block {
   flex-basis: 33.33%;
   box-sizing: border-box;
   height: 100px;
   line-height: 100px;
   text-align: center;
-  border: 1px solid #000;
+  border: 1px solid #232323;
   font-size: 24px;
   background-repeat: no-repeat;
+  border-radius: 3px;
+  transition: all 0.3s ease;
 }
 
 .fade-enter-active, .fade-leave-active {
