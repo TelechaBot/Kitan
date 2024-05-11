@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ref, watch} from "vue";
+import {ref} from "vue";
 import {useRoute} from 'vue-router';
 
 const route = useRoute();
@@ -29,20 +29,7 @@ const WebApp = useWebApp();
 const WebAppBiometricManager = useWebAppBiometricManager();
 const isGyroscopeExist = useGyroscopeExists();
 const isAccelerometerExist = useAccelerometerExists();
-WebAppBiometricManager.initBiometric(
-    () => {
-      console.log('Biometric initialized')
-      if (WebAppBiometricManager.isBiometricAvailable) {
-        console.log('Biometric available')
-        console.log(WebAppBiometricManager.biometricType)
-        userAcc.biometric = true
-        isBiometricInitialized.value = true
-      } else {
-        console.log('Biometric not available')
-        isBiometricInitialized.value = false
-      }
-    }
-)
+// 授权
 if (WebAppBiometricManager.isBiometricAccessGranted) {
   console.log('Biometric available')
 } else {
@@ -60,6 +47,22 @@ if (WebAppBiometricManager.isBiometricAccessGranted) {
   )
 }
 
+// 获取生物识别信息
+WebAppBiometricManager.initBiometric(
+    () => {
+      console.log('Biometric initialized')
+      if (WebAppBiometricManager.isBiometricAvailable) {
+        console.log('Biometric available')
+        console.log(WebAppBiometricManager.biometricType)
+        isBiometricInitialized.value = true
+      } else {
+        console.log('Biometric not available')
+        isBiometricInitialized.value = false
+      }
+      setAuthType()
+    }
+)
+
 // 验证类型
 const setAuthType = () => {
   // 验证类型
@@ -71,10 +74,6 @@ const setAuthType = () => {
     authType.value = AuthType.POW
   }
 }
-setAuthType()
-watch(() => isBiometricInitialized, () => {
-  setAuthType()
-})
 
 // 构造用户可信度信息
 const buildUserAcc = () => {
@@ -88,7 +87,7 @@ const buildUserAcc = () => {
     deviceId: WebAppBiometricManager.biometricDeviceId,
   }
 }
-const userAcc = buildUserAcc()
+console.log(buildUserAcc())
 
 const openAuthSettings = () => {
   WebAppBiometricManager.openBiometricSettings()
