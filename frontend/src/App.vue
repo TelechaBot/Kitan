@@ -49,7 +49,7 @@ const authType = computed(() => {
   if (WebApp.isPlatformUnknown || !WebApp.initData) {
     console.log('OUTLINE')
     return AuthType.OUTLINE
-  } else if (WebApp.version >= '7.2' && isBiometricInitialized) {
+  } else if (WebApp.version >= '7.2' && isBiometricInitialized.value) {
     console.log('BIOMETRIC')
     return AuthType.BIOMETRIC
   } else {
