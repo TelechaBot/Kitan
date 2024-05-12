@@ -1,11 +1,9 @@
-from typing import Optional
-
 import pymongo
 from dotenv import load_dotenv
 from loguru import logger
 from motor.motor_asyncio import AsyncIOMotorClient
 from odmantic import AIOEngine
-from odmantic import Field, Model
+from pydantic import Field
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from pymongo import MongoClient
@@ -50,9 +48,3 @@ if not MongoSetting.available:
     logger.error("MongoDB Connection Error")
     raise ValueError("MongoDB Connection Error")
 MONGO_ENGINE = AIOEngine(client=AsyncIOMotorClient(MongoSetting.mongodb_dsn), database="verify")
-
-
-class Publisher(Model):
-    name: str
-    founded: int = Field(ge=1440)
-    location: Optional[str] = None

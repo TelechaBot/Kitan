@@ -10,6 +10,7 @@ from loguru import logger
 from pydantic import BaseModel, SecretStr
 from starlette.responses import JSONResponse
 
+from setting.server import ServerSetting
 from setting.telegrambot import BotSetting, BOT
 from utils.signature import generate_sign
 
@@ -110,3 +111,11 @@ async def verify_captcha(query: VerifyData):
             status_code=204,
             content={"status": EnumStatu.success}
         )
+
+
+def run_server():
+    import uvicorn
+    host = ServerSetting.host
+    port = ServerSetting.port
+    logger.info(f"Server Start At {host}:{port}")
+    uvicorn.run(app, host=host, port=port)

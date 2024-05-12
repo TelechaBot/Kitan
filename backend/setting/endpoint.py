@@ -9,7 +9,7 @@ class Endpoint(BaseSettings):
     domain: Optional[str] = Field(None, validation_alias="VERIFY_DOMAIN")
 
     @model_validator(mode="after")
-    def bot_validator(self):
+    def validator(self):
         if self.domain is None:
             raise ValueError("Endpoint Not Set")
         return self

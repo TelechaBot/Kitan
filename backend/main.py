@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from bot.controller import BotRunner
+from server import run_server
 
 load_dotenv()
 # 移除默认的日志处理器
@@ -26,8 +27,10 @@ logger.info("Log Is Secret, Please Don't Share It To Others")
 async def run_app():
     logger.info("Backend Server Start")
     TelegramBot = BotRunner()
+
     await asyncio.gather(
-        TelegramBot.run()
+        TelegramBot.run(),
+        run_server(),
     )
 
 
