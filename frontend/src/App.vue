@@ -161,7 +161,6 @@ const grantBiometricAccess = () => {
       (isAccessGranted: boolean) => {
         if (isAccessGranted) {
           console.log('Biometric access granted')
-          WebApp.close()
         } else {
           console.log('Biometric access denied')
           WebAppPopup.showAlert('Biometric access denied, you can click settings to open the settings')
