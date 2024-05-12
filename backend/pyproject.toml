@@ -17,6 +17,9 @@ dependencies = [
     "aiohttp>=3.9.1",
     "pre-commit>=3.5.0",
     "telegramify-markdown>=0.1.2",
+    "fastapi>=0.111.0",
+    "odmantic>=1.0.2",
+    "redis>=5.0.4",
 ]
 
 
