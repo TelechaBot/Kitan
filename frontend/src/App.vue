@@ -29,22 +29,22 @@ const WebAppBiometricManager = useWebAppBiometricManager();
 const isGyroscopeExist = useGyroscopeExists();
 const isAccelerometerExist = useAccelerometerExists();
 
-const getUserParams = () => {
+const routerGet = () => {
   if (!route.query.chat_id || !route.query.msg_id || !route.query.timestamp || !route.query.signature) {
     return null
   }
   return {
     chat_id: route.query.chat_id as string,
-    msg_id: route.query.msg_id as string,
+    message_id: route.query.msg_id as string,
     timestamp: route.query.timestamp as string,
     signature: route.query.signature as string,
   }
 }
 
-console.log(getUserParams())
+console.log(routerGet())
 
 // 验证类型
-const setAuthType = computed(() => {
+const authType = computed(() => {
   // 验证类型
   if (WebApp.isPlatformUnknown || !WebApp.initData) {
     console.log('OUTLINE')
@@ -58,7 +58,7 @@ const setAuthType = computed(() => {
   }
 });
 // 构造用户可信度信息
-const buildUserAcc = () => {
+const getUserAcc = () => {
   return {
     gyro: isGyroscopeExist.value,
     acc: isAccelerometerExist.isAvailable.value,
@@ -67,6 +67,7 @@ const buildUserAcc = () => {
     version: WebApp.version,
     timeStamp: new Date().getTime(),
     deviceId: WebAppBiometricManager.biometricDeviceId,
+    verify_mode: authType.value,
   }
 }
 const openAuthSettings = () => {
@@ -105,25 +106,31 @@ const authSuccess = () => {
   // 从环境变量获取后端地址
   const backendEndpoint = import.meta.env.VITE_BACKEND_URL
   const backendUrl = `${backendEndpoint}/endpoint/verify`
+  const router = routerGet()
+  const acc = getUserAcc()
   if (!backendUrl) {
     console.error('Backend URL not found')
     verifyBackendMessage.success = false
     verifyBackendMessage.message = 'Backend URL not configured in this deployment'
     return
   }
-  if (!getUserParams()) {
+  if (!router) {
     console.error('User params not found')
     verifyBackendMessage.success = false
     verifyBackendMessage.message = 'Who are you?'
     return
   }
   console.log('Backend URL:', backendUrl)
-  // 构造请求体
+  // 将本人移出死亡定时队列 :D
   const requestBody = {
-    user_source: getUserParams(),
-    user_acc: buildUserAcc(),
-    init_data: WebApp.initData,
-    user_data: WebApp.initDataUnsafe
+    // 路由
+    source: router,
+    // 来源信息
+    acc: acc,
+    // 路由信息的签名，保证此次会话不是被伪造的。
+    signature: router.signature,
+    // 已经被签名的数据，由服务端自动验证签名
+    web_app_data: WebApp.initData,
   }
   console.log('Request body:', requestBody)
   // 发送请求
@@ -180,7 +187,7 @@ WebAppBiometricManager.initBiometric(
     }
 )
 
-console.log(buildUserAcc())
+console.log(getUserAcc())
 WebApp.ready()
 /*
 // 从列表里选一个 user ：110453675 110453675
@@ -197,7 +204,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         prepend-icon="mdi-update"
         color="indigo"
         variant="outlined"
-        v-if="setAuthType === AuthType.OUTLINE"
+        v-if="authType === AuthType.OUTLINE"
         link
         href="https://telegram.org/"
     >
@@ -213,9 +220,9 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
       </v-card-text>
     </v-card>
     <div class="mx-0 ma-5"
-         v-if="setAuthType === AuthType.POW">
+         v-if="authType === AuthType.POW">
       <Puzzles
-          v-if="setAuthType === AuthType.POW"
+          v-if="authType === AuthType.POW"
           :difficulty-level="1"
           :on-success="() => {
             console.log('Puzzle success')
@@ -227,7 +234,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         class="mx-0 ma-5"
         prepend-icon="mdi-fingerprint"
         color="indigo"
-        v-if="setAuthType === AuthType.BIOMETRIC"
+        v-if="authType === AuthType.BIOMETRIC"
         variant="outlined"
     >
       <template v-slot:title>
