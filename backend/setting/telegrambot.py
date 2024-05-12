@@ -8,13 +8,11 @@ from dotenv import load_dotenv
 from loguru import logger
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from telebot.async_telebot import AsyncTeleBot
+from telebot.asyncio_storage import StateMemoryStorage
 
 
 class TelegramBot(BaseSettings):
-    """
-    代理设置
-    """
-
     token: Optional[str] = Field(None, validation_alias="TELEGRAM_BOT_TOKEN")
     proxy_address: Optional[str] = Field(
         None, validation_alias="TELEGRAM_BOT_PROXY_ADDRESS"
@@ -32,11 +30,11 @@ class TelegramBot(BaseSettings):
         if self.proxy_address:
             logger.success(f"TelegramBot proxy was set to {self.proxy_address}")
         if self.token is None:
-            logger.info("\n🍀Check:Telegrambot token is empty")
+            logger.error("🍀 Telegrambot token is empty")
+            raise ValueError("TelegramBot Token Not Set")
         if self.bot_id is None and self.token:
             try:
                 from telebot import TeleBot
-
                 # 创建 Bot
                 if self.proxy_address is not None:
                     from telebot import apihelper
@@ -51,10 +49,10 @@ class TelegramBot(BaseSettings):
                 self.bot_username = _bot.username
                 self.bot_link = f"https://t.me/{self.bot_username}"
             except Exception as e:
-                logger.error(f"\n🍀TelegramBot Token Not Set --error {e}")
+                logger.error(f"🍀 TelegramBot Token Maybe Invalid {e}")
             else:
                 logger.success(
-                    f"🍀TelegramBot Init Connection Success --bot_name {self.bot_username} --bot_id {self.bot_id}"
+                    f"🍀 TelegramBot Init Connection Success --bot_name {self.bot_username} --bot_id {self.bot_id}"
                 )
         return self
 
@@ -65,3 +63,9 @@ class TelegramBot(BaseSettings):
 
 load_dotenv()
 BotSetting = TelegramBot()
+BOT = AsyncTeleBot(BotSetting.token, state_storage=StateMemoryStorage())
+if BotSetting.proxy_address:
+    from telebot import asyncio_helper
+
+    asyncio_helper.proxy = BotSetting.proxy_address
+    logger.info("Proxy tunnels are being used!")
