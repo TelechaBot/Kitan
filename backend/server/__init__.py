@@ -68,7 +68,7 @@ async def verify_captcha(query: VerifyData):
         logger.warning(f"Unsigned Request Received From {query.source}")
         return JSONResponse(
             status_code=400,
-            content={"status": EnumStatu.error, "message": "INVALID_REQUEST"}
+            content={"status": EnumStatu.error.value, "message": "INVALID_REQUEST"}
         )
     try:
         # 用户ID
@@ -84,7 +84,7 @@ async def verify_captcha(query: VerifyData):
     except KeyError:
         return JSONResponse(
             status_code=400,
-            content={"status": EnumStatu.error, "message": "UNCOMPLETED_REQUEST"}
+            content={"status": EnumStatu.error.value, "message": "UNCOMPLETED_REQUEST"}
         )
     recover_sign = generate_sign(
         chat_id=chat_id,
@@ -97,13 +97,13 @@ async def verify_captcha(query: VerifyData):
         logger.error(f"Someone Try To Fake Request {query.source}")
         return JSONResponse(
             status_code=400,
-            content={"status": EnumStatu.error, "message": "FAKE_REQUEST"}
+            content={"status": EnumStatu.error.value, "message": "FAKE_REQUEST"}
         )
     # 会话过旧，虽然我们有死亡队列，但是这里还是要做一下判断，防止重放攻击
     if now_m_time - int(join_time) > EXPIRE_M_TIME:
         return JSONResponse(
             status_code=400,
-            content={"status": EnumStatu.error, "message": "EXPIRED_REQUEST"}
+            content={"status": EnumStatu.error.value, "message": "EXPIRED_REQUEST"}
         )
     logger.info(f"Router {query.source}")
     logger.info(f"User {query.acc}")
@@ -111,7 +111,7 @@ async def verify_captcha(query: VerifyData):
     if not query.acc.get("verify_mode"):
         return JSONResponse(
             status_code=400,
-            content={"status": EnumStatu.error, "message": "CAPTCHA_FAILED"}
+            content={"status": EnumStatu.error.value, "message": "CAPTCHA_FAILED"}
         )
     # Success Accept User's Join Request
     try:
@@ -131,5 +131,5 @@ async def verify_captcha(query: VerifyData):
         # Accept user's join request
         return JSONResponse(
             status_code=204,
-            content={"status": EnumStatu.success}
+            content={"status": EnumStatu.success.value}
         )
