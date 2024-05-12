@@ -66,7 +66,7 @@ const getUserAcc = () => {
     platform: WebApp.platform,
     version: WebApp.version,
     timeStamp: new Date().getTime(),
-    deviceId: WebAppBiometricManager.biometricDeviceId,
+    deviceId: WebAppBiometricManager.biometricDeviceId.value,
     verify_mode: authType.value,
   }
 }
@@ -157,7 +157,7 @@ const authSuccess = () => {
 }
 
 // 授权
-if (WebAppBiometricManager.isBiometricAccessGranted) {
+if (WebAppBiometricManager.isBiometricAccessGranted.value) {
   console.log('Biometric granted')
 } else {
   console.log('Biometric not granted')
