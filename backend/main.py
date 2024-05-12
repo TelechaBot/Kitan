@@ -35,5 +35,5 @@ async def run_app():
     )
 
 
-loop = asyncio.new_event_loop()
+loop = asyncio.get_event_loop()
 loop.run_until_complete(run_app())
