@@ -181,24 +181,27 @@ const initBiometric = () => {
   WebAppBiometricManager.initBiometric(
       () => {
         console.log('Biometric initialized')
-        if (WebAppBiometricManager.isBiometricAvailable.value) {
-          console.log('Biometric now available')
-          console.log(WebAppBiometricManager.biometricType.value)
-          isBiometricInitialized.value = true
-        } else {
-          console.log('Biometric now unavailable')
-          isBiometricInitialized.value = false
-        }
-        // 授权
-        if (WebAppBiometricManager.isBiometricAccessGranted.value) {
-          console.log('Biometric granted')
-        } else {
-          console.log('Biometric not granted')
-          grantBiometricAccess()
-        }
       }
   )
 }
+
+WebAppBiometricManager.onBiometricManagerUpdated(() => {
+  console.log('Biometric manager updated')
+  if (WebAppBiometricManager.isBiometricAvailable.value) {
+    console.log('Biometric now available')
+    console.log(WebAppBiometricManager.biometricType.value)
+    isBiometricInitialized.value = true
+  } else {
+    console.log('Biometric now unavailable')
+    isBiometricInitialized.value = false
+  }
+  if (WebAppBiometricManager.isBiometricAccessGranted.value) {
+    console.log('Biometric granted')
+  } else {
+    console.log('Biometric not granted')
+    grantBiometricAccess()
+  }
+})
 console.log(getUserAcc())
 initBiometric()
 WebApp.ready()
