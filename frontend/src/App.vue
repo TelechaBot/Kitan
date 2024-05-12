@@ -107,7 +107,8 @@ const authBiometric = () => {
 const authSuccess = () => {
   // 从环境变量获取后端地址
   const backendEndpoint = import.meta.env.VITE_BACKEND_URL
-  const backendUrl = `${backendEndpoint}/endpoints/verify-captcha`
+  // 去除空格
+  const backendUrl = `${backendEndpoint.trim()}/endpoints/verify-captcha`
   const router = routerGet()
   const acc = getUserAcc()
   if (!backendUrl) {
@@ -174,9 +175,6 @@ const grantBiometricAccess = () => {
       }
   )
 }
-
-// 逻辑区域
-
 const initBiometric = () => {
   WebAppBiometricManager.initBiometric(
       () => {
@@ -185,6 +183,7 @@ const initBiometric = () => {
   )
 }
 
+// 逻辑区域
 WebAppBiometricManager.onBiometricManagerUpdated(() => {
   console.log('Biometric manager updated')
   if (WebAppBiometricManager.isBiometricAvailable.value) {
