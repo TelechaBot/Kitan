@@ -20,15 +20,16 @@ logger.add(
     rotation="100 MB",
     enqueue=True,
 )
-
 logger.info("Log Is Secret, Please Don't Share It To Others")
 
 
-async def main():
+async def run_app():
+    logger.info("Backend Server Start")
+    TelegramBot = BotRunner()
     await asyncio.gather(
-        BotRunner().run()
+        TelegramBot.run()
     )
 
 
-loop = asyncio.get_event_loop()
-loop.run_until_complete(main())
+loop = asyncio.new_event_loop()
+loop.run_until_complete(run_app())
