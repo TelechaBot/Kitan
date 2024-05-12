@@ -20,6 +20,7 @@ dependencies = [
     "fastapi>=0.111.0",
     "odmantic>=1.0.2",
     "redis>=5.0.4",
+    "lmdb>=1.4.1",
 ]
 
 
