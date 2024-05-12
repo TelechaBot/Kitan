@@ -10,6 +10,8 @@ from loguru import logger
 from pydantic import BaseModel, SecretStr
 from starlette.responses import JSONResponse
 
+from core.mongo import MONGO_ENGINE
+from core.mongo_odm import VerifyRequest
 from setting.server import ServerSetting
 from setting.telegrambot import BotSetting, BOT
 from utils.signature import generate_sign
@@ -100,6 +102,15 @@ async def verify_captcha(query: VerifyData):
             status_code=400,
             content={"status": EnumStatu.error, "message": "CAPTCHA_FAILED"}
         )
+    # Success Accept User's Join Request
+    try:
+        history = await MONGO_ENGINE.find_one(VerifyRequest, VerifyRequest.signature == query.signature)
+        if not history:
+            logger.error(f"History Not Found {query.source}")
+        history.passed = True
+        await MONGO_ENGINE.save(history)
+    except Exception as exc:
+        logger.exception(f"Modify Request Failed when {exc}")
     try:
         await BOT.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
         await BOT.delete_message(chat_id=user_id, message_id=message_id)

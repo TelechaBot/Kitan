@@ -11,6 +11,8 @@ from telebot.asyncio_helper import ApiTelegramException
 from telebot.types import InlineKeyboardMarkup, WebAppInfo
 
 from app_locales import get_locales
+from core.mongo import MONGO_ENGINE
+from core.mongo_odm import VerifyRequest
 from setting.endpoint import EndpointSetting
 from setting.telegrambot import BOT, BotSetting
 from utils.signature import generate_sign
@@ -66,6 +68,12 @@ class BotRunner(object):
                 join_time=join_time,
                 secret_key=SecretStr(BotSetting.token),
             )
+            try:
+                mongo_data = VerifyRequest(user_id=user_id, chat_id=chat_id, timestamp=join_time, signature=signature)
+                await MONGO_ENGINE.save(mongo_data)
+                logger.info(f"History Save Success for {user_id}")
+            except Exception as exc:
+                logger.exception(f"History Save Failed {exc}")
             verify_url = f"https://{EndpointSetting.domain}/?chat_id={chat_id}&message_id={message_id}&user_id={user_id}&timestamp={join_time}&signature={signature}"
             logger.info(f"Verify URL: {verify_url}")
             await bot.edit_message_reply_markup(

@@ -11,7 +11,7 @@ from pymongo.errors import ServerSelectionTimeoutError
 
 
 class MongoDb(BaseSettings):
-    mongodb_dsn: str = Field("mongodb://localhost:27017", validation_alias="MONGO_DSN")
+    mongodb_dsn: str = Field("mongodb://localhost:27017", validation_alias="MONGODB_DSN")
     """MongoDB 配置"""
     available: bool = True
 
