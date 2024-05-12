@@ -107,16 +107,16 @@ const authBiometric = () => {
 const authSuccess = () => {
   // 从环境变量获取后端地址
   const backendEndpoint = import.meta.env.VITE_BACKEND_URL
-  // 去除空格
-  const backendUrl = `${backendEndpoint.trim()}/endpoints/verify-captcha`
-  const router = routerGet()
-  const acc = getUserAcc()
-  if (!backendUrl) {
+  if (!backendEndpoint) {
     console.error('Backend URL not found')
     verifyBackendMessage.success = false
     verifyBackendMessage.message = 'Backend URL not configured in this deployment'
     return
   }
+  // 去除空格
+  const backendUrl = `${backendEndpoint.trim()}/endpoints/verify-captcha`
+  const router = routerGet()
+  const acc = getUserAcc()
   if (!router) {
     console.error('User params not found')
     verifyBackendMessage.success = false
