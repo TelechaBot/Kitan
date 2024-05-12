@@ -136,20 +136,25 @@ const authSuccess = () => {
   axios.post(backendUrl, requestBody)
       .then((response) => {
         console.log('Response:', response)
-        verifyBackendMessage.success = true
-        verifyBackendMessage.message = 'Backend verification success'
-        // 延迟几秒
-        setTimeout(() => {
-          WebApp.close()
-        }, 3000)
+        if (response.status === 200) {
+          verifyBackendMessage.success = true
+          verifyBackendMessage.message = 'Backend verification success'
+          // 延迟几秒
+          setTimeout(() => {
+            WebApp.close()
+          }, 3000)
+        } else {
+          console.error('Error:', response)
+          verifyBackendMessage.success = false
+          verifyBackendMessage.message = 'Backend verification failed'
+        }
       })
       .catch((error) => {
         console.error('Error:', error)
         verifyBackendMessage.success = false
-        verifyBackendMessage.message = 'Backend verification failed'
+        verifyBackendMessage.message = 'Backend verification error'
       })
 }
-
 
 // 授权
 if (WebAppBiometricManager.isBiometricAccessGranted) {
