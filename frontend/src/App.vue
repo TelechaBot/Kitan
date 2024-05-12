@@ -155,30 +155,7 @@ const authSuccess = () => {
         verifyBackendMessage.message = 'Backend verification error'
       })
 }
-
-// 逻辑区域
-
-// 获取生物识别信息
-WebAppBiometricManager.initBiometric(
-    () => {
-      console.log('Biometric initialized')
-      if (WebAppBiometricManager.isBiometricAvailable.value) {
-        console.log('Biometric now available')
-        console.log(WebAppBiometricManager.biometricType.value)
-        isBiometricInitialized.value = true
-      } else {
-        console.log('Biometric now unavailable')
-        isBiometricInitialized.value = false
-      }
-      // 再次设置验证类型
-    }
-)
-
-// 授权
-if (WebAppBiometricManager.isBiometricAccessGranted.value) {
-  console.log('Biometric granted')
-} else {
-  console.log('Biometric not granted')
+const grantBiometricAccess = () => {
   WebAppBiometricManager.requestBiometricAccess(
       {reason: 'Please authenticate to continue'},
       (isAccessGranted: boolean) => {
@@ -192,6 +169,31 @@ if (WebAppBiometricManager.isBiometricAccessGranted.value) {
       }
   )
 }
+
+// 逻辑区域
+
+// 获取生物识别信息
+WebAppBiometricManager.initBiometric(
+    () => {
+      console.log('Biometric initialized')
+      if (WebAppBiometricManager.isBiometricAvailable.value) {
+        console.log('Biometric now available')
+        console.log(WebAppBiometricManager.biometricType.value)
+        isBiometricInitialized.value = true
+        // 授权
+        if (WebAppBiometricManager.isBiometricAccessGranted.value) {
+          console.log('Biometric granted')
+        } else {
+          console.log('Biometric not granted')
+          grantBiometricAccess()
+        }
+      } else {
+        console.log('Biometric now unavailable')
+        isBiometricInitialized.value = false
+      }
+      // 再次设置验证类型
+    }
+)
 
 
 console.log(getUserAcc())
