@@ -105,7 +105,7 @@ const authBiometric = () => {
 const authSuccess = () => {
   // 从环境变量获取后端地址
   const backendEndpoint = import.meta.env.VITE_BACKEND_URL
-  const backendUrl = `${backendEndpoint}/endpoint/verify`
+  const backendUrl = `${backendEndpoint}/endpoints/verify-captcha`
   const router = routerGet()
   const acc = getUserAcc()
   if (!backendUrl) {
