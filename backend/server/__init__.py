@@ -14,12 +14,13 @@ from starlette.responses import JSONResponse
 from const import EXPIRE_M_TIME
 from core.mongo import MONGO_ENGINE
 from core.mongo_odm import VerifyRequest
+from setting.server import ServerSetting
 from setting.telegrambot import BotSetting, BOT
 from utils.signature import generate_sign
 
 app = FastAPI()
 if BotSetting.cors_origin:
-    origins = BotSetting.cors_origin.split(",")
+    origins = ServerSetting.cors_origin.split(",")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
