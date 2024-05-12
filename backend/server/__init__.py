@@ -19,7 +19,7 @@ from setting.telegrambot import BotSetting, BOT
 from utils.signature import generate_sign
 
 app = FastAPI()
-if BotSetting.cors_origin:
+if ServerSetting.cors_origin:
     origins = ServerSetting.cors_origin.split(",")
     app.add_middleware(
         CORSMiddleware,
