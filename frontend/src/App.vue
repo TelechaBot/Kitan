@@ -149,8 +149,13 @@ const authSuccess = () => {
           }, 3000)
         } else {
           console.error('Error:', response)
+          // 获取可能的 message 字段
+          if (response.data && response.data.message) {
+            verifyBackendMessage.message = response.data.message
+          } else {
+            verifyBackendMessage.message = 'Backend verification failed'
+          }
           verifyBackendMessage.success = false
-          verifyBackendMessage.message = 'Backend verification failed'
         }
       })
       .catch((error) => {
