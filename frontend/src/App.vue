@@ -138,7 +138,7 @@ const authSuccess = () => {
         console.log('Response:', response)
         if (response.status === 200) {
           verifyBackendMessage.success = true
-          verifyBackendMessage.message = 'Backend verification success'
+          verifyBackendMessage.message = 'You are verified'
           // 延迟几秒
           setTimeout(() => {
             WebApp.close()
