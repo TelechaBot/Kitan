@@ -5,7 +5,7 @@ import sys
 from dotenv import load_dotenv
 from loguru import logger
 
-from bot.controller import BotRunner
+from bot.controller import BotRunner, execution_ground
 from server import run_server
 
 load_dotenv()
@@ -31,6 +31,7 @@ async def run_app():
     await asyncio.gather(
         TelegramBot.run(),
         run_server(),
+        execution_ground()
     )
 
 

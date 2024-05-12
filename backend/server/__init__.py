@@ -10,6 +10,7 @@ from loguru import logger
 from pydantic import BaseModel, SecretStr
 from starlette.responses import JSONResponse
 
+from const import EXPIRE_M_TIME
 from core.mongo import MONGO_ENGINE
 from core.mongo_odm import VerifyRequest
 from setting.server import ServerSetting
@@ -69,7 +70,7 @@ async def verify_captcha(query: VerifyData):
         # 用户加入群组时间（我们机器人的签名时间）
         join_time = query.source.timestamp
         # 现在的时间...
-        now_time = time.time() * 1000
+        now_m_time = time.time() * 1000
     except KeyError:
         return JSONResponse(
             status_code=400,
@@ -89,7 +90,7 @@ async def verify_captcha(query: VerifyData):
             content={"status": EnumStatu.error, "message": "FAKE_REQUEST"}
         )
     # 会话过旧，虽然我们有死亡队列，但是这里还是要做一下判断，防止重放攻击
-    if now_time - int(join_time) > 1000 * 60 * 5:
+    if now_m_time - int(join_time) > EXPIRE_M_TIME:
         return JSONResponse(
             status_code=400,
             content={"status": EnumStatu.error, "message": "EXPIRED_REQUEST"}

@@ -11,6 +11,8 @@ from telebot.asyncio_helper import ApiTelegramException
 from telebot.types import InlineKeyboardMarkup, WebAppInfo
 
 from app_locales import get_locales
+from const import EXPIRE_M_TIME
+from core.death_queue import JOIN_MANAGER, JoinRequest
 from core.mongo import MONGO_ENGINE
 from core.mongo_odm import VerifyRequest
 from setting.endpoint import EndpointSetting
@@ -60,21 +62,22 @@ class BotRunner(object):
             message_id = str(sent_message.message_id)
             chat_id = str(message.chat.id)
             user_id = str(message.from_user.id)
-            join_time = str(time.time() * 1000)
+            join_m_time = str(int(time.time() * 1000))
+            expired_m_at = str(int(time.time() * 1000) + EXPIRE_M_TIME)
             signature = generate_sign(
                 chat_id=chat_id,
                 message_id=message_id,
                 user_id=user_id,
-                join_time=join_time,
+                join_time=join_m_time,
                 secret_key=SecretStr(BotSetting.token),
             )
             try:
-                mongo_data = VerifyRequest(user_id=user_id, chat_id=chat_id, timestamp=join_time, signature=signature)
+                mongo_data = VerifyRequest(user_id=user_id, chat_id=chat_id, timestamp=join_m_time, signature=signature)
                 await MONGO_ENGINE.save(mongo_data)
                 logger.info(f"History Save Success for {user_id}")
             except Exception as exc:
                 logger.exception(f"History Save Failed {exc}")
-            verify_url = f"https://{EndpointSetting.domain}/?chat_id={chat_id}&message_id={message_id}&user_id={user_id}&timestamp={join_time}&signature={signature}"
+            verify_url = f"https://{EndpointSetting.domain}/?chat_id={chat_id}&message_id={message_id}&user_id={user_id}&timestamp={join_m_time}&signature={signature}"
             logger.info(f"Verify URL: {verify_url}")
             await bot.edit_message_reply_markup(
                 chat_id=sent_message.chat.id,
@@ -92,6 +95,20 @@ class BotRunner(object):
                     ]
                 ),
             )
+            try:
+                # 投入死亡队列
+                await JOIN_MANAGER.insert(
+                    JoinRequest(
+                        user_id=user_id,
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        expired_at=expired_m_at,
+                        language_code=message.from_user.language_code,
+                    )
+                )
+            except Exception as exc:
+                logger.exception(f"Dead Queue Insert Failed {exc}")
+            return True
 
         @bot.message_handler(
             commands="start", chat_types=["private"]
@@ -131,3 +148,38 @@ class BotRunner(object):
             logger.opt(exception=e).exception("ApiTelegramException")
         except Exception as e:
             logger.exception(e)
+
+
+async def execution_ground():
+    """
+    监听死亡队列，处理过期的验证请求
+    """
+    logger.info("Listen Dead Queue Start")
+    while True:
+        try:
+            data = await JOIN_MANAGER.read()
+            expired = []
+            for join_request in data.join_queue:
+                if int(join_request.expired_at) < int(time.time() * 1000):
+                    logger.info(f"Join Request Expired {join_request}")
+                    expired.append(join_request)
+            data.join_queue = [join_request for join_request in data.join_queue if join_request not in expired]
+            try:
+                for join_request in expired:
+                    await BOT.decline_chat_join_request(chat_id=join_request.chat_id, user_id=join_request.user_id)
+            except Exception as exc:
+                logger.exception(f"Decline Chat Join Request Failed {exc}")
+            try:
+                for join_request in expired:
+                    await BOT.send_message(
+                        chat_id=join_request.user_id,
+                        text=telegramify_markdown.convert(get_locales(join_request.language_code).expired_join),
+                    )
+                    await BOT.delete_message(chat_id=join_request.user_id, message_id=join_request.message_id)
+            except Exception as exc:
+                logger.exception(f"Delete Message Failed {exc}")
+            finally:
+                await JOIN_MANAGER.save(data)
+        except Exception as exc:
+            logger.exception(f"Listen Dead Queue Failed {exc}")
+        time.sleep(1)
