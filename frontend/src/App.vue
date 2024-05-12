@@ -30,12 +30,12 @@ const isGyroscopeExist = useGyroscopeExists();
 const isAccelerometerExist = useAccelerometerExists();
 
 const routerGet = () => {
-  if (!route.query.chat_id || !route.query.msg_id || !route.query.timestamp || !route.query.signature) {
+  if (!route.query.chat_id || !route.query.message_id || !route.query.timestamp || !route.query.signature) {
     return null
   }
   return {
     chat_id: route.query.chat_id as string,
-    message_id: route.query.msg_id as string,
+    message_id: route.query.message_id as string,
     timestamp: route.query.timestamp as string,
     signature: route.query.signature as string,
   }
@@ -71,6 +71,9 @@ const getUserAcc = () => {
   }
 }
 const openAuthSettings = () => {
+  if (!WebAppBiometricManager.isBiometricInited.value) {
+    return WebAppPopup.showAlert('Biometric not initialized')
+  }
   WebAppBiometricManager.openBiometricSettings()
 }
 const authBiometric = () => {
@@ -156,6 +159,9 @@ const authSuccess = () => {
       })
 }
 const grantBiometricAccess = () => {
+  if (!WebAppBiometricManager.isBiometricInited.value) {
+    return WebAppPopup.showAlert('Biometric not initialized')
+  }
   WebAppBiometricManager.requestBiometricAccess(
       {reason: 'Please authenticate to continue'},
       (isAccessGranted: boolean) => {
