@@ -13,7 +13,6 @@ from starlette.responses import JSONResponse
 from const import EXPIRE_M_TIME
 from core.mongo import MONGO_ENGINE
 from core.mongo_odm import VerifyRequest
-from setting.server import ServerSetting
 from setting.telegrambot import BotSetting, BOT
 from utils.signature import generate_sign
 
@@ -123,11 +122,3 @@ async def verify_captcha(query: VerifyData):
             status_code=204,
             content={"status": EnumStatu.success}
         )
-
-
-async def run_server():
-    import uvicorn
-    host = ServerSetting.host
-    port = ServerSetting.port
-    logger.info(f"Server Start At {host}:{port}")
-    uvicorn.run(app, host=host, port=port)

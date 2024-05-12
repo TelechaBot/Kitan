@@ -2,11 +2,13 @@ import asyncio
 import os
 import sys
 
+import uvicorn
 from dotenv import load_dotenv
 from loguru import logger
 
 from bot.controller import BotRunner, execution_ground
-from server import run_server
+from server import app
+from setting.server import ServerSetting
 
 load_dotenv()
 # 移除默认的日志处理器
@@ -26,14 +28,19 @@ logger.info("Log Is Secret, Please Don't Share It To Others")
 
 async def run_app():
     logger.info("Backend Server Start")
-    TelegramBot = BotRunner()
 
+    server = uvicorn.Server(
+        config=uvicorn.Config(app, host=ServerSetting.host, port=ServerSetting.port, loop="asyncio")
+    )
+    TelegramBot = BotRunner()
     await asyncio.gather(
+        server.serve(),
         TelegramBot.run(),
-        run_server(),
         execution_ground()
     )
 
 
-loop = asyncio.get_event_loop()
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 loop.run_until_complete(run_app())
+loop.close()
