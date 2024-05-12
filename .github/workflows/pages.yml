@@ -41,6 +41,8 @@ jobs:
       - name: Build
         run: bun run build
         working-directory: ./frontend
+        env:
+          VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
       - name: Setup Pages
         uses: actions/configure-pages@v4
       - name: Upload artifact
