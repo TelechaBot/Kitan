@@ -100,7 +100,6 @@ const authBiometric = () => {
   )
   console.log(result)
 }
-
 // 发送数据到后端，代表验证成功
 const authSuccess = () => {
   // 从环境变量获取后端地址
