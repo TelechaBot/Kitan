@@ -122,7 +122,7 @@ class BotRunner(object):
                 f"Received a new start command from {message.from_user.id} - {message.from_user.language_code}"
             )
             # https://core.telegram.org/api/links#bot-links
-            invite_link = (f"https://t.me/{BotSetting.bot_username}?startgroup=start"
+            invite_link = (f"https://t.me/{BotSetting.bot_username}?startgroup"
                            f"&admin=can_invite_users+restrict_members+delete_messages")
             return await bot.send_message(
                 message.chat.id,
