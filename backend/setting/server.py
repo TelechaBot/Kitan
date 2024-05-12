@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 class Server(BaseSettings):
     host: str = Field("127.0.0.1", validation_alias="SERVER_HOST")
     port: int = Field(10100, validation_alias="SERVER_PORT")
-    cors_origin: str = Field(None, validation_alias="CORS_ORIGIN")
+    cors_origin: str = Field("*", validation_alias="CORS_ORIGIN")
 
     @model_validator(mode="after")
     def validator(self):
