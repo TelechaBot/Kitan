@@ -6,6 +6,7 @@ from enum import Enum
 
 import telebot.util
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from pydantic import BaseModel, SecretStr
 from starlette.responses import JSONResponse
@@ -17,6 +18,15 @@ from setting.telegrambot import BotSetting, BOT
 from utils.signature import generate_sign
 
 app = FastAPI()
+if BotSetting.cors_origin:
+    origins = BotSetting.cors_origin.split(",")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 TELEGRAM_BOT_TOKEN = BotSetting.token
 
 
