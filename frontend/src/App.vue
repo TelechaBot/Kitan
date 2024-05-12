@@ -161,7 +161,7 @@ const authSuccess = () => {
       .catch((error) => {
         console.error('Error:', error)
         verifyBackendMessage.success = false
-        verifyBackendMessage.message = error.data.message || `Backend verification error: ${error.code}`
+        verifyBackendMessage.message = error.response?.data?.message || `Backend verification error: ${error.code}`
       })
 }
 const grantBiometricAccess = () => {
