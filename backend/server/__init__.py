@@ -125,7 +125,7 @@ async def verify_captcha(query: VerifyData):
         )
 
 
-def run_server():
+async def run_server():
     import uvicorn
     host = ServerSetting.host
     port = ServerSetting.port
