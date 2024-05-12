@@ -84,12 +84,12 @@ const authBiometric = () => {
       WebAppPopup.showAlert('Biometric not authenticated')
     }
   }
-  if (!WebAppBiometricManager.isBiometricInited) {
+  if (!WebAppBiometricManager.isBiometricInited.value) {
     console.log('Biometric not initialized')
     WebAppPopup.showAlert('Biometric not initialized')
     return
   }
-  if (!WebAppBiometricManager.isBiometricAvailable) {
+  if (!WebAppBiometricManager.isBiometricAvailable.value) {
     console.log('Biometric not supported')
     WebAppPopup.showAlert('Biometric not supported')
     return
@@ -179,9 +179,9 @@ if (WebAppBiometricManager.isBiometricAccessGranted.value) {
 WebAppBiometricManager.initBiometric(
     () => {
       console.log('Biometric initialized')
-      if (WebAppBiometricManager.isBiometricAvailable) {
+      if (WebAppBiometricManager.isBiometricAvailable.value) {
         console.log('Biometric now available')
-        console.log(WebAppBiometricManager.biometricType)
+        console.log(WebAppBiometricManager.biometricType.value)
         isBiometricInitialized.value = true
       } else {
         console.log('Biometric now unavailable')
