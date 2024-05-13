@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import asyncio
 import time
 
 import telebot.async_telebot
@@ -71,30 +72,33 @@ class BotRunner(object):
                 join_time=join_m_time,
                 secret_key=SecretStr(BotSetting.token),
             )
+            verify_url = f"https://{EndpointSetting.domain}/?chat_id={chat_id}&message_id={message_id}&user_id={user_id}&timestamp={join_m_time}&signature={signature}"
+            logger.info(f"Verify URL: {verify_url}")
+            try:
+                await bot.edit_message_reply_markup(
+                    chat_id=sent_message.chat.id,
+                    message_id=sent_message.message_id,
+                    reply_markup=InlineKeyboardMarkup(
+                        keyboard=[
+                            [
+                                types.InlineKeyboardButton(
+                                    text="Verify",
+                                    web_app=WebAppInfo(
+                                        url=verify_url,
+                                    )
+                                )
+                            ]
+                        ]
+                    ),
+                )
+            except Exception as exc:
+                logger.exception(f"Edit Message Failed {exc}")
             try:
                 mongo_data = VerifyRequest(user_id=user_id, chat_id=chat_id, timestamp=join_m_time, signature=signature)
                 await MONGO_ENGINE.save(mongo_data)
                 logger.info(f"History Save Success for {user_id}")
             except Exception as exc:
                 logger.exception(f"History Save Failed {exc}")
-            verify_url = f"https://{EndpointSetting.domain}/?chat_id={chat_id}&message_id={message_id}&user_id={user_id}&timestamp={join_m_time}&signature={signature}"
-            logger.info(f"Verify URL: {verify_url}")
-            await bot.edit_message_reply_markup(
-                chat_id=sent_message.chat.id,
-                message_id=sent_message.message_id,
-                reply_markup=InlineKeyboardMarkup(
-                    keyboard=[
-                        [
-                            types.InlineKeyboardButton(
-                                text="Verify",
-                                web_app=WebAppInfo(
-                                    url=verify_url,
-                                )
-                            )
-                        ]
-                    ]
-                ),
-            )
             try:
                 # 投入死亡队列
                 await JOIN_MANAGER.insert(
@@ -158,7 +162,7 @@ async def execution_ground():
     while True:
         try:
             data = await JOIN_MANAGER.read()
-            logger.debug(f"Listen Dead Queue")
+            logger.info(f"Listen Dead Queue")
             expired = []
             for join_request in data.join_queue:
                 if int(join_request.expired_at) < int(time.time() * 1000):
@@ -183,4 +187,4 @@ async def execution_ground():
                 await JOIN_MANAGER.save(data)
         except Exception as exc:
             logger.exception(f"Listen Dead Queue Failed {exc}")
-        time.sleep(1)
+        await asyncio.sleep(5)
