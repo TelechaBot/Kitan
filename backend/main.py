@@ -34,13 +34,12 @@ async def run_app():
     )
     TelegramBot = BotRunner()
     await asyncio.gather(
-        server.serve(),
         TelegramBot.run(),
-        execution_ground()
+        execution_ground(),
+        server.serve()
     )
 
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 loop.run_until_complete(run_app())
-loop.close()
