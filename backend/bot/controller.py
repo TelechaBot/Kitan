@@ -177,7 +177,7 @@ async def execution_ground():
                     logger.info(f"Join Request Expired {join_request}")
                     expired.append(join_request)
             if expired:
-                logger.info(f"Process Expired Join Request {expired}")
+                logger.info(f"Process Expired Join Request:{expired}")
             data.join_queue = [join_request for join_request in data.join_queue if join_request not in expired]
             try:
                 for join_request in expired:
