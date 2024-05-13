@@ -53,14 +53,20 @@ class BotRunner(object):
             )
             chat_title = message.chat.title[:10]
             user_name = message.from_user.username[:10]
+            chat_id = str(message.chat.id)
+            user_id = str(message.from_user.id)
+            join_m_time = str(int(time.time() * 1000))
+            expired_m_at = str(int(time.time() * 1000) + EXPIRE_M_TIME)
             try:
                 sent_message = await bot.send_message(
                     message.from_user.id,
                     text=telegramify_markdown.convert(
-                        f"# Hello, {user_name}.\n\n"
-                        f"You are requesting to join the group {chat_title}.\n"
-                        "But you need to prove that you are not a robot.\n\n"
-                        f"*{locale.verify_join}*"
+                        f"# Hello, `{user_name}`.\n\n"
+                        f"You are requesting to join the group `{chat_title}`.\n"
+                        "But you need to prove that you are not a **robot**.\n"
+                        "**You have 5 minutes.**\n\n"
+                        f"*{locale.verify_join}*\n"
+                        f"`{chat_id}-{user_id}-{expired_m_at}`",
                     ),
                     parse_mode="MarkdownV2",
                 )
@@ -68,10 +74,6 @@ class BotRunner(object):
                 logger.exception(f"User Refuse Message {exc}-{message.from_user.id}")
                 return False
             message_id = str(sent_message.message_id)
-            chat_id = str(message.chat.id)
-            user_id = str(message.from_user.id)
-            join_m_time = str(int(time.time() * 1000))
-            expired_m_at = str(int(time.time() * 1000) + EXPIRE_M_TIME)
             signature = generate_sign(
                 chat_id=chat_id,
                 message_id=message_id,
