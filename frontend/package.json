@@ -9,8 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@astrianz/cfturnstile-vue3": "^0.0.6",
     "@mcaptcha/core-glue": "^0.1.0-alpha-5",
     "axios": "^1.6.8",
+    "cfturnstile-vue3": "^1.0.0",
     "vue": "^3.4.21",
     "vue-router": "^4.3.2",
     "vue-tg": "^0.6.1",
