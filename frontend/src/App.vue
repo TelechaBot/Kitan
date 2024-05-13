@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import {computed, reactive, ref} from "vue";
+import {computed, reactive, ref, watch} from "vue";
 import {useRoute} from 'vue-router';
 import axios from 'axios';
 
 const route = useRoute();
+import VueTurnstile from 'vue-turnstile';
 import Puzzles from "./components/Puzzles.vue";
 import {useWebApp} from "vue-tg";
 import {useWebAppBiometricManager} from 'vue-tg';
@@ -19,6 +20,15 @@ enum AuthType {
 
 const authToken = ref<string | undefined>(undefined)
 const isBiometricInitialized = ref<boolean>(false)
+const isCloudflareFailed = reactive(
+    {
+      status: false,
+      message: '',
+      show_turnstile: true,
+    }
+)
+const turnstile_token = ref<string>('')
+const cloudflareSiteKey = ref(import.meta.env.VITE_CLOUDFLARE_SITE_KEY)
 const verifyBackendMessage = reactive({
   success: false,
   message: ''
@@ -28,7 +38,6 @@ const WebApp = useWebApp();
 const WebAppBiometricManager = useWebAppBiometricManager();
 const isGyroscopeExist = useGyroscopeExists();
 const isAccelerometerExist = useAccelerometerExists();
-
 const routerGet = () => {
   if (!route.query.chat_id || !route.query.message_id || !route.query.timestamp || !route.query.signature) {
     return null
@@ -103,6 +112,51 @@ const authBiometric = () => {
   )
   console.log(result)
 }
+
+
+const authCloudflare = () => {
+  const backendEndpoint = import.meta.env.VITE_BACKEND_URL
+  if (!backendEndpoint) {
+    console.error('Backend URL not found')
+    verifyBackendMessage.success = false
+    verifyBackendMessage.message = 'Backend URL not configured in this deployment'
+    return
+  }
+  const backendUrl = `${backendEndpoint.trim()}/endpoints/verify-cloudflare`
+  const router = routerGet()
+  if (!router) {
+    console.error('User params not found')
+    verifyBackendMessage.success = false
+    verifyBackendMessage.message = 'Who are you?'
+    return
+  }
+  console.log('Backend URL:', backendUrl)
+  const requestBody = {
+    // 路由
+    source: router,
+    // 从 Cloudflare 获取的 token
+    turnstile_token: turnstile_token.value,
+    // 已经被签名的数据，由服务端自动验证签名
+    web_app_data: WebApp.initData,
+  }
+  console.log('Request body:', requestBody)
+  axios.post(backendUrl, requestBody)
+      .then((response) => {
+        console.log('Response:', response)
+        if (response.status === 200) {
+          authSuccess()
+        } else {
+          isCloudflareFailed.status = true
+          isCloudflareFailed.message = `Cloudflare verification failed: ${response.status} ${response.statusText}`
+        }
+      })
+      .catch((error) => {
+        console.error('Error:', error)
+        isCloudflareFailed.status = true
+        isCloudflareFailed.message = `Network issue: ${error.response?.data?.message}` || `Cloudflare server error: ${error.code}`
+      })
+}
+
 // 发送数据到后端，代表验证成功
 const authSuccess = () => {
   // 从环境变量获取后端地址
@@ -123,7 +177,7 @@ const authSuccess = () => {
     verifyBackendMessage.message = 'Who are you?'
     return
   }
-  console.log('Backend URL:', backendUrl)
+  // console.log('Backend URL:', backendUrl)
   // 将本人移出死亡定时队列 :D
   const requestBody = {
     // 路由
@@ -206,9 +260,18 @@ WebAppBiometricManager.onBiometricManagerUpdated(() => {
     grantBiometricAccess()
   }
 })
+isCloudflareFailed.status = false
+watch(turnstile_token, () => {
+  // 长度大于 3 时自动验证
+  if (turnstile_token.value.length > 3) {
+    authCloudflare()
+  }
+})
+
 console.log(getUserAcc())
 initBiometric()
 WebApp.ready()
+
 /*
 // 从列表里选一个 user ：110453675 110453675
 const users = [110453675, 16256221, 59048777]
@@ -219,6 +282,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
 
 <template>
   <div class="mx-5 ma-5">
+    <!-- 更新提示 -->
     <v-card
         class="mx-0 ma-5"
         prepend-icon="mdi-update"
@@ -239,10 +303,10 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         https://telegram.org/
       </v-card-text>
     </v-card>
+    <!-- 拼图验证 -->
     <div class="mx-0 ma-5"
          v-if="authType === AuthType.POW">
       <Puzzles
-          v-if="authType === AuthType.POW"
           :difficulty-level="1"
           :on-success="() => {
             console.log('Puzzle success')
@@ -250,6 +314,43 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
           }"
       />
     </div>
+    <!-- 拼图辅助验证 -->
+    <div class="mx-0 ma-5 flex justify-center"
+         v-if="authType===AuthType.POW && cloudflareSiteKey"
+    >
+      <v-card
+          class="mx-0 ma-5"
+          prepend-icon="mdi-cloud"
+          color="indigo"
+          variant="outlined"
+      >
+        <template v-slot:title>
+          <span class="font-weight-black">Cloudflare Auth</span>
+        </template>
+        <v-card-text
+            v-if="isCloudflareFailed.show_turnstile"
+        >
+          <vue-turnstile
+              v-model="turnstile_token"
+              :site-key="cloudflareSiteKey"
+              @token="authCloudflare"
+              @error="(error) => {
+                isCloudflareFailed.status = true
+                isCloudflareFailed.message = `Cloudflare error: ${error}`
+              }"
+              @unsupported="() => {
+                isCloudflareFailed.status = true
+                isCloudflareFailed.message = 'Cloudflare not supported'
+                isCloudflareFailed.show_turnstile = false
+              }"
+          ></vue-turnstile>
+        </v-card-text>
+        <v-card-text class="bg-surface-light pt-4" v-if="isCloudflareFailed.status">
+          {{ isCloudflareFailed.message }}
+        </v-card-text>
+      </v-card>
+    </div>
+    <!-- 生物识别验证 -->
     <v-card
         class="mx-0 ma-5"
         prepend-icon="mdi-fingerprint"
@@ -275,6 +376,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         </v-btn>
       </v-card-actions>
     </v-card>
+    <!-- 后端验证 -->
     <v-alert
         v-if="verifyBackendMessage.message"
         :text="verifyBackendMessage.message"
