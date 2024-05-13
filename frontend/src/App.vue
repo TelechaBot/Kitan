@@ -140,7 +140,7 @@ const authSuccess = () => {
   axios.post(backendUrl, requestBody)
       .then((response) => {
         console.log('Response:', response)
-        if (response.status === 200) {
+        if (response.status === 204) {
           verifyBackendMessage.success = true
           verifyBackendMessage.message = 'You are verified'
           // 延迟几秒
@@ -153,7 +153,7 @@ const authSuccess = () => {
           if (response.data && response.data.message) {
             verifyBackendMessage.message = response.data.message
           } else {
-            verifyBackendMessage.message = 'Backend verification failed'
+            verifyBackendMessage.message = `Backend verification failed: ${response.status} ${response.statusText}`
           }
           verifyBackendMessage.success = false
         }
