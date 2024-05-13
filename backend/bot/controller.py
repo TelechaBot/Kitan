@@ -186,11 +186,15 @@ async def execution_ground():
                 logger.exception(f"Decline Chat Join Request Failed {exc}")
             try:
                 for join_request in expired:
+                    await BOT.delete_message(chat_id=join_request.user_id, message_id=join_request.message_id)
+                    # Telegram Forbid Send Message To User When Not init Chat
+                    """
                     await BOT.send_message(
                         chat_id=join_request.user_id,
                         text=telegramify_markdown.convert(get_locales(join_request.language_code).expired_join),
+                        parse_mode="MarkdownV2",
                     )
-                    await BOT.delete_message(chat_id=join_request.user_id, message_id=join_request.message_id)
+                    """
             except Exception as exc:
                 logger.exception(f"Delete Message Failed {exc}")
             finally:
