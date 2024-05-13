@@ -14,6 +14,8 @@ from starlette.responses import JSONResponse
 from const import EXPIRE_M_TIME
 from core.mongo import MONGO_ENGINE
 from core.mongo_odm import VerifyRequest
+from server.validate_cloudflare import validate_cloudflare_turnstile
+from setting.cloudflare import CloudflareSetting
 from setting.server import ServerSetting
 from setting.telegrambot import BotSetting, BOT
 from utils.signature import generate_sign
@@ -48,6 +50,15 @@ class VerifyData(BaseModel):
     web_app_data: str
 
 
+class CloudflareData(BaseModel):
+    """
+    Cloudflare 验证数据
+    """
+    source: Source
+    token: str
+    web_app_data: str
+
+
 class EnumStatu(Enum):
     success = "success"
     error = "error"
@@ -59,26 +70,61 @@ async def read_endpoints():
     return {"message": "open this page in IE6"}
 
 
-@app.post("/endpoints/verify-captcha")
-async def verify_captcha(query: VerifyData):
-    # 获取可信数据
-    web_app_data = telebot.util.parse_web_app_data(token=TELEGRAM_BOT_TOKEN, raw_init_data=query.web_app_data)
-
+@app.post("/endpoints/verify-cloudflare")
+async def verify_cloudflare(data: CloudflareData):
+    web_app_data = telebot.util.parse_web_app_data(token=TELEGRAM_BOT_TOKEN, raw_init_data=data.web_app_data)
     if not web_app_data:
-        logger.warning(f"Unsigned Request Received From {query.source}")
+        logger.warning(f"Unsigned Request Received From {data.source}")
         return JSONResponse(
             status_code=400,
-            content={"status": EnumStatu.error.value, "message": "INVALID_REQUEST"}
+            content={"status": EnumStatu.error.value, "message": "BAD_REQUEST"}
+        )
+    try:
+        validated = validate_cloudflare_turnstile(
+            turnstile_response=data.token,
+            cloudflare_secret_key=SecretStr(CloudflareSetting.cloudflare_secret_key)
+        )
+    except Exception as exc:
+        logger.exception(f"Failed to validate cloudflare: {exc}")
+        return JSONResponse(
+            status_code=400,
+            content={"status": EnumStatu.error.value, "message": "SERVER_ERROR"}
+        )
+    else:
+        if not validated.success:
+            logger.info(f"Cloudflare Verify Failed {data.source} - {validated.error_codes}")
+            return JSONResponse(
+                status_code=400,
+                content={"status": EnumStatu.error.value, "message": "CAPTCHA_FAILED"}
+            )
+        else:
+            logger.info(f"Cloudflare Verify Success {data.source}")
+    return JSONResponse(
+        status_code=200,
+        content={"status": EnumStatu.success.value}
+    )
+
+
+@app.post("/endpoints/verify-captcha")
+async def verify_captcha(captcha_data: VerifyData):
+    # 获取可信数据
+    web_app_data = telebot.util.parse_web_app_data(token=TELEGRAM_BOT_TOKEN, raw_init_data=captcha_data.web_app_data)
+
+    if not web_app_data:
+        logger.warning(f"Unsigned Request Received From {captcha_data.source}")
+        return JSONResponse(
+            status_code=400,
+            content={"status": EnumStatu.error.value, "message": "BAD_REQUEST"}
         )
     try:
         # 用户ID
         user_id = web_app_data['user']['id']
         # 验证的群组ID
-        chat_id = query.source.chat_id
+        chat_id = captcha_data.source.chat_id
         # 机器人发送出去的消息ID
-        message_id = query.source.message_id
+        message_id = captcha_data.source.message_id
         # 用户加入群组时间（我们机器人的签名时间）
-        join_time = query.source.timestamp
+        join_time = captcha_data.source.timestamp
         # 现在的时间...
         now_m_time = time.time() * 1000
     except KeyError:
@@ -93,8 +139,8 @@ async def verify_captcha(query: VerifyData):
         join_time=join_time,
         secret_key=SecretStr(BotSetting.token)
     )
-    if recover_sign != query.signature:
-        logger.error(f"Someone Try To Fake Request {query.source}")
+    if recover_sign != captcha_data.signature:
+        logger.error(f"Someone Try To Fake Request {captcha_data.source}")
         return JSONResponse(
             status_code=400,
             content={"status": EnumStatu.error.value, "message": "FAKE_REQUEST"}
@@ -105,19 +151,19 @@ async def verify_captcha(query: VerifyData):
             status_code=400,
             content={"status": EnumStatu.error.value, "message": "EXPIRED_REQUEST"}
         )
-    logger.info(f"Router {query.source}")
-    logger.info(f"User {query.acc}")
+    logger.info(f"Router {captcha_data.source}")
+    logger.info(f"User {captcha_data.acc}")
     logger.info(f"Parsed Data {web_app_data}")
-    if not query.acc.get("verify_mode"):
+    if not captcha_data.acc.get("verify_mode"):
         return JSONResponse(
             status_code=400,
             content={"status": EnumStatu.error.value, "message": "CAPTCHA_FAILED"}
         )
     # Success Accept User's Join Request
     try:
-        history = await MONGO_ENGINE.find_one(VerifyRequest, VerifyRequest.signature == query.signature)
+        history = await MONGO_ENGINE.find_one(VerifyRequest, VerifyRequest.signature == captcha_data.signature)
         if not history:
-            logger.error(f"History Not Found {query.source}")
+            logger.error(f"History Not Found {captcha_data.source}")
         history.passed = True
         await MONGO_ENGINE.save(history)
     except Exception as exc:
@@ -130,6 +176,6 @@ async def verify_captcha(query: VerifyData):
     finally:
         # Accept user's join request
         return JSONResponse(
-            status_code=204,
+            status_code=202,
             content={"status": EnumStatu.success.value}
         )
