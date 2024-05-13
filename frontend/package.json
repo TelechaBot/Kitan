@@ -14,6 +14,7 @@
     "vue": "^3.4.21",
     "vue-router": "^4.3.2",
     "vue-tg": "^0.6.1",
+    "vue-turnstile": "^1.0.8",
     "vuetify": "^3.6.4"
   },
   "devDependencies": {
