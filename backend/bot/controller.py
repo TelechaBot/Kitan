@@ -52,7 +52,7 @@ class BotRunner(object):
                 f"Received a new join request from {message.from_user.id} in chat {message.chat.id} - {message.from_user.language_code} - {message.bio}"
             )
             chat_title = message.chat.title[:10]
-            user_name = message.from_user.username[:10]
+            user_name = message.from_user.username[:15]
             chat_id = str(message.chat.id)
             user_id = str(message.from_user.id)
             join_m_time = str(int(time.time() * 1000))
