@@ -51,10 +51,17 @@ class BotRunner(object):
             logger.info(
                 f"Received a new join request from {message.from_user.id} in chat {message.chat.id} - {message.from_user.language_code}"
             )
+            chat_title = message.chat.title[:10]
+            user_name = message.from_user.username[:10]
             try:
                 sent_message = await bot.send_message(
                     message.from_user.id,
-                    text=telegramify_markdown.convert(locale.verify_join),
+                    text=telegramify_markdown.convert(
+                        f"Hello, {user_name}.\n\n"
+                        f"You are requesting to join the group {chat_title}.\n"
+                        "But you need to prove that you are not a robot.\n\n"
+                        f"*{locale.verify_join}*"
+                    ),
                     parse_mode="MarkdownV2",
                 )
             except Exception as exc:
