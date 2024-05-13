@@ -1,4 +1,4 @@
-![Kitan](https://github.com/TelechaBot/Kitan/blob/main/.github/cover.webp?raw=true)
+![Kitan](https://github.com/TelechaBot/Kitan/blob/main/.github/project_cover.webp?raw=true)
 ---
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/LICENSE-Apache%202.0-blue.svg" />
