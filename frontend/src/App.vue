@@ -2,7 +2,7 @@
 import {computed, reactive, ref, watch} from "vue";
 import {useRoute} from 'vue-router';
 import axios from 'axios';
-import Turnstile from 'cfturnstile-vue3';
+import VueTurnstile from 'vue-turnstile';
 import Puzzles from "./components/Puzzles.vue";
 import {useWebApp, useWebAppBiometricManager, useWebAppPopup} from "vue-tg";
 import {useGyroscopeExists} from "./hook/useGyroscopeExists.ts";
@@ -240,10 +240,6 @@ const initBiometric = () => {
   )
 }
 
-const verify_cloudflare = (token: string) => {
-  turnstile_token.value = token
-}
-
 // 逻辑区域
 WebAppBiometricManager.onBiometricManagerUpdated(() => {
   console.log('Biometric manager updated')
@@ -335,10 +331,20 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         <v-card-text
             v-if="isCloudflareFailed.show_turnstile"
         >
-          <Turnstile
-              :sitekey="cloudflareSiteKey"
-              @verify="verify_cloudflare"
-          />
+          <vue-turnstile
+              v-model="turnstile_token"
+              :site-key="cloudflareSiteKey"
+              @token="authCloudflare"
+              @error="(error) => {
+                isCloudflareFailed.status = true
+                isCloudflareFailed.message = `Cloudflare error: ${error}`
+              }"
+              @unsupported="() => {
+                isCloudflareFailed.status = true
+                isCloudflareFailed.message = 'Cloudflare not supported'
+                isCloudflareFailed.show_turnstile = false
+              }"
+          ></vue-turnstile>
         </v-card-text>
         <v-card-text class="bg-surface-light pt-4" v-if="isCloudflareFailed.status">
           {{ isCloudflareFailed.message }}
