@@ -192,7 +192,7 @@ const authSuccess = () => {
   axios.post(backendUrl, requestBody)
       .then((response) => {
         console.log('Response:', response)
-        if (response.status === 204) {
+        if (response.status === 202) {
           verifyBackendMessage.success = true
           verifyBackendMessage.message = 'You are verified'
           // 延迟几秒
@@ -325,6 +325,9 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         <template v-slot:title>
           <span class="font-weight-black">Cloudflare Auth</span>
         </template>
+        <v-card-subtitle>
+          If cloudflare loading failed, please solve the puzzle instead
+        </v-card-subtitle>
         <v-card-text
             v-if="isCloudflareFailed.show_turnstile"
         >
