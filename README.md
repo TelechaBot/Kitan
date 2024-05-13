@@ -87,3 +87,7 @@ pdm run python main.py
 # Press Ctrl + C to exit
 pm2 start pm2.json
 ```
+
+---
+![anime](https://github.com/TelechaBot/Kitan/blob/main/.github/anime.webp?raw=true)
+> This image is used as decoration for this page and is not part of the project.
