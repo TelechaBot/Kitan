@@ -178,6 +178,7 @@ async def execution_ground():
                 logger.info(f"Process Expired Join Request:{expired}")
             for join_request in expired:
                 try:
+                    # https://core.telegram.org/bots/api#chatjoinrequest
                     await BOT.send_message(
                         chat_id=join_request.user_chat_id,
                         text=telegramify_markdown.convert(get_locales(join_request.language_code).expired_join),
