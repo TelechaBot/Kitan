@@ -1,11 +1,12 @@
-# 🌟 Kitan
-
+![Kitan](https://github.com/TelechaBot/Kitan/blob/main/.github/cover.webp?raw=true)
 ---
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/LICENSE-Apache%202.0-blue.svg" />
   <img src="https://img.shields.io/badge/Python-3.9%2B-green.svg" alt="Python 3.9+" />
   <a href="https://github.com/TelechaBot/Kitan/releases"><img src="https://img.shields.io/github/v/release/TelechaBot/Kitan?style=plastic" alt="Version" ></a>
 </p>
+
+# 🌟 Kitan
 
 **Kitan** is a Telegram bot guardian responsible for ensuring that users are friendly real human beings. It is an
 open-source project developed using Python and Vue.
