@@ -57,7 +57,7 @@ class BotRunner(object):
                 sent_message = await bot.send_message(
                     message.from_user.id,
                     text=telegramify_markdown.convert(
-                        f"Hello, {user_name}.\n\n"
+                        f"# Hello, {user_name}.\n\n"
                         f"You are requesting to join the group {chat_title}.\n"
                         "But you need to prove that you are not a robot.\n\n"
                         f"*{locale.verify_join}*"
