@@ -43,6 +43,7 @@ jobs:
         working-directory: ./frontend
         env:
           VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
+          VITE_CLOUDFLARE_SITE_KEY: ${{ secrets.VITE_CLOUDFLARE_SITE_KEY }}
       - name: Setup Pages
         uses: actions/configure-pages@v4
       - name: Upload artifact
