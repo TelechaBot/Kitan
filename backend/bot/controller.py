@@ -55,7 +55,7 @@ class BotRunner(object):
             user_name = message.from_user.username[:10]
             chat_id = str(message.chat.id)
             user_id = str(message.from_user.id)
-            join_m_time = str(message.date)
+            join_m_time = str(int(time.time() * 1000))
             expired_m_at = str(int(join_m_time) + EXPIRE_M_TIME)
             try:
                 sent_message = await bot.send_message(
