@@ -43,20 +43,20 @@ class BotRunner(object):
         bot = self.bot
 
         @bot.chat_join_request_handler()
-        async def new_request(message: types.Message):
+        async def new_request(message: types.ChatJoinRequest):
             """
             创建验证数据，并给用户发送验证信息
             """
             locale = get_locales(message.from_user.language_code)
             logger.info(
-                f"Received a new join request from {message.from_user.id} in chat {message.chat.id} - {message.from_user.language_code}"
+                f"Received a new join request from {message.from_user.id} in chat {message.chat.id} - {message.from_user.language_code} - {message.bio}"
             )
             chat_title = message.chat.title[:10]
             user_name = message.from_user.username[:10]
             chat_id = str(message.chat.id)
             user_id = str(message.from_user.id)
-            join_m_time = str(int(time.time() * 1000))
-            expired_m_at = str(int(time.time() * 1000) + EXPIRE_M_TIME)
+            join_m_time = str(message.date)
+            expired_m_at = str(int(join_m_time) + EXPIRE_M_TIME)
             try:
                 sent_message = await bot.send_message(
                     message.from_user.id,
@@ -64,7 +64,7 @@ class BotRunner(object):
                         f"# Hello, `{user_name}`.\n\n"
                         f"You are requesting to join the group `{chat_title}`.\n"
                         "But you need to prove that you are not a **robot**.\n"
-                        "**You have 5 minutes.**\n\n"
+                        "**You have 3 minutes.**\n\n"
                         f"*{locale.verify_join}*\n"
                         f"`{chat_id}-{user_id}-{expired_m_at}`",
                     ),
@@ -117,6 +117,7 @@ class BotRunner(object):
                         message_id=message_id,
                         expired_at=expired_m_at,
                         language_code=message.from_user.language_code,
+                        user_chat_id=message.user_chat_id,
                     )
                 )
             except Exception as exc:
@@ -171,34 +172,30 @@ async def execution_ground():
     while True:
         try:
             data = await JOIN_MANAGER.read()
-            expired = []
-            for join_request in data.join_queue:
-                if int(join_request.expired_at) < int(time.time() * 1000):
-                    logger.info(f"Join Request Expired {join_request}")
-                    expired.append(join_request)
+            expired = [join_request for join_request in data.join_queue if
+                       int(join_request.expired_at) < int(time.time() * 1000)]
             if expired:
                 logger.info(f"Process Expired Join Request:{expired}")
-            data.join_queue = [join_request for join_request in data.join_queue if join_request not in expired]
-            try:
-                for join_request in expired:
-                    await BOT.decline_chat_join_request(chat_id=join_request.chat_id, user_id=join_request.user_id)
-            except Exception as exc:
-                logger.exception(f"Decline Chat Join Request Failed {exc}")
-            try:
-                for join_request in expired:
-                    await BOT.delete_message(chat_id=join_request.user_id, message_id=join_request.message_id)
-                    # Telegram Forbid Send Message To User When Not init Chat
-                    """
+            for join_request in expired:
+                try:
                     await BOT.send_message(
-                        chat_id=join_request.user_id,
+                        chat_id=join_request.user_chat_id,
                         text=telegramify_markdown.convert(get_locales(join_request.language_code).expired_join),
                         parse_mode="MarkdownV2",
                     )
-                    """
-            except Exception as exc:
-                logger.exception(f"Delete Message Failed {exc}")
-            finally:
-                await JOIN_MANAGER.save(data)
+                except Exception as exc:
+                    logger.exception(f"Send Message Failed {exc}")
+                try:
+                    await BOT.delete_message(chat_id=join_request.user_id, message_id=join_request.message_id)
+                except Exception as exc:
+                    logger.exception(f"Delete Message Failed {exc}")
+            for join_request in expired:
+                try:
+                    await BOT.decline_chat_join_request(chat_id=join_request.chat_id, user_id=join_request.user_id)
+                except Exception as exc:
+                    logger.exception(f"Decline Chat Join Request Failed {exc}")
+            data.join_queue = [join_request for join_request in data.join_queue if join_request not in expired]
+            await JOIN_MANAGER.save(data)
         except Exception as exc:
             logger.exception(f"Listen Dead Queue Failed {exc}")
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
