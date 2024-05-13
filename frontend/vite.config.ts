@@ -9,5 +9,5 @@ export default defineConfig({
         vue(),
         UnoCSS(),
     ],
-    base: '/Kitan',
+    base: '/',
 })

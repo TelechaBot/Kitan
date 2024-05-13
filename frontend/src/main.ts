@@ -13,7 +13,6 @@ import {createRouter, createWebHistory} from "vue-router";
 
 const routes = [
     {path: '/', component: App},
-    {path: '/Kitan', component: App},
 ]
 const router = createRouter({
     history: createWebHistory(),
