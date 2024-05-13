@@ -166,16 +166,16 @@ const authSuccess = () => {
 }
 const grantBiometricAccess = () => {
   if (!WebAppBiometricManager.isBiometricInited.value) {
-    return WebAppPopup.showAlert('Biometric not initialized')
+    return console.log('Biometric not initialized')
   }
   WebAppBiometricManager.requestBiometricAccess(
-      {reason: 'Please authenticate to continue'},
+      {reason: 'Please grant biometric access first'},
       (isAccessGranted: boolean) => {
         if (isAccessGranted) {
           console.log('Biometric access granted')
         } else {
           console.log('Biometric access denied')
-          WebAppPopup.showAlert('Biometric access denied, you can click settings to open the settings')
+          // WebAppPopup.showAlert('Biometric access denied, you can click settings to open the settings')
         }
       }
   )
