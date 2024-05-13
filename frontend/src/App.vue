@@ -2,15 +2,13 @@
 import {computed, reactive, ref, watch} from "vue";
 import {useRoute} from 'vue-router';
 import axios from 'axios';
-
-const route = useRoute();
 import VueTurnstile from 'vue-turnstile';
 import Puzzles from "./components/Puzzles.vue";
-import {useWebApp} from "vue-tg";
-import {useWebAppBiometricManager} from 'vue-tg';
-import {useWebAppPopup} from 'vue-tg'
+import {useWebApp, useWebAppBiometricManager, useWebAppPopup} from "vue-tg";
 import {useGyroscopeExists} from "./hook/useGyroscopeExists.ts";
 import {useAccelerometerExists} from "./hook/useAccelerometerExists.ts";
+
+const route = useRoute();
 
 enum AuthType {
   POW = 'pow',
@@ -20,6 +18,12 @@ enum AuthType {
 
 const authToken = ref<string | undefined>(undefined)
 const isBiometricInitialized = ref<boolean>(false)
+const turnstile_token = ref<string>('')
+const cloudflareSiteKey = ref(import.meta.env.VITE_CLOUDFLARE_SITE_KEY)
+const verifyBackendMessage = reactive({
+  success: false,
+  message: ''
+})
 const isCloudflareFailed = reactive(
     {
       status: false,
@@ -27,12 +31,6 @@ const isCloudflareFailed = reactive(
       show_turnstile: true,
     }
 )
-const turnstile_token = ref<string>('')
-const cloudflareSiteKey = ref(import.meta.env.VITE_CLOUDFLARE_SITE_KEY)
-const verifyBackendMessage = reactive({
-  success: false,
-  message: ''
-})
 const WebAppPopup = useWebAppPopup()
 const WebApp = useWebApp();
 const WebAppBiometricManager = useWebAppBiometricManager();
@@ -261,13 +259,13 @@ WebAppBiometricManager.onBiometricManagerUpdated(() => {
   }
 })
 isCloudflareFailed.status = false
+isCloudflareFailed.show_turnstile = true
 watch(turnstile_token, () => {
   // 长度大于 3 时自动验证
   if (turnstile_token.value.length > 3) {
     authCloudflare()
   }
 })
-
 console.log(getUserAcc())
 initBiometric()
 WebApp.ready()
