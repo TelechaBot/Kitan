@@ -189,16 +189,16 @@ async def execution_ground():
                         parse_mode="MarkdownV2",
                     )
                 except Exception as exc:
-                    logger.exception(f"Send Message Failed {exc}")
+                    logger.error(f"Send Message Failed {exc}")
                 try:
                     await BOT.delete_message(chat_id=join_request.user_id, message_id=join_request.message_id)
                 except Exception as exc:
-                    logger.exception(f"Delete Message Failed {exc}")
+                    logger.error(f"Delete Message Failed {exc}")
             for join_request in expired:
                 try:
                     await BOT.decline_chat_join_request(chat_id=join_request.chat_id, user_id=join_request.user_id)
                 except Exception as exc:
-                    logger.exception(f"Decline Chat Join Request Failed {exc}")
+                    logger.error(f"Decline Chat Join Request Failed {exc}")
             data.join_queue = [join_request for join_request in data.join_queue if join_request not in expired]
             await JOIN_MANAGER.save(data)
         except Exception as exc:
