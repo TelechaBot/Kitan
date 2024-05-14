@@ -12,6 +12,7 @@ from pydantic import BaseModel, SecretStr
 from starlette.responses import JSONResponse
 
 from const import EXPIRE_M_TIME
+from core.death_queue import JOIN_MANAGER
 from core.mongo import MONGO_ENGINE
 from core.mongo_odm import VerifyRequest
 from server.validate_cloudflare import validate_cloudflare_turnstile
@@ -160,14 +161,30 @@ async def verify_captcha(captcha_data: VerifyData):
             content={"status": EnumStatu.error.value, "message": "CAPTCHA_FAILED"}
         )
     # Success Accept User's Join Request
+    # 删除死亡队列
+    try:
+        data = await JOIN_MANAGER.read()
+        removed = []
+        for join_request in data.join_queue:
+            if join_request.user_id == user_id and join_request.chat_id == chat_id:
+                removed.append(join_request)
+        if not removed:
+            logger.error(f"JOIN_MANAGER Not Found {user_id} - {chat_id}")
+        else:
+            for join_request in removed:
+                data.join_queue.remove(join_request)
+            await JOIN_MANAGER.save(data)
+    except Exception as exc:
+        logger.error(f"JOIN_MANAGER Failed {exc}")
+    # 更新记录
     try:
         history = await MONGO_ENGINE.find_one(VerifyRequest, VerifyRequest.signature == captcha_data.signature)
         if not history:
-            logger.error(f"History Not Found {captcha_data.source}")
+            logger.error(f"MONGO_ENGINE History Not Found {captcha_data.source}")
         history.passed = True
         await MONGO_ENGINE.save(history)
     except Exception as exc:
-        logger.exception(f"Modify Request Failed when {exc}")
+        logger.error(f"Modify Request Failed when {exc}")
     try:
         await BOT.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
         await BOT.delete_message(chat_id=user_id, message_id=message_id)

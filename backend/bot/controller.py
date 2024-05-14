@@ -176,8 +176,10 @@ async def execution_ground():
     while True:
         try:
             data = await JOIN_MANAGER.read()
-            expired = [join_request for join_request in data.join_queue if
-                       int(join_request.expired_at) < int(time.time() * 1000)]
+            expired = []
+            for join_request in data.join_queue:
+                if int(join_request.expired_at) < int(time.time() * 1000):
+                    expired.append(join_request)
             if expired:
                 logger.info(f"Process Expired Join Request:{expired}")
             for join_request in expired:
