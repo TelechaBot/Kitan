@@ -11,7 +11,6 @@ QUEUE_DATA_KEY = "join_queue"
 class JoinRequest(BaseModel):
     user_id: str
     chat_id: str
-    message_id: str
     expired_at: str
     user_chat_id: int  # 5 MINUTES VALID
     language_code: Optional[str] = None

@@ -62,8 +62,22 @@ class BotRunner(object):
                 logger.exception(f"Data Parse Failed {exc}")
                 return False
             try:
+                # 先投入死亡队列，防止被拉黑
+                await JOIN_MANAGER.insert(
+                    JoinRequest(
+                        user_id=user_id,
+                        chat_id=chat_id,
+                        expired_at=expired_m_at,
+                        language_code=message.from_user.language_code,
+                        user_chat_id=message.user_chat_id,
+                    )
+                )
+            except Exception as exc:
+                logger.error(f"Dead Queue Insert Failed {exc}")
+            # 尝试发送消息
+            try:
                 sent_message = await bot.send_message(
-                    message.from_user.id,
+                    message.user_chat_id,
                     text=telegramify_markdown.convert(
                         f"# Hello, `{user_name}`.\n\n"
                         f"You are requesting to join the group `{chat_title}`.\n"
@@ -74,23 +88,31 @@ class BotRunner(object):
                     ),
                     parse_mode="MarkdownV2",
                 )
+                sent_message_id = sent_message.message_id
             except Exception as exc:
-                logger.exception(f"User Refuse Message {exc}-{message.from_user.id}")
-                return False
-            message_id = str(sent_message.message_id)
+                return logger.error(f"User Refuse Message {exc}-{message.from_user.id}")
+            # 用户没有拉黑机器人，生产签名
             signature = generate_sign(
                 chat_id=chat_id,
-                message_id=message_id,
+                message_id=str(sent_message_id),
                 user_id=user_id,
                 join_time=join_m_time,
                 secret_key=SecretStr(BotSetting.token),
             )
-            verify_url = f"https://{EndpointSetting.domain}/?chat_id={chat_id}&message_id={message_id}&user_id={user_id}&timestamp={join_m_time}&signature={signature}"
+            # 保存历史记录
+            try:
+                mongo_data = VerifyRequest(user_id=user_id, chat_id=chat_id, timestamp=join_m_time, signature=signature)
+                await MONGO_ENGINE.save(mongo_data)
+                logger.info(f"History Save Success for {user_id}")
+            except Exception as exc:
+                logger.error(f"History Save Failed {exc}")
+            # 生产验证URL
+            verify_url = f"https://{EndpointSetting.domain}/?chat_id={chat_id}&message_id={sent_message_id}&user_id={user_id}&timestamp={join_m_time}&signature={signature}"
             logger.info(f"Verify URL: {verify_url}")
             try:
                 await bot.edit_message_reply_markup(
-                    chat_id=sent_message.chat.id,
-                    message_id=sent_message.message_id,
+                    chat_id=message.user_chat_id,
+                    message_id=sent_message_id,
                     reply_markup=InlineKeyboardMarkup(
                         keyboard=[
                             [
@@ -105,27 +127,7 @@ class BotRunner(object):
                     ),
                 )
             except Exception as exc:
-                logger.exception(f"Edit Message Failed {exc}")
-            try:
-                mongo_data = VerifyRequest(user_id=user_id, chat_id=chat_id, timestamp=join_m_time, signature=signature)
-                await MONGO_ENGINE.save(mongo_data)
-                logger.info(f"History Save Success for {user_id}")
-            except Exception as exc:
-                logger.exception(f"History Save Failed {exc}")
-            try:
-                # 投入死亡队列
-                await JOIN_MANAGER.insert(
-                    JoinRequest(
-                        user_id=user_id,
-                        chat_id=chat_id,
-                        message_id=message_id,
-                        expired_at=expired_m_at,
-                        language_code=message.from_user.language_code,
-                        user_chat_id=message.user_chat_id,
-                    )
-                )
-            except Exception as exc:
-                logger.exception(f"Dead Queue Insert Failed {exc}")
+                logger.error(f"Edit Message Failed {exc}")
             return True
 
         @bot.message_handler(
