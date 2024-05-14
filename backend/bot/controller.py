@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import time
+from typing import Optional
 
 import telebot.async_telebot
 import telegramify_markdown
@@ -42,6 +43,31 @@ class BotRunner(object):
         logger.info("Bot Start")
         bot = self.bot
 
+        async def dead_shot(
+                user_id: str,
+                chat_id: str,
+                expired_m_at: str,
+                language_code: str,
+                user_chat_id: int,
+                message_id: Optional[str] = None
+        ):
+            try:
+                # 先投入死亡队列，防止被拉黑
+                await JOIN_MANAGER.insert(
+                    JoinRequest(
+                        user_id=user_id,
+                        chat_id=chat_id,
+                        expired_at=expired_m_at,
+                        language_code=language_code,
+                        user_chat_id=user_chat_id,
+                        message_id=message_id
+                    )
+                )
+            except Exception as exc:
+                logger.error(f"Dead Queue Insert Failed {exc}")
+            else:
+                logger.info(f"Dead Queue Insert Success[{user_id}-{chat_id}]")
+
         @bot.chat_join_request_handler()
         async def new_request(message: types.ChatJoinRequest):
             """
@@ -61,21 +87,6 @@ class BotRunner(object):
             except Exception as exc:
                 logger.exception(f"Data Parse Failed {exc}")
                 return False
-            try:
-                # 先投入死亡队列，防止被拉黑
-                await JOIN_MANAGER.insert(
-                    JoinRequest(
-                        user_id=user_id,
-                        chat_id=chat_id,
-                        expired_at=expired_m_at,
-                        language_code=message.from_user.language_code,
-                        user_chat_id=message.user_chat_id,
-                    )
-                )
-            except Exception as exc:
-                logger.error(f"Dead Queue Insert Failed {exc}")
-            else:
-                logger.info(f"Dead Queue Insert Success[{user_id}-{chat_id}]")
             # 尝试发送消息
             try:
                 sent_message = await bot.send_message(
@@ -92,7 +103,19 @@ class BotRunner(object):
                 )
                 sent_message_id = sent_message.message_id
             except Exception as exc:
-                return logger.error(f"User Refuse Message {exc}-{message.from_user.id}")
+                sent_message_id = None
+                logger.error(f"Send Message Failed {exc}")
+            # 投入死亡队列
+            await dead_shot(
+                user_id=user_id,
+                chat_id=chat_id,
+                expired_m_at=expired_m_at,
+                language_code=message.from_user.language_code,
+                user_chat_id=message.user_chat_id,
+                message_id=sent_message_id
+            )
+            if not sent_message_id:
+                return logger.error(f"User Refuse Message {message.from_user.id}")
             # 用户没有拉黑机器人，生产签名
             signature = generate_sign(
                 chat_id=chat_id,

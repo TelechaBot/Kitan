@@ -13,6 +13,7 @@ class JoinRequest(BaseModel):
     chat_id: str
     expired_at: str
     user_chat_id: int  # 5 MINUTES VALID
+    message_id: Optional[str] = None
     language_code: Optional[str] = None
 
 
