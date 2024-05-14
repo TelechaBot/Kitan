@@ -303,7 +303,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
     </v-card>
     <!-- 拼图辅助验证 -->
     <div class="mx-0 ma-5"
-         v-if="authType!==AuthType.POW && cloudflareSiteKey"
+         v-if="authType===AuthType.POW && cloudflareSiteKey"
     >
       <v-card
           prepend-icon="mdi-cloud"
