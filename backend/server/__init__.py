@@ -167,7 +167,7 @@ async def verify_captcha(captcha_data: VerifyData):
         removed = []
         for join_request in data.join_queue:
             join_request: JoinRequest
-            if join_request.user_id == user_id and join_request.chat_id == chat_id:
+            if str(join_request.user_id) == str(user_id) and str(join_request.chat_id) == str(chat_id):
                 removed.append(join_request)
         if not removed:
             logger.error(f"JOIN_MANAGER Not Found[{user_id}-{chat_id}]")
