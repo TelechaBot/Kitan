@@ -55,12 +55,12 @@ class BotRunner(object):
                 # 先投入死亡队列，防止被拉黑
                 await JOIN_MANAGER.insert(
                     JoinRequest(
-                        user_id=user_id,
-                        chat_id=chat_id,
-                        expired_at=expired_m_at,
-                        language_code=language_code,
-                        user_chat_id=user_chat_id,
-                        message_id=message_id
+                        user_id=str(user_id),
+                        chat_id=str(chat_id),
+                        expired_at=str(expired_m_at),
+                        language_code=str(language_code),
+                        user_chat_id=int(user_chat_id),
+                        message_id=str(message_id)
                     )
                 )
             except Exception as exc:
@@ -101,7 +101,7 @@ class BotRunner(object):
                     ),
                     parse_mode="MarkdownV2",
                 )
-                sent_message_id = sent_message.message_id
+                sent_message_id = str(sent_message.message_id)
             except Exception as exc:
                 sent_message_id = None
                 logger.error(f"Send Message Failed {exc}")
