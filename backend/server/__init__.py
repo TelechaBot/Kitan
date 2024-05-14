@@ -55,7 +55,7 @@ class CloudflareData(BaseModel):
     Cloudflare 验证数据
     """
     source: Source
-    token: str
+    turnstile_token: str
     web_app_data: str
 
 
@@ -81,7 +81,7 @@ async def verify_cloudflare(data: CloudflareData):
         )
     try:
         validated = validate_cloudflare_turnstile(
-            turnstile_response=data.token,
+            turnstile_response=data.turnstile_token,
             cloudflare_secret_key=SecretStr(CloudflareSetting.cloudflare_secret_key)
         )
     except Exception as exc:
