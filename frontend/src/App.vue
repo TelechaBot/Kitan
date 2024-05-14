@@ -383,7 +383,6 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         </v-btn>
         <v-btn
             @click="openAuthSettings"
-            v-if="!WebAppBiometricManager.isBiometricAccessGranted"
         >
           Settings
         </v-btn>
