@@ -51,12 +51,16 @@ class BotRunner(object):
             logger.info(
                 f"Received a new join request from {message.from_user.id} in chat {message.chat.id} - {message.from_user.language_code} - {message.bio}"
             )
-            chat_title = message.chat.title[:20]
-            user_name = message.from_user.username[:20]
-            chat_id = str(message.chat.id)
-            user_id = str(message.from_user.id)
-            join_m_time = str(int(time.time() * 1000))
-            expired_m_at = str(int(join_m_time) + EXPIRE_M_TIME)
+            try:
+                chat_title = message.chat.title[:20]
+                user_name = message.from_user.full_name[:20]
+                chat_id = str(message.chat.id)
+                user_id = str(message.from_user.id)
+                join_m_time = str(int(time.time() * 1000))
+                expired_m_at = str(int(join_m_time) + EXPIRE_M_TIME)
+            except Exception as exc:
+                logger.exception(f"Data Parse Failed {exc}")
+                return False
             try:
                 sent_message = await bot.send_message(
                     message.from_user.id,
