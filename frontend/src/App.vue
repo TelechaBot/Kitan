@@ -301,40 +301,25 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         https://telegram.org/
       </v-card-text>
     </v-card>
-    <!-- 拼图验证 -->
-    <div class="mx-0 ma-5"
-         v-if="authType === AuthType.POW">
-      <Puzzles
-          :difficulty-level="1"
-          :on-success="() => {
-            console.log('Puzzle success')
-            authSuccess()
-          }"
-      />
-    </div>
     <!-- 拼图辅助验证 -->
-    <div class="mx-0 ma-5 flex justify-center"
-         v-if="authType===AuthType.POW && cloudflareSiteKey"
+    <div class="mx-0 ma-5"
+         v-if="authType!==AuthType.POW && cloudflareSiteKey"
     >
       <v-card
-          class="mx-0 ma-5"
           prepend-icon="mdi-cloud"
           color="indigo"
           variant="outlined"
+          subtitle="If loading failed, solve game instead"
       >
         <template v-slot:title>
           <span class="font-weight-black">Cloudflare Auth</span>
         </template>
-        <v-card-subtitle>
-          If cloudflare loading failed, please solve the puzzle instead
-        </v-card-subtitle>
         <v-card-text
             v-if="isCloudflareFailed.show_turnstile"
         >
           <vue-turnstile
               v-model="turnstile_token"
               :site-key="cloudflareSiteKey"
-              @token="authCloudflare"
               @error="(error) => {
                 isCloudflareFailed.status = true
                 isCloudflareFailed.message = `Cloudflare error: ${error}`
@@ -347,8 +332,34 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
           ></vue-turnstile>
         </v-card-text>
         <v-card-text class="bg-surface-light pt-4" v-if="isCloudflareFailed.status">
-          {{ isCloudflareFailed.message }}
+          <span
+              :class="isCloudflareFailed.status ? 'font-mono color-black' : 'font-mono color-green'"
+          >
+            {{ isCloudflareFailed.message }}
+          </span>
         </v-card-text>
+      </v-card>
+    </div>
+    <!-- 拼图验证 -->
+    <div class="mx-0 ma-5"
+         v-if="authType === AuthType.POW">
+      <v-card
+          class="mx-0 pb-10"
+          prepend-icon="mdi-puzzle"
+          color="indigo"
+          variant="outlined"
+          subtitle="Solve the puzzle to join group (1~9)"
+      >
+        <template v-slot:title>
+          <span class="font-weight-black">Game Auth</span>
+        </template>
+        <Puzzles
+            :difficulty-level="1"
+            :on-success="() => {
+            console.log('Puzzle success')
+            authSuccess()
+          }"
+        />
       </v-card>
     </div>
     <!-- 生物识别验证 -->
@@ -357,6 +368,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         prepend-icon="mdi-fingerprint"
         color="indigo"
         v-if="authType === AuthType.BIOMETRIC"
+        subtitle="Press to authenticate with biometric"
         variant="outlined"
     >
       <template v-slot:title>
