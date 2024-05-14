@@ -128,7 +128,7 @@ const authCloudflare = () => {
     verifyBackendMessage.message = 'Who are you?'
     return
   }
-  console.log('Backend URL:', backendUrl)
+  //console.log('Backend URL:', backendUrl)
   const requestBody = {
     // 路由
     source: router,
@@ -137,7 +137,7 @@ const authCloudflare = () => {
     // 已经被签名的数据，由服务端自动验证签名
     web_app_data: WebApp.initData,
   }
-  console.log('Request body:', requestBody)
+  //console.log('Request body:', requestBody)
   axios.post(backendUrl, requestBody)
       .then((response) => {
         console.log('Response:', response)
@@ -187,7 +187,7 @@ const authSuccess = () => {
     // 已经被签名的数据，由服务端自动验证签名
     web_app_data: WebApp.initData,
   }
-  console.log('Request body:', requestBody)
+  //console.log('Request body:', requestBody)
   // 发送请求
   axios.post(backendUrl, requestBody)
       .then((response) => {
