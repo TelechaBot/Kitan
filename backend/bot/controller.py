@@ -74,6 +74,8 @@ class BotRunner(object):
                 )
             except Exception as exc:
                 logger.error(f"Dead Queue Insert Failed {exc}")
+            else:
+                logger.info(f"Dead Queue Insert Success[{user_id}-{chat_id}]")
             # 尝试发送消息
             try:
                 sent_message = await bot.send_message(

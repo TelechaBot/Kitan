@@ -12,7 +12,7 @@ from pydantic import BaseModel, SecretStr
 from starlette.responses import JSONResponse
 
 from const import EXPIRE_M_TIME
-from core.death_queue import JOIN_MANAGER
+from core.death_queue import JOIN_MANAGER, JoinRequest
 from core.mongo import MONGO_ENGINE
 from core.mongo_odm import VerifyRequest
 from server.validate_cloudflare import validate_cloudflare_turnstile
@@ -166,10 +166,11 @@ async def verify_captcha(captcha_data: VerifyData):
         data = await JOIN_MANAGER.read()
         removed = []
         for join_request in data.join_queue:
+            join_request: JoinRequest
             if join_request.user_id == user_id and join_request.chat_id == chat_id:
                 removed.append(join_request)
         if not removed:
-            logger.error(f"JOIN_MANAGER Not Found {user_id} - {chat_id}")
+            logger.error(f"JOIN_MANAGER Not Found[{user_id}-{chat_id}]")
         else:
             for join_request in removed:
                 data.join_queue.remove(join_request)
