@@ -163,3 +163,5 @@ cython_debug/
 # Ignore dynaconf secret files
 /conf_dir/.*.toml
 /conf_dir/.*.yaml
+/playground/*.png
+/playground/*.jpg
