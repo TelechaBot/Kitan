@@ -3,20 +3,26 @@ import asyncio
 import time
 from typing import Optional
 
+import shortuuid
 import telebot.async_telebot
 import telegramify_markdown
 from loguru import logger
 from pydantic import SecretStr
-from telebot import types
+from telebot import types, asyncio_filters
 from telebot import util
 from telebot.asyncio_helper import ApiTelegramException
 from telebot.types import InlineKeyboardMarkup, WebAppInfo
 
 from app_locales import get_locales
-from const import EXPIRE_M_TIME
+from bot.judge import judge_pre_join_text, reason_chat_text, reason_chat_photo
+from bot.utils import parse_command
+from const import EXPIRE_M_TIME, EXPIRE_SHOW
 from core.death_queue import JOIN_MANAGER, JoinRequest
 from core.mongo import MONGO_ENGINE
 from core.mongo_odm import VerifyRequest
+from core.policy import GROUP_POLICY
+from core.start_resend import RESEND_MANAGER, ResendEvnet
+from core.statistics import STATISTICS
 from setting.endpoint import EndpointSetting
 from setting.telegrambot import BOT, BotSetting
 from utils.signature import generate_sign
@@ -27,17 +33,22 @@ class BotRunner(object):
         self.bot = bot
 
     async def download(self, file):
-        assert hasattr(file, "file_id"), "file_id not found"
-        name = file.file_id
-        _file_info = await self.bot.get_file(file.file_id)
-        if isinstance(file, types.PhotoSize):
-            name = f"{_file_info.file_unique_id}.jpg"
-        if isinstance(file, types.Document):
-            name = f"{file.file_unique_id} {file.file_name}"
-        if not name.endswith(("jpg", "png", "webp")):
+        try:
+            assert hasattr(file, "file_id"), "file_id not found"
+            name = file.file_id
+            _file_info = await self.bot.get_file(file.file_id)
+            if isinstance(file, types.PhotoSize):
+                name = f"{_file_info.file_unique_id}.jpg"
+            if isinstance(file, types.Document):
+                name = f"{file.file_unique_id} {file.file_name}"
+            if not name.endswith(("jpg", "png", "webp")):
+                return None
+            downloaded_file = await self.bot.download_file(_file_info.file_path)
+        except Exception as exc:
+            logger.error(f"Download File Failed {exc}")
             return None
-        downloaded_file = await self.bot.download_file(_file_info.file_path)
-        return downloaded_file
+        else:
+            return downloaded_file
 
     async def run(self):
         logger.info("Bot Start")
@@ -68,6 +79,67 @@ class BotRunner(object):
             else:
                 logger.info(f"Dead Queue Insert Success[{user_id}-{chat_id}]")
 
+        async def pre_process_user(
+                chat_id: int,
+                user_id: int,
+                message_id: str,
+                verify_url: str,
+                preprocess_data: types.Chat
+        ):
+            """
+            预处理用户的资料页
+            :param chat_id: 群组ID
+            :param user_id: 用户ID
+            :param message_id: 用户验证消息ID
+            :param verify_url: 验证URL
+            :param preprocess_data: 用户资料
+            """
+            # 读取待验证的群组策略
+            policy = await GROUP_POLICY.read(group_id=str(chat_id))
+            if policy.join_check:
+                logger.info(f"Join Check Enabled for {chat_id}")
+                # 检查用户资料
+                check_string = f"{preprocess_data.first_name} {preprocess_data.last_name} {preprocess_data.bio}"
+                if judge_pre_join_text(check_string):
+                    try:
+                        await bot.send_message(
+                            chat_id=user_id,
+                            text=telegramify_markdown.convert(
+                                f"# Sorry, this group enabled join check.\n"
+                                f"`You are recognized as a Advertiser or a Robot` by our risk control system.`\n\n"
+                                f"**What should I do?**\n"
+                                f"{policy.complaints_guide}",
+                            ),
+                            parse_mode="MarkdownV2",
+                        )
+                    except Exception as exc:
+                        logger.error(f"Send Message Failed {exc}")
+                    try:
+                        await bot.decline_chat_join_request(chat_id=chat_id, user_id=user_id)
+                    except Exception as exc:
+                        logger.error(f"Decline Chat Join Request Failed {exc}")
+                    return logger.info(f"Join Check for {user_id}")
+            # 发送验证按钮
+            try:
+                await bot.edit_message_reply_markup(
+                    chat_id=user_id,
+                    message_id=int(message_id),
+                    reply_markup=InlineKeyboardMarkup(
+                        keyboard=[
+                            [
+                                types.InlineKeyboardButton(
+                                    text="Verify",
+                                    web_app=WebAppInfo(
+                                        url=verify_url,
+                                    )
+                                )
+                            ]
+                        ]
+                    )
+                )
+            except Exception as exc:
+                logger.error(f"Edit Message Failed {exc}")
+
         @bot.chat_join_request_handler()
         async def new_request(message: types.ChatJoinRequest):
             """
@@ -77,6 +149,7 @@ class BotRunner(object):
             logger.info(
                 f"Received a new join request from {message.from_user.id} in chat {message.chat.id} - {message.from_user.language_code} - {message.bio}"
             )
+            # 解析请求
             try:
                 chat_title = message.chat.title[:20]
                 user_name = message.from_user.full_name[:20]
@@ -95,7 +168,7 @@ class BotRunner(object):
                         f"# Hello, `{user_name}`.\n\n"
                         f"You are requesting to join the group `{chat_title}`.\n"
                         "But you need to prove that you are not a **robot**.\n"
-                        "**You have 3 minutes.**\n\n"
+                        f"**You have {EXPIRE_SHOW}.**\n\n"
                         f"*{locale.verify_join}*\n"
                         f"`{chat_id}-{user_id}-{expired_m_at}`",
                     ),
@@ -124,6 +197,7 @@ class BotRunner(object):
                 join_time=join_m_time,
                 secret_key=SecretStr(BotSetting.token),
             )
+
             # 保存历史记录
             try:
                 mongo_data = VerifyRequest(user_id=user_id, chat_id=chat_id, timestamp=join_m_time, signature=signature)
@@ -131,32 +205,248 @@ class BotRunner(object):
                 logger.info(f"History Save Success for {user_id}")
             except Exception as exc:
                 logger.error(f"History Save Failed {exc}")
+
             # 生产验证URL
             verify_url = f"https://{EndpointSetting.domain}/?chat_id={chat_id}&message_id={sent_message_id}&user_id={user_id}&timestamp={join_m_time}&signature={signature}"
             logger.info(f"Verify URL: {verify_url}")
+            # 预先检查用户资料
             try:
-                await bot.edit_message_reply_markup(
-                    chat_id=message.user_chat_id,
-                    message_id=sent_message_id,
-                    reply_markup=InlineKeyboardMarkup(
-                        keyboard=[
-                            [
-                                types.InlineKeyboardButton(
-                                    text="Verify",
-                                    web_app=WebAppInfo(
-                                        url=verify_url,
-                                    )
-                                )
-                            ]
-                        ]
-                    ),
-                )
+                event = await bot.get_chat(message.from_user.id)
             except Exception as exc:
-                logger.error(f"Edit Message Failed {exc}")
+                logger.info(f"Get Chat Failed {exc} When Pre Process {message.from_user.id}")
+                # 存储一份参数快照，并生成一个唯一数据命令+ID
+                snapshot_uid = shortuuid.uuid()[0:6]
+                verify_tip = f"**Type `/verify {snapshot_uid}` to continue the verification for `{chat_title}`**"
+                await RESEND_MANAGER.save(
+                    event_id=snapshot_uid,
+                    data=ResendEvnet(
+                        chat_id=str(chat_id),
+                        message_id=str(sent_message_id),
+                        verify_url=verify_url,
+                        user_id=str(user_id),
+                    )
+                )
+                # 发送一个提示，提示让用户使用 verify 命令
+                try:
+                    await bot.send_message(
+                        chat_id=message.user_chat_id,
+                        text=telegramify_markdown.convert(verify_tip),
+                        parse_mode="MarkdownV2",
+                    )
+                except Exception as exc:
+                    logger.error(f"Resend Ack Message Failed: {exc}")
+            else:
+                await pre_process_user(
+                    chat_id=int(chat_id),
+                    user_id=int(user_id),
+                    message_id=sent_message_id,
+                    verify_url=verify_url,
+                    preprocess_data=event
+                )
             return True
 
         @bot.message_handler(
-            commands="start", chat_types=["private"]
+            commands="verify",
+            chat_types=["private"]
+        )
+        async def verify(message: types.Message):
+            """
+            Verify Command
+            注意确认用户的身份
+            """
+            locale = get_locales(message.from_user.language_code)
+            logger.info(
+                f"Received a new verify command from {message.from_user.id} - {message.from_user.language_code}"
+            )
+            # 解析命令
+            try:
+                command, event_id = parse_command(message.text)
+                assert event_id, "Event ID Not Found"
+            except Exception as exc:
+                return logger.info(f"Command Parse Failed {exc}")
+            event = await RESEND_MANAGER.read(event_id=event_id)
+            if not event:
+                return logger.info(f"Event Not Found {event_id}")
+            if str(event.user_id) != str(message.from_user.id):
+                return logger.info(f"Event Not Match {event_id}")
+            # 尝试读取用户 BIO
+            try:
+                user = await bot.get_chat(message.from_user.id)
+            except Exception as exc:
+                return logger.error(f"Get Chat Failed {exc}")
+            # 预处理用户资料
+            await pre_process_user(
+                chat_id=event.chat_id,
+                user_id=event.user_id,
+                message_id=event.message_id,
+                verify_url=event.verify_url,
+                preprocess_data=user
+            )
+
+        @bot.message_handler(
+            commands="join_check",
+            chat_types=["group", "supergroup"],
+            is_chat_admin=True
+        )
+        async def join_check(message: types.Message):
+            """
+            Join Check Command
+            """
+            locale = get_locales(message.from_user.language_code)
+            logger.info(
+                f"Received a new join check command from {message.from_user.id} - {message.from_user.language_code}"
+            )
+            # 读取群组策略
+            policy = await GROUP_POLICY.read(group_id=str(message.chat.id))
+            # 切换开关
+            policy.join_check = not policy.join_check
+            # 保存策略
+            await GROUP_POLICY.save(group_id=str(message.chat.id), data=policy)
+            return await bot.send_message(
+                message.chat.id,
+                text=telegramify_markdown.convert(
+                    f"# Join Check: **{'Enabled' if policy.join_check else 'Disabled'}**\n"
+                    f"{locale.join_check_toggle}",
+                ),
+                parse_mode="MarkdownV2",
+            )
+
+        @bot.message_handler(
+            commands="anti_spam",
+            chat_types=["group", "supergroup"],
+            is_chat_admin=True
+        )
+        async def anti_spam(message: types.Message):
+            """
+            Anti Spam Command
+            """
+            locale = get_locales(message.from_user.language_code)
+            logger.info(
+                f"Received a new anti spam command from {message.from_user.id} - {message.from_user.language_code}"
+            )
+            # 读取群组策略
+            policy = await GROUP_POLICY.read(group_id=str(message.chat.id))
+            # 切换开关
+            policy.anti_spam = not policy.anti_spam
+            # 保存策略
+            await GROUP_POLICY.save(group_id=str(message.chat.id), data=policy)
+            return await bot.send_message(
+                message.chat.id,
+                text=telegramify_markdown.convert(
+                    f"# Anti Spam: **{'Enabled' if policy.anti_spam else 'Disabled'}**\n"
+                    f"{locale.anti_spam_toggle}",
+                ),
+                parse_mode="MarkdownV2",
+            )
+
+        @bot.message_handler(
+            commands="complaints_guide",
+            chat_types=["group", "supergroup"],
+            is_chat_admin=True
+        )
+        async def complaints_guide(message: types.Message):
+            """
+            Complaints Guide Command
+            """
+            locale = get_locales(message.from_user.language_code)
+            logger.info(
+                f"Received a new complaints guide command from {message.from_user.id} - {message.from_user.language_code}"
+            )
+            # 读取群组策略
+            policy = await GROUP_POLICY.read(group_id=str(message.chat.id))
+            # 读取指引
+            command, guide = parse_command(message.text)
+            if not guide:
+                return await bot.send_message(
+                    message.chat.id,
+                    text=telegramify_markdown.convert(
+                        f"# Complaints Guide: **Current**\n"
+                        f"{policy.complaints_guide}",
+                    ),
+                    parse_mode="MarkdownV2",
+                )
+            # 切换开关
+            policy.complaints_guide = guide
+            # 保存策略
+            await GROUP_POLICY.save(group_id=str(message.chat.id), data=policy)
+            return await bot.send_message(
+                message.chat.id,
+                text=telegramify_markdown.convert(
+                    f"# Complaints Guide: **Updated**\n"
+                    f"{locale.complaints_guide}",
+                ),
+                parse_mode="MarkdownV2",
+            )
+
+        @bot.message_handler(
+            chat_types=["group", "supergroup"],
+        )
+        async def group_msg_no_admin(message: types.Message):
+            """
+            Group Message No Admin
+            """
+            locale = get_locales(message.from_user.language_code)
+            logger.debug(
+                f"Received a new group message from {message.from_user.id} - {message.from_user.language_code}"
+            )
+            familiarity = await STATISTICS.increase(user_id=str(message.from_user.id), group_id=str(message.chat.id))
+            if familiarity < 10:
+                # 读取群组策略
+                policy = await GROUP_POLICY.read(group_id=str(message.chat.id))
+                if policy.anti_spam:
+                    # 检查发言
+                    check_string = f"{message.text}"
+                    reason = [
+                        reason_chat_text(check_string),
+                    ]
+                    if message.video:
+                        reason.append("INACTIVE_ACCOUNT_SEND_VIDEO")
+                    if message.photo:
+                        downloaded_file = await self.download(message.photo[-1])
+                        if downloaded_file:
+                            reason.append(reason_chat_photo(downloaded_file))
+                    if any(reason):
+                        try:
+                            await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+                        except Exception as exc:
+                            logger.error(f"Delete Message Failed {exc}")
+                        try:
+                            await bot.restrict_chat_member(
+                                chat_id=message.chat.id,
+                                user_id=message.from_user.id,
+                                permissions=types.ChatPermissions(
+                                    can_send_messages=False,
+                                    can_send_polls=False,
+                                    can_send_audios=False,
+                                    can_send_documents=False,
+                                    can_send_photos=False,
+                                    can_send_videos=False,
+                                    can_send_video_notes=False,
+                                    can_send_voice_notes=False,
+                                    can_send_other_messages=False,
+                                ),
+                                until_date=int(time.time() + 60 * 3),
+                            )
+                        except Exception as exc:
+                            logger.error(f"Restrict Chat Member Failed {exc}")
+                        try:
+                            await bot.send_message(
+                                chat_id=message.chat.id,
+                                text=telegramify_markdown.convert(
+                                    f"**Message from inactive user `{message.from_user.full_name}` is detected as spam,"
+                                    f"so it has been deleted and muted for 3 minutes.**\n"
+                                    f"Target Rule: `{','.join([item for item in reason if item])}`\n"
+                                    f"*Please call admin in case of emergency.*",
+                                ),
+                                parse_mode="MarkdownV2",
+                            )
+                        except Exception as exc:
+                            logger.error(f"Send Message Failed {exc}")
+                        return logger.info(f"Anti Spam for {message.from_user.id}")
+
+        @bot.message_handler(
+            commands="start",
+            chat_types=["private"]
         )
         async def start(message: types.Message):
             """
@@ -185,6 +475,8 @@ class BotRunner(object):
                 ),
             )
 
+        bot.add_custom_filter(asyncio_filters.IsAdminFilter(bot))
+        bot.add_custom_filter(asyncio_filters.ChatFilter())
         try:
             await bot.polling(
                 non_stop=True, allowed_updates=util.update_types, skip_pending=True
