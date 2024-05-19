@@ -29,9 +29,15 @@ class Statistics(object):
         except Exception as exc:
             logger.trace(f"Statistics.increase: {exc}")
             now_count = 0
+        if now_count < 0:
+            now_count = 0
         new_count = now_count + 1
         await self.cache.set_data(self.prefix(user_id, group_id), str(new_count), timeout=TIMEOUT)
         return now_count
+
+    async def reset(self, user_id: str, group_id: str) -> bool:
+        await self.cache.set_data(self.prefix(user_id, group_id), str(0), timeout=TIMEOUT)
+        return True
 
 
 STATISTICS = Statistics()

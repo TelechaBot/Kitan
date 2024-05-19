@@ -490,6 +490,7 @@ class BotRunner(object):
                                 ),
                                 parse_mode="MarkdownV2",
                             )
+                            await STATISTICS.reset(user_id=str(message.from_user.id), group_id=str(message.chat.id))
                         except Exception as exc:
                             logger.error(f"Send Message Failed {exc}")
                         return logger.info(f"Anti Spam for {message.from_user.id}")
