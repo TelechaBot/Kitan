@@ -365,6 +365,15 @@ class BotRunner(object):
                     ),
                     parse_mode="MarkdownV2",
                 )
+            if len(guide) > 1000:
+                return await bot.send_message(
+                    message.chat.id,
+                    text=telegramify_markdown.convert(
+                        f"# Complaints Guide: **Failed**\n"
+                        f"**The length of the guide is too long, please try again.**",
+                    ),
+                    parse_mode="MarkdownV2",
+                )
             # 切换开关
             policy.complaints_guide = guide
             # 保存策略
