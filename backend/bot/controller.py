@@ -118,7 +118,25 @@ class BotRunner(object):
                         await bot.decline_chat_join_request(chat_id=chat_id, user_id=user_id)
                     except Exception as exc:
                         logger.error(f"Decline Chat Join Request Failed {exc}")
+                    # 删除死亡队列
+                    try:
+                        data = await JOIN_MANAGER.read()
+                        removed = []
+                        for join_request in data.join_queue:
+                            join_request: JoinRequest
+                            if str(join_request.user_id) == str(user_id) and str(join_request.chat_id) == str(
+                                    chat_id):
+                                removed.append(join_request)
+                        if not removed:
+                            logger.error(f"JOIN_MANAGER Not Found[{user_id}-{chat_id}]")
+                        else:
+                            for join_request in removed:
+                                data.join_queue.remove(join_request)
+                            await JOIN_MANAGER.save(data)
+                    except Exception as exc:
+                        logger.error(f"JOIN_MANAGER Failed {exc}")
                     return logger.info(f"Join Check for {user_id}")
+
             # 发送验证按钮
             try:
                 await bot.edit_message_reply_markup(
