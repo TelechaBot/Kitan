@@ -29,8 +29,18 @@ class ZhLocales(BaseLocales):
     anti_spam_toggle = "现在我会检查新消息是否包含冒犯内容，我会删除它们并禁言 2 分钟。"
 
 
-def get_locales(language):
-    return {
-        "en-US": EnLocales,
-        "zh-Hans": ZhLocales,
-    }.get(language, EnLocales)
+def get_locales(language: str):
+    if not language:
+        return EnLocales
+    language = language.lower()
+    lang_map = {
+        "en": EnLocales,
+        "zh": ZhLocales,
+    }
+    if language in lang_map:
+        return lang_map[language]
+    # 切分语言
+    main_lang = language.split("-")[0]
+    if main_lang in lang_map:
+        return lang_map[main_lang]
+    return EnLocales
