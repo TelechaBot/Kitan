@@ -7,7 +7,7 @@ AREA = "group_policy"
 
 
 class PolicyRule(BaseModel):
-    join_check: bool = Field(default=True, description="检查加入成员的简历是否包含广告")
+    join_check: bool = Field(default=False, description="检查加入成员的简历是否包含广告")
     """Join Check"""
     anti_spam: bool = Field(default=False, description="反骚扰反侮辱反刷屏")
     """Anti Spam"""
