@@ -32,7 +32,7 @@ class PolicyManager:
         try:
             return PolicyRule.model_validate(data)
         except Exception as exc:
-            logger.error(f"PolicyManager.read: {exc}")
+            logger.debug(f"PolicyManager.read: {exc}")
             return PolicyRule()
 
     async def save(self, group_id: str, data: PolicyRule):
