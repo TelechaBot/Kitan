@@ -407,6 +407,18 @@ class BotRunner(object):
 
         @bot.message_handler(
             chat_types=["group", "supergroup"],
+            content_types=[
+                "text",
+                "audio",
+                "document",
+                # "animation",
+                "photo",
+                # "sticker",
+                "video",
+                "video_note",
+                "voice",
+                "story"
+            ],
         )
         async def group_msg_no_admin(message: types.Message):
             """
@@ -416,8 +428,9 @@ class BotRunner(object):
             logger.debug(
                 f"Received a new group message from {message.from_user.id} - {message.from_user.language_code}"
             )
+            GATE = 8
             familiarity = await STATISTICS.increase(user_id=str(message.from_user.id), group_id=str(message.chat.id))
-            if familiarity < 10:
+            if familiarity < GATE:
                 # 读取群组策略
                 policy = await GROUP_POLICY.read(group_id=str(message.chat.id))
                 if policy.anti_spam:
@@ -428,6 +441,16 @@ class BotRunner(object):
                     ]
                     if message.video:
                         reason.append("INACTIVE_ACCOUNT_SEND_VIDEO")
+                    if message.video_note:
+                        reason.append("INACTIVE_ACCOUNT_SEND_VIDEO_NOTE")
+                    if message.voice:
+                        reason.append("INACTIVE_ACCOUNT_SEND_VOICE")
+                    if message.story:
+                        reason.append("INACTIVE_ACCOUNT_SEND_STORY")
+                    """
+                    if message.sticker:
+                        reason.append("INACTIVE_ACCOUNT_SEND_STICKER")
+                    """
                     if message.photo:
                         downloaded_file = await self.download(message.photo[-1])
                         if downloaded_file:
