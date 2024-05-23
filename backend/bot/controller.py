@@ -568,6 +568,9 @@ async def execution_ground():
                 except Exception as exc:
                     logger.error(f"Delete Message Failed {exc}")
             for join_request in expired:
+                logger.info(
+                    f"Decline Chat Join Request for user_id:{join_request.user_id} chat_id:{join_request.chat_id}"
+                )
                 try:
                     await BOT.decline_chat_join_request(chat_id=join_request.chat_id, user_id=join_request.user_id)
                 except Exception as exc:
