@@ -49,9 +49,8 @@ situations where user approvals are hindered due to bot malfunctions.
 ## 🛣️ Roadmap
 
 - [x] Implement basic verification
-- [ ] Risk control system/ban monitoring/pre-inspection
-- [ ] Group consensus
-- [ ] Persistent tokens/Github-hosted verification
+- [x] Risk control system/ban monitoring/pre-inspection
+- [x] Group consensus
 
 ## 📦 Deploying Your Own Instance
 
