@@ -6,13 +6,6 @@ from typing import Optional
 import shortuuid
 import telebot.async_telebot
 import telegramify_markdown
-from loguru import logger
-from pydantic import SecretStr
-from telebot import types, asyncio_filters
-from telebot import util
-from telebot.asyncio_helper import ApiTelegramException
-from telebot.types import InlineKeyboardMarkup, WebAppInfo
-
 from app_locales import get_locales
 from bot.judge import judge_pre_join_text, reason_chat_text, reason_chat_photo
 from bot.utils import parse_command
@@ -23,8 +16,14 @@ from core.mongo_odm import VerifyRequest
 from core.policy import GROUP_POLICY
 from core.start_resend import RESEND_MANAGER, ResendEvnet
 from core.statistics import STATISTICS
+from loguru import logger
+from pydantic import SecretStr
 from setting.endpoint import EndpointSetting
 from setting.telegrambot import BOT, BotSetting
+from telebot import types, asyncio_filters
+from telebot import util
+from telebot.asyncio_helper import ApiTelegramException
+from telebot.types import InlineKeyboardMarkup, WebAppInfo
 from utils.signature import generate_sign
 
 
@@ -113,11 +112,13 @@ class BotRunner(object):
                             parse_mode="MarkdownV2",
                         )
                     except Exception as exc:
-                        logger.error(f"Send Message Failed {exc}")
+                        logger.error(f"Send Sorry Message Failed {exc}")
                     try:
                         await bot.decline_chat_join_request(chat_id=chat_id, user_id=user_id)
                     except Exception as exc:
                         logger.error(f"Decline Chat Join Request Failed {exc}")
+                    else:
+                        logger.info(f"Join Check Decline for {user_id}")
                     # 删除死亡队列
                     try:
                         data = await JOIN_MANAGER.read()
@@ -195,7 +196,7 @@ class BotRunner(object):
                 sent_message_id = str(sent_message.message_id)
             except Exception as exc:
                 sent_message_id = None
-                logger.error(f"Send Message Failed {exc}")
+                logger.error(f"Send Welcome Message Failed {exc}")
             # 投入死亡队列
             await dead_shot(
                 user_id=user_id,
@@ -492,7 +493,7 @@ class BotRunner(object):
                             )
                             await STATISTICS.reset(user_id=str(message.from_user.id), group_id=str(message.chat.id))
                         except Exception as exc:
-                            logger.error(f"Send Message Failed {exc}")
+                            logger.error(f"Send Group Message Failed {exc}")
                         return logger.info(f"Anti Spam for {message.from_user.id}")
 
         @bot.message_handler(
@@ -561,7 +562,7 @@ async def execution_ground():
                         parse_mode="MarkdownV2",
                     )
                 except Exception as exc:
-                    logger.error(f"Send Message Failed {exc}")
+                    logger.error(f"Send Expired Message Failed {exc}")
                 try:
                     await BOT.delete_message(chat_id=join_request.user_id, message_id=join_request.message_id)
                 except Exception as exc:
