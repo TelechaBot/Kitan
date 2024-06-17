@@ -17,7 +17,19 @@ else:
     RULE = BytesIO(b"")
 
 PRE_CHECKER = DLFA(words_resource=[
-    ["有门槛", "私我进群", "私主号", "更新群", "https://t.me/+", "批发", "双绑号", "卡网", "进群"],
+    [
+        "有门槛",
+        "私我进群",
+        "私主号",
+        "更新群",
+        "https://t.me/+",
+        "批发",
+        "双绑号",
+        "卡网",
+        "进群",
+        "咨询客服",
+        "联系客服"
+    ],
     SpamShelf.CN.ADVERTISEMENT,
 ])
 CHAT_CHECKER = DLFA(words_resource=[
@@ -25,7 +37,9 @@ CHAT_CHECKER = DLFA(words_resource=[
         "有门槛",
         "私我进群",
         "私主号",
-        "https://t.me/"
+        "/joinchat",
+        "/startapp",
+        "批发",
     ],
     RULE
 ])
