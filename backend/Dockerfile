@@ -26,7 +26,7 @@ ENV DEBUG=false
 # 变量，用于设置服务器端口，可以被环境变量 SERVER_PORT 覆盖
 EXPOSE ${SERVER_PORT:-10100}
 
-CMD ["python", "main.py"]
+CMD ["pdm", "run", "python", "main.py"]
 
 
 # 构建

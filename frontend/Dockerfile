@@ -1,5 +1,5 @@
 # Dockerfile
-FROM node:14-alpine as build
+FROM node:18 as build
 
 # 设置工作目录
 WORKDIR /app
