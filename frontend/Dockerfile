@@ -23,23 +23,21 @@ RUN npm run build
 # 使用轻量级 Node.js 运行时镜像
 FROM node:18-alpine
 
-# 全局安装 serve 包
-RUN npm install -g serve
-
 # 从构建阶段复制构建好的资产
 COPY --from=build /app/dist /app/dist
 
 # 设置工作目录
 WORKDIR /app
 
+# 全局安装 serve 包
+RUN npm install -g serve
+
+# 清理不必要文件
+RUN npm uninstall -g serve && \
+    apk --no-cache add tini
+
 # 暴露端口
-EXPOSE 5000
+EXPOSE 80
 
 # 使用 serve 启动服务
-CMD ["serve", "-s", "dist", "-l", "5000"]
-
-# 构建镜像
-# docker build --build-arg VITE_BACKEND_URL=https://api.example.com -t kitan-frontend .
-
-# 运行容器
-# docker run -d -p 5000:5000 kitan-frontend
+CMD ["tini", "--", "serve", "-s", "dist", "-l", "80"]
