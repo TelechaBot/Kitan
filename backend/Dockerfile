@@ -1,4 +1,4 @@
-ARG PYTHON_BASE=3.12-slim
+ARG PYTHON_BASE=3.10-slim
 
 FROM python:$PYTHON_BASE AS builder
 
