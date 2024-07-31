@@ -7,3 +7,4 @@
 .idea/inspectionProfiles/Project_Default.xml
 frontend/dist/*
 ssl/*.pem
+ssl/*.key

@@ -23,6 +23,7 @@ dependencies = [
     "lmdb>=1.4.1",
     "rapidocr-onnxruntime>=1.2.3",
     "cleanse-speech>=0.1.3",
+    "uvicorn>=0.30.3",
 ]
 
 

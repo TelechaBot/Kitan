@@ -1,6 +1,9 @@
-ARG PYTHON_BASE=3.10-slim
+ARG PYTHON_BASE=3.12-slim
 
 FROM python:$PYTHON_BASE AS builder
+
+# 设定 PDM 的虚拟环境位置
+ENV VENV_HOME=/project/.venv
 
 RUN pip install -U pip setuptools wheel && \
     pip install pdm
@@ -8,29 +11,26 @@ RUN pip install -U pip setuptools wheel && \
 ENV PDM_CHECK_UPDATE=false
 
 COPY pyproject.toml pdm.lock /project/
-
 WORKDIR /project
 RUN pdm install --check --prod --no-editable
 
+# 最终镜像
 FROM python:$PYTHON_BASE
 
+# 复制虚拟环境
 COPY --from=builder /project/.venv /project/.venv
-ENV PATH="/project/.venv/bin:$PATH"
 
+# 复制项目文件
 COPY . /project
-WORKDIR /project
 
+WORKDIR /project
+# 配置 Python 路径
 ENV PYTHONPATH=/project
 ENV DEBUG=false
-
-# 变量，用于设置服务器端口，可以被环境变量 SERVER_PORT 覆盖
+ENV PATH="/project/.venv/bin:$PATH"
+# 暴露端口，默认值设置为 10100
 EXPOSE ${SERVER_PORT:-10100}
-
-CMD ["python", "main.py"]
-
-
-# 构建
-# docker build -t kitan-backend .
-
-# Run
-# docker run -d -p 8000:8000 --name kitan-backend-container kitan-backend
+RUN pip install -U pip setuptools wheel && \
+    pip install pdm
+# 启动命令
+CMD ["pdm", "run", "python", "main.py"]
