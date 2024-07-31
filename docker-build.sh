@@ -5,7 +5,7 @@ export VITE_CLOUDFLARE_SITE_KEY='0x4AAAAAAAxxxxx' # Cloudflare Turnstile
 
 # backend: FastAPI
 export SERVER_HOST='0.0.0.0' # Host(DO NOT CHANGE)
-export SERVER_PORT='10100' # Expose Port
+export SERVER_PORT='10101' # Expose Port
 export CORS_ORIGIN='*'
 export VERIFY_DOMAIN='verifyer.dianas.cyou' # Frontend Domain
 export TELEGRAM_BOT_TOKEN='65655103:xxxxxx' # Telegram Bot Token
