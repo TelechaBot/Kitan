@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile.frontend
       args:
         - NODE_ENV=production
-    image: kitan-verify-frontend:latest
+    # image: kitan-verify-frontend:latest
     container_name: kitan-verify-frontend
     environment:
       - VITE_CLOUDFLARE_SITE_KEY=${VITE_CLOUDFLARE_SITE_KEY}
@@ -21,7 +21,7 @@ services:
       dockerfile: Dockerfile.backend
       args:
         - PYTHON_BASE=3.10-slim
-    image: kitan-verify-backend:latest
+    # image: kitan-verify-backend:latest
     container_name: kitan-verify-backend
     environment:
       - SERVER_HOST=0.0.0.0  # Change to 0.0.0.0 ,so it's accessible inside Docker network
