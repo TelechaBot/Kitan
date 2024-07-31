@@ -29,15 +29,11 @@ COPY --from=build /app/dist /app/dist
 # 设置工作目录
 WORKDIR /app
 
-# 全局安装 serve 包
-RUN npm install -g serve
-
-# 清理不必要文件
-RUN npm uninstall -g serve && \
-    apk --no-cache add tini
+# 全局安装 http-server 包，用于提供静态文件
+RUN npm install -g http-server && apk --no-cache add tini
 
 # 暴露端口
 EXPOSE 80
 
-# 使用 serve 启动服务
-CMD ["tini", "--", "serve", "-s", "dist", "-l", "80"]
+# 使用 http-server 启动服务
+CMD ["tini", "--", "http-server", "dist", "-p", "80"]
