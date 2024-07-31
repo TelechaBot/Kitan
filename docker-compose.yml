@@ -7,6 +7,7 @@ services:
       dockerfile: Dockerfile.frontend
       args:
         - NODE_ENV=production
+    network_mode: host
     # image: kitan-verify-frontend:latest
     container_name: kitan-verify-frontend
     environment:
@@ -21,6 +22,7 @@ services:
       dockerfile: Dockerfile.backend
       args:
         - PYTHON_BASE=3.10-slim
+    network_mode: host
     # image: kitan-verify-backend:latest
     container_name: kitan-verify-backend
     environment:

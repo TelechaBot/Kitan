@@ -5,9 +5,10 @@ ARG PYTHON_BASE=3.10-slim
 FROM python:$PYTHON_BASE AS builder
 
 # 安装 PDM
+# RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 RUN pip install -U pip setuptools wheel && \
-    pip install pdm && \
-    pip3 install pdm
+    pip install pdm
+
 # 禁用更新检查
 ENV PDM_CHECK_UPDATE=false
 # 拷贝文件
