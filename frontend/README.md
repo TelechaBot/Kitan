@@ -4,6 +4,7 @@
 
 ```dotenv
 VITE_CLOUDFLARE_SITE_KEY=0x4AAAxxxxxxxxx
+# Cloudflare Turnstile
 VITE_BACKEND_URL=https://verify.dianas.cyou
 # the backend url
 ```

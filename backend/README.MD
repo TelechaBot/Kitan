@@ -21,6 +21,7 @@ pm2 start pm2.json
 SERVER_HOST=0.0.0.0
 SERVER_PORT=10100
 CLOUDFLARE_SECRET_KEY=0x4AAAAA
+# Cloudflare Turnstile
 VERIFY_DOMAIN=verifyer.dianas.cyou
 # cors
 TELEGRAM_BOT_TOKEN=65655103

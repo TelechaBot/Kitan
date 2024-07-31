@@ -25,6 +25,9 @@ verify users and employs AI to monitor user behavior for risks.
 
 - **Biometric Live Authentication**: Confirms the user is a real, living person.
 - **Puzzle Verification**: Ensures users solve a puzzle to prove they're human.
+- **Cloudflare Turnstile**: Blocks users who exhibit risky behavior. If the biometric API is unavailable, fallback
+  methods like Cloudflare's protection and puzzle verification are used.
+- **OCR Trash Message Detection**: Identifies and intercepts spam messages using OCR.
 
 ## 📚 Getting Started
 
@@ -85,4 +88,3 @@ pm2 start pm2.json
 
 ![anime](https://github.com/TelechaBot/Kitan/blob/main/.github/anime.webp?raw=true)
 > This image is decorative and not part of the project.
-
