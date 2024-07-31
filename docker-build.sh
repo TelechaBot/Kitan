@@ -12,4 +12,4 @@ export NGINX_SERVER_NAME='verifyer.dianas.cyou'
 export SSL_CERTIFICATE_PATH='/etc/nginx/ssl/fullchain.pem'
 export SSL_CERTIFICATE_KEY_PATH='/etc/nginx/ssl/privkey.pem'
 
-docker-compose up -d
+docker compose up -d
