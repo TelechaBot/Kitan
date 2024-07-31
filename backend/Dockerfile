@@ -31,6 +31,7 @@ ENV PATH="/project/.venv/bin:$PATH"
 # 暴露端口，默认值设置为 10100
 EXPOSE ${SERVER_PORT:-10100}
 RUN pip install -U pip setuptools wheel && \
-    pip install pdm
+    pip install pdm && \
+    pdm add opencv-python-headless
 # 启动命令
 CMD ["pdm", "run", "python", "main.py"]
