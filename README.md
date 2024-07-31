@@ -47,6 +47,18 @@ This keeps your group safe by ensuring only approved users can join.
 
 To deploy Kitan yourself, you'll need a server, `Redis` (optional), `MongoDB`, a domain, and a Telegram bot.
 
+### Docker
+
+```shell
+git clone https://github.com/TelechaBot/Kitan
+cd Kitan
+nano docker-build.sh
+# Change the environment variables
+./docker-build.sh
+```
+
+check [docker-build.sh](./docker-build.sh) for more information.
+
 ### Clone the Repository
 
 ```shell

@@ -31,3 +31,6 @@ location / {
 
 echo "You need configure the proxy_pass in nginx.conf"
 docker compose -f docker-compose.yml -p kitan up --build
+
+# Run in Backend
+# docker compose -f docker-compose.yml -p kitan up -d --build
