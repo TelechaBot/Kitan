@@ -66,7 +66,7 @@ git clone https://github.com/TelechaBot/Kitan
 cd Kitan
 ```
 
-### Frontend Setup
+#### Frontend Setup
 
 See `/frontend/README.MD`.
 
@@ -79,7 +79,7 @@ npm run build
 # Deploy to your server
 ```
 
-### Backend Setup
+#### Backend Setup
 
 See `/backend/README.MD`.
 
