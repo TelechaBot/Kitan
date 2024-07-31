@@ -8,6 +8,8 @@ services:
     volumes:
       - ./ssl:/etc/ssl  # 挂载本地 SSL 目录到容器
     environment:
+      - VITE_BACKEND_URL=${VITE_BACKEND_URL}
+      - VITE_CLOUDFLARE_SITE_KEY=${VITE_CLOUDFLARE_SITE_KEY}
       - HTTPS_ENABLED=${HTTPS_ENABLED:-false}
     depends_on:
       - backend
@@ -18,8 +20,8 @@ services:
     ports:
       - "${SERVER_PORT:-10100}:${SERVER_PORT:-10100}"
     environment:
-      - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
-      - SERVER_PORT=${SERVER_PORT:-10100}
+      - SERVER_HOST=${SERVER_HOST:-'0.0.0.0'}
+      - SERVER_PORT=${SERVER_PORT:-'10100'}
       - CORS_ORIGIN=${CORS_ORIGIN}
       - VERIFY_DOMAIN=${VERIFY_DOMAIN}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
