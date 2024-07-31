@@ -5,11 +5,8 @@ services:
     build:
       context: frontend
       dockerfile: Dockerfile
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./ssl:/etc/nginx/ssl
+    environment:
+      - HTTPS_ENABLED=${HTTPS_ENABLED:-false}
     depends_on:
       - backend
 

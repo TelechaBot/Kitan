@@ -26,14 +26,25 @@ FROM node:18-alpine
 # 从构建阶段复制构建好的资产
 COPY --from=build /app/dist /app/dist
 
+# 复制 SSL 证书和密钥文件（如果存在）
+COPY ./ssl/server.crt /etc/ssl/server.crt
+COPY ./ssl/server.key /etc/ssl/server.key
+
 # 设置工作目录
 WORKDIR /app
 
 # 全局安装 http-server 包，用于提供静态文件
 RUN npm install -g http-server && apk --no-cache add tini
 
-# 暴露端口
-EXPOSE 80
+# 暴露服务端口（不会占用宿主机的 80 和 443 端口）
+EXPOSE 8080
+EXPOSE 8443
 
-# 使用 http-server 启动服务
-CMD ["tini", "--", "http-server", "dist", "-p", "80"]
+# 使用环境变量控制启动命令
+ENV HTTPS_ENABLED=false
+
+CMD if [ "$HTTPS_ENABLED" = "true" ] && [ -f /etc/ssl/server.crt ] && [ -f /etc/ssl/server.key ]; then \
+      tini -- http-server dist -p 8443 --ssl --cert /etc/ssl/server.crt --key /etc/ssl/server.key -S; \
+    else \
+      tini -- http-server dist -p 8080; \
+    fi
