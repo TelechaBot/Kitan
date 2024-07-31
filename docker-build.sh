@@ -3,14 +3,6 @@
 export VITE_BACKEND_URL='verify.dianas.cyou' # Backend Domain
 export VITE_CLOUDFLARE_SITE_KEY='0x4AAAAAAAxxxxx' # Cloudflare Turnstile
 export HTTPS_ENABLED=false # HTTPS
-
-if [ $HTTPS_ENABLED = true ]; then
-  echo "You need server.crt and server.key in ./ssl/"
-else
-  echo "You need https for webapp, so you cant run without https, pls goto cloudflare to generate a free ssl"
-  echo "You also need a domain to use cloudflare!"
-fi
-
 # backend: FastAPI
 export SERVER_HOST='0.0.0.0' # Host(DO NOT CHANGE)
 export SERVER_PORT='10101' # Expose Port
@@ -19,10 +11,14 @@ export VERIFY_DOMAIN='verifyer.dianas.cyou' # Frontend Domain
 export TELEGRAM_BOT_TOKEN='65655103:xxxxxx' # Telegram Bot Token
 export CLOUDFLARE_SECRET_KEY='0x4AAAAAxxxxx' # Cloudflare Turnstile
 
-# Nginx
-# export NGINX_SERVER_NAME='verifyer.dianas.cyou'
-# export SSL_CERTIFICATE_PATH='/etc/nginx/ssl/fullchain.pem'
-# export SSL_CERTIFICATE_KEY_PATH='/etc/nginx/ssl/privkey.pem'
+# Build Frontend
+if [ $HTTPS_ENABLED = true ]; then
+  echo "You need server.crt and server.key in ./ssl/"
+else
+  echo "You need https for webapp, so you cant run without https, pls goto cloudflare to generate a free ssl"
+  echo "You also need a domain to use cloudflare!"
+fi
+
 
 :<<!
 你可能需要根据实际情况调整 proxy_pass 的端口号。
