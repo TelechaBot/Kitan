@@ -6,7 +6,6 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "10223:10223"
     volumes:
       - ./ssl:/etc/nginx/ssl
     depends_on:
@@ -15,10 +14,17 @@ services:
   backend:
     image: kitan-backend:latest
     ports:
-      - "8000:8000"
+      - "${SERVER_PORT:-10100}:${SERVER_PORT:-10100}"
     environment:
-      - MONGODB_URI=mongodb://mongodb:27017/kitan
-      - REDIS_URI=redis://redis:6379
+      - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
+      - SERVER_PORT=${SERVER_PORT:-10100}
+      - CORS_ORIGIN=${CORS_ORIGIN}
+      - VERIFY_DOMAIN=${VERIFY_DOMAIN}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - MONGODB_DSN=${MONGODB_DSN:-mongodb://mongodb:27017/kitan}
+      - REDIS_DSN=${REDIS_DSN:-redis://redis:6379}
+      - DEBUG=${DEBUG:-false}
+      - CLOUDFLARE_SECRET_KEY=${CLOUDFLARE_SECRET_KEY}
     depends_on:
       - mongodb
       - redis
