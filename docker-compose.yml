@@ -1,58 +1,44 @@
-version: '3'
+version: '3.8'
 
 services:
   frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-      args:
-        - NODE_ENV=production
-    network_mode: host
-    # image: kitan-verify-frontend:latest
-    container_name: kitan-verify-frontend
-    environment:
-      - VITE_CLOUDFLARE_SITE_KEY=${VITE_CLOUDFLARE_SITE_KEY}
-      - VITE_BACKEND_URL=/api  # Change backend URL to relative URL
-    volumes:
-      - ./nginx/ssl:/etc/nginx/ssl
-
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-      args:
-        - PYTHON_BASE=3.10-slim
-    network_mode: host
-    # image: kitan-verify-backend:latest
-    container_name: kitan-verify-backend
-    environment:
-      - SERVER_HOST=0.0.0.0  # Change to 0.0.0.0 ,so it's accessible inside Docker network
-      - SERVER_PORT=${SERVER_PORT}
-      - MONGO_URI=mongodb://mongo:27017/your-database
-      - CLOUDFLARE_SECRET_KEY=${CLOUDFLARE_SECRET_KEY}
-      - VERIFY_DOMAIN=${VERIFY_DOMAIN}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-
-  nginx:
-    image: nginx:latest
-    container_name: nginx
+    image: kitan-frontend:latest
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl
-      - ./nginx/cf.conf:/etc/nginx/cf.conf:ro
-    environment:
-      - NGINX_SERVER_NAME=${NGINX_SERVER_NAME}
-      - SSL_CERTIFICATE_PATH=${SSL_CERTIFICATE_PATH}
-      - SSL_CERTIFICATE_KEY_PATH=${SSL_CERTIFICATE_KEY_PATH}
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - backend
 
-  mongo:
+  backend:
+    image: kitan-backend:latest
+    ports:
+      - "${SERVER_PORT:-10100}:${SERVER_PORT:-10100}"
+    environment:
+      - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
+      - SERVER_PORT=${SERVER_PORT:-10100}
+      - CORS_ORIGIN=${CORS_ORIGIN}
+      - VERIFY_DOMAIN=${VERIFY_DOMAIN}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - MONGODB_DSN=${MONGODB_DSN:-mongodb://mongodb:27017/kitan}
+      - REDIS_DSN=${REDIS_DSN:-redis://redis:6379}
+      - DEBUG=${DEBUG:-false}
+      - CLOUDFLARE_SECRET_KEY=${CLOUDFLARE_SECRET_KEY}
+    depends_on:
+      - mongodb
+      - redis
+
+  mongodb:
     image: mongo:latest
-    container_name: kitan_verify_mongo
     volumes:
-      - mongo-data:/data/db
+      - mongodb_data:/data/db
+
+  redis:
+    image: redis:alpine
+    volumes:
+      - redis_data:/data
 
 volumes:
-  mongo-data:
+  mongodb_data:
+  redis_data:
