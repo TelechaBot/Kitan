@@ -1,5 +1,5 @@
 ![Kitan](https://github.com/TelechaBot/Kitan/blob/main/.github/project_cover.webp?raw=true)
----
+
 <p align="center">
   <img alt="License" src="https://img.shields.io/badge/LICENSE-Apache%202.0-blue.svg" />
   <img src="https://img.shields.io/badge/Python-3.9%2B-green.svg" alt="Python 3.9+" />
@@ -8,60 +8,52 @@
 
 # 🌟 Kitan
 
-**Kitan** is a Telegram bot guardian responsible for ensuring that users are friendly real human beings. It is an
-open-source project developed using Python and Vue.
-
-👋 User-friendly and incorporating risk control technology, Kitan provides a safe and pleasant chat environment,
-effectively preventing personal attacks and advertisements from real human harassments.
+**Kitan** is a Telegram bot that helps keep your group safe by verifying that users are real people. It's open-source
+and built with Python and Vue.
 
 [Invite the bot to your group](https://t.me/SmartVerifyBot?startgroup&admin=can_invite_users+restrict_members+delete_messages)
 
-### 🚀 Why Choose Kitan
+## 🚀 Why Kitan?
 
-Traditional verification methods like captchas, security questions, and puzzles can be circumvented with human
-assistance. Moreover, not all advertisement senders are bots; real users may also send ads.
+Many traditional verification methods like captchas and questions can be bypassed with human help. Plus, not all
+spammers are bots—some are real people.
 
-Hence, we need a verification method tailored to the current environment, ensuring that users are within the platform
-and have undergone self-defense testing.
+Kitan uses modern methods to verify users, ensuring they're genuine. It combines biometric authentication and puzzles to
+verify users and employs AI to monitor user behavior for risks.
 
-Kitan achieves this by using quick fingerprint verification and puzzle proof-of-work within the authentication mechanism
-to ensure users are real humans.
+## 🛡️ How It Works
 
-Additionally, Kitan employs risk control techniques, combining LLM/NLP/big data technologies for AI behavior analysis,
-monitoring user behavior from joining to leaving groups, effectively preventing personal attacks and real human
-advertisement harassment.
+- **Biometric Live Authentication**: Confirms the user is a real, living person.
+- **Puzzle Verification**: Ensures users solve a puzzle to prove they're human.
 
-## 🛡️ Verification Methods
+## 📚 Getting Started
 
-- [x] Biometric live authentication
-- [x] Puzzle proof-of-work verification
+1. Add Kitan to your Telegram group.
+2. Make Kitan an administrator with the right permissions.
+3. Kitan will automatically screen new members.
 
-## 📚 How to Use
-
-1. Add the bot to your group
-2. Set the bot as an administrator
-3. Grant the bot the necessary permissions
-4. The bot will automatically review new group members
-
-The bot implements an approval-based invite mechanism, allowing only approved users to join the group, preventing
-situations where user approvals are hindered due to bot malfunctions.
+This keeps your group safe by ensuring only approved users can join.
 
 ## 🛣️ Roadmap
 
-- [x] Implement basic verification
-- [x] Risk control system/ban monitoring/pre-inspection
-- [x] Group consensus
+- [x] Basic verification
+- [x] Risk control and ban monitoring
+- [x] Group consensus features
 
-## 📦 Deploying Your Own Instance
+## 📦 Deploying Kitan
 
-You will need a server with `Redis` and `MongoDB` installed, a domain, and a Telegram bot.
+To deploy Kitan yourself, you'll need a server, `Redis` (optional), `MongoDB`, a domain, and a Telegram bot.
+
+### Clone the Repository
 
 ```shell
 git clone https://github.com/TelechaBot/Kitan
 cd Kitan
 ```
 
-#### Frontend
+### Frontend Setup
+
+See `/frontend/README.MD`.
 
 ```shell
 cd frontend
@@ -69,12 +61,12 @@ npm install
 env VITE_BACKEND_URL="https://api.example.com"
 # env VITE_CLOUDFLARE_SITE_KEY="optional"
 npm run build
-# Deploy to server
+# Deploy to your server
 ```
 
-#### Backend
+### Backend Setup
 
-**See `/backend/README.MD`**
+See `/backend/README.MD`.
 
 ```shell
 cd backend
@@ -90,5 +82,7 @@ pm2 start pm2.json
 ```
 
 ---
+
 ![anime](https://github.com/TelechaBot/Kitan/blob/main/.github/anime.webp?raw=true)
-> This image is used as decoration for this page and is not part of the project.
+> This image is decorative and not part of the project.
+

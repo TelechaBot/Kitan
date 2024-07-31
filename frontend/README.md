@@ -1,5 +1,13 @@
 # Frontend
 
+## `.env` Configuration
+
+```dotenv
+VITE_CLOUDFLARE_SITE_KEY=0x4AAAxxxxxxxxx
+VITE_BACKEND_URL=https://verify.dianas.cyou
+# the backend url
+```
+
 ## Recommended Setup
 
 ```shell
