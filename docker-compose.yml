@@ -3,6 +3,7 @@ version: '3.8'
 services:
   frontend:
     image: kitan-frontend:latest
+    network_mode: "host"
     ports:
       - "80:80"
       - "443:443"
@@ -14,6 +15,7 @@ services:
 
   backend:
     image: kitan-backend:latest
+    network_mode: "host"
     ports:
       - "8000:8000"
     environment:
