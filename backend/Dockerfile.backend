@@ -15,7 +15,7 @@ COPY . .
 COPY .env.example .env
 
 # 安装依赖
-RUN pdm install
+RUN pdm install --check --prod --no-editable
 
 EXPOSE 22111
 
