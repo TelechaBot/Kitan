@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   frontend:
-    image: kitan-frontend:latest
+    build:
+      context: frontend
+      dockerfile: Dockerfile
     ports:
       - "80:80"
       - "443:443"
@@ -12,7 +14,9 @@ services:
       - backend
 
   backend:
-    image: kitan-backend:latest
+    build:
+      context: backend
+      dockerfile: Dockerfile
     ports:
       - "${SERVER_PORT:-10100}:${SERVER_PORT:-10100}"
     environment:
