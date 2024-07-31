@@ -16,4 +16,4 @@ export CLOUDFLARE_SECRET_KEY='0x4AAAAAxxxxx' # Cloudflare Turnstile
 # export SSL_CERTIFICATE_PATH='/etc/nginx/ssl/fullchain.pem'
 # export SSL_CERTIFICATE_KEY_PATH='/etc/nginx/ssl/privkey.pem'
 
-docker compose up --build
+docker compose -f docker-compose.yml -p kitan up --build
