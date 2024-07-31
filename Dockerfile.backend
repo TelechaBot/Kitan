@@ -1,0 +1,30 @@
+# 设置基础镜像
+ARG PYTHON_BASE=3.10-slim
+
+# 构建阶段
+FROM python:$PYTHON_BASE AS builder
+
+# 安装 PDM
+RUN pip install -U pdm
+# 禁用更新检查
+ENV PDM_CHECK_UPDATE=false
+# 拷贝文件
+COPY backend/pyproject.toml backend/pdm.lock /project/
+
+# 安装依赖和项目
+WORKDIR /project
+RUN pdm install --check --prod --no-editable
+
+# 运行阶段
+FROM python:$PYTHON_BASE
+
+# 从构建阶段复制包
+COPY --from=builder /project/.venv /project/.venv
+ENV PATH="/project/.venv/bin:$PATH"
+
+# 复制项目文件
+COPY backend /project
+
+WORKDIR /project
+# 设置入口命令
+CMD ["python", "main.py"]

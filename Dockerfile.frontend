@@ -1,0 +1,21 @@
+# 使用 Node.js 作为基镜像进行构建
+FROM node:18 AS builder
+
+WORKDIR /app
+
+COPY frontend/package*.json ./
+RUN npm install
+
+COPY frontend /app
+RUN npm run build
+
+# 使用 Nginx 进行部署
+FROM nginx:alpine
+
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
+
+EXPOSE 80
+EXPOSE 443
+
+CMD ["nginx", "-g", "daemon off;"]
