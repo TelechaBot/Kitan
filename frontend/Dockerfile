@@ -1,5 +1,5 @@
-# Dockerfile
-FROM node:18 as build
+# 使用 Node.js 18 作为基础镜像
+FROM node:18 AS build
 
 # 设置工作目录
 WORKDIR /app
@@ -17,31 +17,29 @@ COPY . .
 ARG VITE_BACKEND_URL
 ENV VITE_BACKEND_URL=$VITE_BACKEND_URL
 
-# 可选：如果需要，设置 CLOUDFLARE_SITE_KEY
-# ARG VITE_CLOUDFLARE_SITE_KEY
-# ENV VITE_CLOUDFLARE_SITE_KEY=$VITE_CLOUDFLARE_SITE_KEY
-
 # 构建项目
 RUN npm run build
 
-FROM nginx:alpine
+# 使用轻量级 Node.js 运行时镜像
+FROM node:18-alpine
+
+# 全局安装 serve 包
+RUN npm install -g serve
 
 # 从构建阶段复制构建好的资产
-COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=build /app/dist /app/dist
 
-# 复制自定义 nginx 配置
-COPY nginx.conf /etc/nginx/nginx.conf
+# 设置工作目录
+WORKDIR /app
 
-# 为 SSL 证书创建目录
-RUN mkdir -p /etc/nginx/ssl
+# 暴露端口
+EXPOSE 5000
 
-# 暴露 80 和 443 端口, 10223为测试端口
-EXPOSE 80 443 10223
+# 使用 serve 启动服务
+CMD ["serve", "-s", "dist", "-l", "5000"]
 
-CMD ["nginx", "-g", "daemon off;"]
-
-# 修改nginx.conf后，构建镜像
+# 构建镜像
 # docker build --build-arg VITE_BACKEND_URL=https://api.example.com -t kitan-frontend .
 
-# Run
-# docker run -d -p 80:80 -p 443:443 -p 10223 -v /path/to/ssl/certs:/etc/nginx/ssl kitan-frontend
+# 运行容器
+# docker run -d -p 5000:5000 kitan-frontend
