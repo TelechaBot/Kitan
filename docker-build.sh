@@ -3,6 +3,9 @@
 export VITE_BACKEND_URL='https://verify.dianas.cyou' # Backend Domain
 export VITE_CLOUDFLARE_SITE_KEY='0x4AAAAAAAxxxxx' # Cloudflare Turnstile
 export HTTPS_ENABLED=false # HTTPS
+# if https,ensure ssl/server.crt ssl/server.key
+
+
 # backend: FastAPI
 export SERVER_HOST='0.0.0.0' # Host(DO NOT CHANGE)
 export SERVER_PORT='10101' # Expose Port
@@ -30,7 +33,7 @@ location / {
 !
 
 echo "You need configure the proxy_pass in nginx.conf"
-docker compose -f docker-compose.yml -p kitan up --build
+# docker compose -f docker-compose.yml -p kitan up --build
 
 # Run in Backend
-# docker compose -f docker-compose.yml -p kitan up -d --build
+docker compose -f docker-compose.yml -p kitan up -d --build
