@@ -16,12 +16,15 @@ COPY . .
 # 设置环境变量
 ARG VITE_BACKEND_URL
 ARG VITE_CLOUDFLARE_SITE_KEY
+
+# 确保变量存在
+RUN if [ -z "$VITE_BACKEND_URL" ] || [ -z "$VITE_CLOUDFLARE_SITE_KEY" ]; then \
+      echo "Error: Environment variables VITE_BACKEND_URL and VITE_CLOUDFLARE_SITE_KEY must be set." >&2; \
+      exit 1; \
+    fi
+
 RUN echo "VITE_BACKEND_URL=${VITE_BACKEND_URL}" > .env
 RUN echo "VITE_CLOUDFLARE_SITE_KEY=${VITE_CLOUDFLARE_SITE_KEY}" >> .env
-
-RUN echo "VITE_BACKEND_URL=${VITE_BACKEND_URL}" && \
-    echo "VITE_CLOUDFLARE_SITE_KEY=${VITE_CLOUDFLARE_SITE_KEY}" \
-    cat .env
 
 # 构建项目
 RUN npm run build
