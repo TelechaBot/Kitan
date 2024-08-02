@@ -52,6 +52,7 @@ To deploy Kitan yourself, you'll need a server, `Redis` (optional), `MongoDB`, a
 ```shell
 git clone https://github.com/TelechaBot/Kitan
 cd Kitan
+chmod +x docker-build.sh
 nano docker-build.sh
 # Change the environment variables
 ./docker-build.sh
