@@ -1,6 +1,6 @@
 # docker-build.sh
 # frontend: Vite
-export VITE_BACKEND_URL='verify.dianas.cyou' # Backend Domain
+export VITE_BACKEND_URL='https://verify.dianas.cyou' # Backend Domain
 export VITE_CLOUDFLARE_SITE_KEY='0x4AAAAAAAxxxxx' # Cloudflare Turnstile
 export HTTPS_ENABLED=false # HTTPS
 # backend: FastAPI
