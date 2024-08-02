@@ -9,6 +9,9 @@ services:
         VITE_BACKEND_URL: ${VITE_BACKEND_URL}
         VITE_CLOUDFLARE_SITE_KEY: ${VITE_CLOUDFLARE_SITE_KEY}
         HTTPS_ENABLED: ${HTTPS_ENABLED:-false}
+    ports:
+      - "8080:8080"
+      - "8443:8443"
     volumes:
       - ./ssl:/etc/ssl  # 挂载本地 SSL 目录到容器
     environment:
