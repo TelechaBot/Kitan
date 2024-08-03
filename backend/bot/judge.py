@@ -28,7 +28,9 @@ PRE_CHECKER = DLFA(words_resource=[
         "卡网",
         "进群",
         "咨询客服",
-        "联系客服"
+        "联系客服",
+        "日撸",
+        "进盘口",
     ],
     SpamShelf.CN.ADVERTISEMENT,
 ])
