@@ -17,6 +17,13 @@ def generate_sign(
     return sign
 
 
+def generate_oko(
+        data: str,
+        time: str,
+) -> int:
+    return int(int(time) % hashlib.sha256(data.encode()).hexdigest().count("c") + 1) == 0
+
+
 if __name__ == '__main__':
     from pydantic import SecretStr
 
