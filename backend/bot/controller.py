@@ -167,7 +167,8 @@ class BotRunner(object):
             """
             locale = get_locales(message.from_user.language_code)
             logger.info(
-                f"Received a new join request from {message.from_user.id} in chat {message.chat.id} - {message.from_user.language_code} - {message.bio}"
+                f"[JOIN] user {message.from_user.full_name} join-in chat {message.chat.title}@{message.chat.username}\n"
+                f"{message.from_user.id}/{message.chat.id}| - {message.from_user.language_code} - {message.bio}"
             )
             # 解析请求
             try:
@@ -228,7 +229,7 @@ class BotRunner(object):
 
             # 生产验证URL
             verify_url = f"https://{EndpointSetting.domain}/?chat_id={chat_id}&message_id={sent_message_id}&user_id={user_id}&timestamp={join_m_time}&signature={signature}"
-            logger.info(f"Verify URL: {verify_url}")
+            logger.info(f"[GATE] Verify URL: {verify_url}")
             # 预先检查用户资料
             try:
                 event = await bot.get_chat(message.from_user.id)
@@ -276,7 +277,7 @@ class BotRunner(object):
             """
             locale = get_locales(message.from_user.language_code)
             logger.info(
-                f"Received a new verify command from {message.from_user.id} - {message.from_user.language_code}"
+                f"[VERIFY] {message.from_user.id}:{message.from_user.full_name} - {message.from_user.language_code}"
             )
             # 解析命令
             try:
@@ -314,7 +315,7 @@ class BotRunner(object):
             """
             locale = get_locales(message.from_user.language_code)
             logger.info(
-                f"Received a new join check command from {message.from_user.id} - {message.from_user.language_code}"
+                f"[ADMIN] join check cmd for {message.from_user.id} - {message.from_user.language_code}"
             )
             # 读取群组策略
             policy = await GROUP_POLICY.read(group_id=str(message.chat.id))
@@ -342,7 +343,7 @@ class BotRunner(object):
             """
             locale = get_locales(message.from_user.language_code)
             logger.info(
-                f"Received a new anti spam command from {message.from_user.id} - {message.from_user.language_code}"
+                f"[ADMIN] Received a new anti spam command from {message.from_user.id} - {message.from_user.language_code}"
             )
             # 读取群组策略
             policy = await GROUP_POLICY.read(group_id=str(message.chat.id))
@@ -370,7 +371,7 @@ class BotRunner(object):
             """
             locale = get_locales(message.from_user.language_code)
             logger.info(
-                f"Received a new complaints guide command from {message.from_user.id} - {message.from_user.language_code}"
+                f"[ADMIN] Received a new complaints guide command from {message.from_user.id} - {message.from_user.language_code}"
             )
             # 读取群组策略
             policy = await GROUP_POLICY.read(group_id=str(message.chat.id))
@@ -428,7 +429,7 @@ class BotRunner(object):
             """
             locale = get_locales(message.from_user.language_code)
             logger.debug(
-                f"Received a new group message from {message.from_user.id} - {message.from_user.language_code}"
+                f"[GROUP] Received a new group message from {message.from_user.id} - {message.from_user.language_code}"
             )
             GATE = 8
             familiarity = await STATISTICS.increase(user_id=str(message.from_user.id), group_id=str(message.chat.id))
@@ -507,7 +508,7 @@ class BotRunner(object):
             """
             locale = get_locales(message.from_user.language_code)
             logger.info(
-                f"Received a new start command from {message.from_user.id} - {message.from_user.language_code}"
+                f"[START] Start command from {message.from_user.id}:{message.from_user.full_name} - {message.from_user.language_code}"
             )
             # https://core.telegram.org/api/links#bot-links
             invite_link = (f"https://t.me/{BotSetting.bot_username}?startgroup"
