@@ -6,6 +6,13 @@ from typing import Optional
 import shortuuid
 import telebot.async_telebot
 import telegramify_markdown
+from loguru import logger
+from pydantic import SecretStr
+from telebot import types, asyncio_filters
+from telebot import util
+from telebot.asyncio_helper import ApiTelegramException
+from telebot.types import InlineKeyboardMarkup, WebAppInfo
+
 from app_locales import get_locales
 from bot.judge import judge_pre_join_text, reason_chat_text, reason_chat_photo
 from bot.utils import parse_command
@@ -16,14 +23,8 @@ from core.mongo_odm import VerifyRequest
 from core.policy import GROUP_POLICY
 from core.start_resend import RESEND_MANAGER, ResendEvnet
 from core.statistics import STATISTICS
-from loguru import logger
-from pydantic import SecretStr
 from setting.endpoint import EndpointSetting
 from setting.telegrambot import BOT, BotSetting
-from telebot import types, asyncio_filters
-from telebot import util
-from telebot.asyncio_helper import ApiTelegramException
-from telebot.types import InlineKeyboardMarkup, WebAppInfo
 from utils.signature import generate_sign
 
 
@@ -280,7 +281,7 @@ class BotRunner(object):
             # 解析命令
             try:
                 command, event_id = parse_command(message.text)
-                assert event_id, "Event ID Not Found"
+                assert event_id, "User not provide event_id"
             except Exception as exc:
                 return logger.info(f"Command Parse Failed {exc}")
             event = await RESEND_MANAGER.read(event_id=event_id)

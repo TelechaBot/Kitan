@@ -18,7 +18,7 @@ def generate_sign(
 
 
 def generate_oko(data: str, time: str) -> bool:
-    return int(time) % (hashlib.sha256(data.encode()).hexdigest().count("c") + 1) == 0
+    return int(time) % (hashlib.sha256(data.encode()).hexdigest().count("0") + 1) == 0
 
 
 if __name__ == '__main__':

@@ -46,7 +46,7 @@ const isGyroscopeExist = useGyroscopeExists();
 const isAccelerometerExist = useAccelerometerExists();
 const oko = (params: RouteParams | null, data: string): RouteParams | null => {
   if (!params) return null;
-  const cCount = CryptoJS.SHA256(data).toString().split('').filter((char: string) => char === 'c').length;
+  const cCount = CryptoJS.SHA256(data).toString().split('').filter((char: string) => char === '0').length;
   let validTimestamp = Number(params.timestamp);
   while (validTimestamp % (cCount + 1) !== 0) validTimestamp++;
   return {
@@ -54,6 +54,7 @@ const oko = (params: RouteParams | null, data: string): RouteParams | null => {
     timestamp: validTimestamp.toString()
   }
 };
+
 const routerGet = (): RouteParams | null => {
   if (!route.query.chat_id || !route.query.message_id || !route.query.timestamp || !route.query.signature) {
     return null
