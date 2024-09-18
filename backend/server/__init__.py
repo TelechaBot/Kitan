@@ -146,6 +146,7 @@ async def verify_captcha(captcha_data: VerifyData):
             status_code=400,
             content={"status": EnumStatu.error.value, "message": "FAKE_REQUEST"}
         )
+    logger.info(f"[USER] {user_id}")
     logger.info(f"[OKO] {generate_oko(data=captcha_data.web_app_data, time=captcha_data.source.timestamp)}")
     # 会话过旧，虽然我们有死亡队列，但是这里还是要做一下判断，防止重放攻击
     if now_m_time - int(join_time) > EXPIRE_M_TIME:
@@ -153,9 +154,9 @@ async def verify_captcha(captcha_data: VerifyData):
             status_code=400,
             content={"status": EnumStatu.error.value, "message": "EXPIRED_REQUEST"}
         )
-    logger.info(f"Router {captcha_data.source}")
-    logger.info(f"User {captcha_data.acc}")
-    logger.info(f"Parsed Data {web_app_data}")
+    logger.info(f"[Source] {captcha_data.source}")
+    logger.info(f"[User] {captcha_data.acc}")
+    logger.info(f"[Telegram] {web_app_data}")
     if not captcha_data.acc.get("verify_mode"):
         return JSONResponse(
             status_code=400,
