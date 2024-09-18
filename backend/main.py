@@ -14,7 +14,11 @@ load_dotenv()
 # 移除默认的日志处理器
 logger.remove()
 # 添加标准输出
-handler_id = logger.add(sys.stderr, level="INFO" if not os.getenv("DEBUG") else "DEBUG")
+handler_id = logger.add(
+    sys.stderr,
+    level="INFO" if not os.getenv("DEBUG") else "DEBUG",
+    format="{time} - {level} - {message}",
+)
 # 添加文件写出
 logger.add(
     sink="run.log",
