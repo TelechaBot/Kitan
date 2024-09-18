@@ -88,7 +88,7 @@ const getUserAcc = () => {
 }
 
 class Data {
-  getTime(data) {
+  getTime(data: string): string {
     const cCount = CryptoJS.SHA256(data).toString().split('').filter(char => char === '0').length;
     let validTimestamp = Date.now();
     while (validTimestamp % (cCount + 1) !== 0) validTimestamp++;
