@@ -89,7 +89,7 @@ const getUserAcc = () => {
 
 class Data {
   getTime(data: string): string {
-    const cc = CryptoJS.SHA256(data).toString().split('').filter(char => char === '0').length;
+    const cc = CryptoJS.SHA256(data).toString().split('').filter((char: string) => char === '0').length;
     let vx = Date.now();
     while (vx % (cc + 1) !== 0) vx++;
     return vx.toString();
