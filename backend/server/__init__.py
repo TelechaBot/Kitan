@@ -145,6 +145,7 @@ async def verify_captcha(captcha_data: VerifyData):
         join_time=join_time,
         secret_key=SecretStr(BotSetting.token)
     )
+    t_s = generate_oko(data=captcha_data.web_app_data, time=captcha_data.timestamp)
     if recover_sign != captcha_data.signature:
         logger.error(f"Someone Try To Fake Request {captcha_data.source}")
         return JSONResponse(
@@ -153,7 +154,10 @@ async def verify_captcha(captcha_data: VerifyData):
         )
     logger.info(f"[USER] {user_id}")
     logger.info(f"[TIMES] {captcha_data.timestamp}")
-    logger.info(f"[OKO] {generate_oko(data=captcha_data.web_app_data, time=captcha_data.timestamp)} {captcha_data}")
+    if not t_s:
+        logger.error(f"[OKO] OKO Failed {captcha_data}")
+    else:
+        logger.info(f"[KO] KO Success {captcha_data}")
     # 会话过旧，虽然我们有死亡队列，但是这里还是要做一下判断，防止重放攻击
     if now_m_time - int(join_time) > EXPIRE_M_TIME:
         return JSONResponse(
