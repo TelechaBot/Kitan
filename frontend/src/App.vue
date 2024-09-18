@@ -7,7 +7,7 @@ import Puzzles from "./components/Puzzles.vue";
 import {useWebApp, useWebAppBiometricManager, useWebAppPopup} from "vue-tg";
 import {useGyroscopeExists} from "./hook/useGyroscopeExists.ts";
 import {useAccelerometerExists} from "./hook/useAccelerometerExists.ts";
-import CryptoJS from 'crypto-js'
+import CryptoJS from 'crypto-js';
 
 const route = useRoute();
 
