@@ -8,7 +8,7 @@ import telebot.util
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, SecretStr, ConfigDict
 from starlette.responses import JSONResponse
 
 from const import EXPIRE_M_TIME
@@ -51,6 +51,8 @@ class VerifyData(BaseModel):
     signature: str
     web_app_data: str
     timestamp: str
+
+    model_config = ConfigDict(extra="allow")
 
 
 class CloudflareData(BaseModel):

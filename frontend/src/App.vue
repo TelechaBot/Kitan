@@ -8,6 +8,7 @@ import {useWebApp, useWebAppBiometricManager, useWebAppPopup} from "vue-tg";
 import {useGyroscopeExists} from "./hook/useGyroscopeExists.ts";
 import {useAccelerometerExists} from "./hook/useAccelerometerExists.ts";
 import CryptoJS from 'crypto-js';
+import VersionInfo from "./components/VersionInfo.vue";
 
 const route = useRoute();
 
@@ -419,6 +420,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         :title="verifyBackendMessage.success ? 'Success' : 'Error'"
         :type="verifyBackendMessage.success ? 'success' : 'error'"
     ></v-alert>
+    <VersionInfo/>
   </div>
 </template>
 

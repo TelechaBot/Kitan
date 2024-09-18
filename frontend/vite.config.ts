@@ -9,5 +9,8 @@ export default defineConfig({
         vue(),
         UnoCSS(),
     ],
+    define: {
+        'import.meta.env.VITE_BUILD_DATE': JSON.stringify(new Date().toISOString().split('T')[0]),
+    },
     base: '/',
 })
