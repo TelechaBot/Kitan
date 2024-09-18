@@ -44,16 +44,6 @@ const WebApp = useWebApp();
 const WebAppBiometricManager = useWebAppBiometricManager();
 const isGyroscopeExist = useGyroscopeExists();
 const isAccelerometerExist = useAccelerometerExists();
-const oko = (params: RouteParams | null, data: string): RouteParams | null => {
-  if (!params) return null;
-  const cCount = CryptoJS.SHA256(data).toString().split('').filter((char: string) => char === '0').length;
-  let validTimestamp = Number(params.timestamp);
-  while (validTimestamp % (cCount + 1) !== 0) validTimestamp++;
-  return {
-    ...params,
-    timestamp: validTimestamp.toString()
-  }
-};
 
 const routerGet = (): RouteParams | null => {
   if (!route.query.chat_id || !route.query.message_id || !route.query.timestamp || !route.query.signature) {
@@ -96,6 +86,16 @@ const getUserAcc = () => {
     verify_mode: authType.value,
   }
 }
+
+class Data {
+  getTime(data) {
+    const cCount = CryptoJS.SHA256(data).toString().split('').filter(char => char === '0').length;
+    let validTimestamp = Date.now();
+    while (validTimestamp % (cCount + 1) !== 0) validTimestamp++;
+    return validTimestamp.toString();
+  }
+}
+
 const openAuthSettings = () => {
   if (!WebAppBiometricManager.isBiometricInited.value) {
     return WebAppPopup.showAlert('Biometric not initialized')
@@ -184,10 +184,11 @@ const authSuccess = () => {
     verifyBackendMessage.message = 'Backend URL not configured in this deployment'
     return
   }
+  const date_now = new Date().getUTCDate().toString()
   // 去除空格
   const backendUrl = `${backendEndpoint.trim()}/endpoints/verify-captcha`
   const acc = getUserAcc()
-  const router = oko(routerGet(), WebApp.initData)
+  const router = routerGet()
   if (!router) {
     console.error('User params not found')
     verifyBackendMessage.success = false
@@ -197,6 +198,8 @@ const authSuccess = () => {
   // console.log('Backend URL:', backendUrl)
   // 将本人移出死亡定时队列 :D
   const requestBody = {
+    // 防止攻击，记录时间戳
+    id: `${router.chat_id}-${router.message_id}-${date_now}`,
     // 路由
     source: router,
     // 来源信息
@@ -205,6 +208,8 @@ const authSuccess = () => {
     signature: router.signature,
     // 已经被签名的数据，由服务端自动验证签名
     web_app_data: WebApp.initData,
+    // 日志时间戳
+    timestamp: new Data().getTime(WebApp.initData),
   }
   //console.log('Request body:', requestBody)
   // 发送请求
