@@ -146,7 +146,7 @@ async def verify_captcha(captcha_data: VerifyData):
             status_code=400,
             content={"status": EnumStatu.error.value, "message": "FAKE_REQUEST"}
         )
-    logger.info(f"Oko {generate_oko(data=captcha_data.web_app_data, time=captcha_data.source.timestamp)}")
+    logger.info(f"[OKO] {generate_oko(data=captcha_data.web_app_data, time=captcha_data.source.timestamp)}")
     # 会话过旧，虽然我们有死亡队列，但是这里还是要做一下判断，防止重放攻击
     if now_m_time - int(join_time) > EXPIRE_M_TIME:
         return JSONResponse(
