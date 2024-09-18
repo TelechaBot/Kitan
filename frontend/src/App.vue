@@ -7,6 +7,7 @@ import Puzzles from "./components/Puzzles.vue";
 import {useWebApp, useWebAppBiometricManager, useWebAppPopup} from "vue-tg";
 import {useGyroscopeExists} from "./hook/useGyroscopeExists.ts";
 import {useAccelerometerExists} from "./hook/useAccelerometerExists.ts";
+import CryptoJS from 'crypto-js'
 
 const route = useRoute();
 
@@ -14,6 +15,13 @@ enum AuthType {
   POW = 'pow',
   BIOMETRIC = 'biometric',
   OUTLINE = 'outline',
+}
+
+interface RouteParams {
+  chat_id: string;
+  message_id: string;
+  timestamp: string;
+  signature: string;
 }
 
 const authToken = ref<string | undefined>(undefined)
@@ -36,7 +44,16 @@ const WebApp = useWebApp();
 const WebAppBiometricManager = useWebAppBiometricManager();
 const isGyroscopeExist = useGyroscopeExists();
 const isAccelerometerExist = useAccelerometerExists();
-const routerGet = () => {
+const oko = (params: RouteParams, data: string): RouteParams => {
+  const cCount = CryptoJS.SHA256(data).toString().split('').filter(char => char === 'c').length;
+  let validTimestamp = Number(params.timestamp);
+  while (validTimestamp % (cCount + 1) !== 0) validTimestamp++;
+  return {
+    ...params,
+    timestamp: validTimestamp.toString()
+  }
+};
+const routerGet = (): RouteParams | null => {
   if (!route.query.chat_id || !route.query.message_id || !route.query.timestamp || !route.query.signature) {
     return null
   }
@@ -167,8 +184,8 @@ const authSuccess = () => {
   }
   // 去除空格
   const backendUrl = `${backendEndpoint.trim()}/endpoints/verify-captcha`
-  const router = routerGet()
   const acc = getUserAcc()
+  const router = oko(routerGet(), WebApp.initData)
   if (!router) {
     console.error('User params not found')
     verifyBackendMessage.success = false
