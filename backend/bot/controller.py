@@ -45,7 +45,7 @@ class BotRunner(object):
                 return None
             downloaded_file = await self.bot.download_file(_file_info.file_path)
         except Exception as exc:
-            logger.error(f"Download File Failed {exc}")
+            logger.error(f"[Telegram API] Download File Failed {exc}")
             return None
         else:
             return downloaded_file
@@ -75,9 +75,9 @@ class BotRunner(object):
                     )
                 )
             except Exception as exc:
-                logger.error(f"Dead Queue Insert Failed {exc}")
+                logger.error(f"[DQF] Dead Queue Insert Failed {exc}")
             else:
-                logger.info(f"Dead Queue Insert Success[{user_id}-{chat_id}]")
+                logger.info(f"[WAIT] Success insert {user_id}:{chat_id}]")
 
         async def pre_process_user(
                 chat_id: int,
@@ -97,7 +97,7 @@ class BotRunner(object):
             # 读取待验证的群组策略
             policy = await GROUP_POLICY.read(group_id=str(chat_id))
             if policy.join_check:
-                logger.info(f"Join Check Enabled for {chat_id}")
+                logger.debug(f"pre check enabled for group/{chat_id}")
                 # 检查用户资料
                 check_string = f"{preprocess_data.first_name} {preprocess_data.last_name} {preprocess_data.bio}"
                 if judge_pre_join_text(check_string):
@@ -117,9 +117,9 @@ class BotRunner(object):
                     try:
                         await bot.decline_chat_join_request(chat_id=chat_id, user_id=user_id)
                     except Exception as exc:
-                        logger.error(f"Decline Chat Join Request Failed {exc}")
+                        logger.error(f"Failed decline {user_id}:{chat_id} chat-join-request because {exc}")
                     else:
-                        logger.info(f"Join Check Decline for {user_id}")
+                        logger.info(f"[NOT_PASS] Failed to pass the join check for {user_id}")
                     # 删除死亡队列
                     try:
                         data = await JOIN_MANAGER.read()
@@ -130,13 +130,13 @@ class BotRunner(object):
                                     chat_id):
                                 removed.append(join_request)
                         if not removed:
-                            logger.error(f"JOIN_MANAGER Not Found[{user_id}-{chat_id}]")
+                            logger.error(f"There is no dead queue JOIN_MANAGER found for {user_id}:{chat_id}")
                         else:
                             for join_request in removed:
                                 data.join_queue.remove(join_request)
                             await JOIN_MANAGER.save(data)
                     except Exception as exc:
-                        logger.error(f"JOIN_MANAGER Failed {exc}")
+                        logger.error(f"An error occurred while deleting the dead queue {exc}")
                     return logger.info(f"Join Check for {user_id}")
 
             # 发送验证按钮
@@ -167,8 +167,8 @@ class BotRunner(object):
             """
             locale = get_locales(message.from_user.language_code)
             logger.info(
-                f"[JOIN] user {message.from_user.full_name} join-in chat {message.chat.title}@{message.chat.username}\n"
-                f"{message.from_user.id}/{message.chat.id}| - {message.from_user.language_code} - {message.bio}"
+                f"[JOIN] user {message.from_user.full_name} join-in chat {message.chat.title} @{message.chat.username} "
+                f"{message.from_user.id}:{message.chat.id} - {message.from_user.language_code} - {message.bio}"
             )
             # 解析请求
             try:
@@ -198,7 +198,7 @@ class BotRunner(object):
                 sent_message_id = str(sent_message.message_id)
             except Exception as exc:
                 sent_message_id = None
-                logger.error(f"Send Welcome Message Failed {exc}")
+                logger.error(f"[REFUSE] Send Welcome Message Failed {exc}")
             # 投入死亡队列
             await dead_shot(
                 user_id=user_id,
@@ -209,7 +209,8 @@ class BotRunner(object):
                 message_id=sent_message_id
             )
             if not sent_message_id:
-                return logger.error(f"User Refuse Message {message.from_user.id}")
+                return logger.error(f"[REFUSE] User Refuse Message {message.from_user.id}")
+
             # 用户没有拉黑机器人，生产签名
             signature = generate_sign(
                 chat_id=chat_id,
@@ -223,9 +224,8 @@ class BotRunner(object):
             try:
                 mongo_data = VerifyRequest(user_id=user_id, chat_id=chat_id, timestamp=join_m_time, signature=signature)
                 await MONGO_ENGINE.save(mongo_data)
-                logger.info(f"History Save Success for {user_id}")
             except Exception as exc:
-                logger.error(f"History Save Failed {exc}")
+                logger.error(f"[HSF] Failed save history  {exc}")
 
             # 生产验证URL
             verify_url = f"https://{EndpointSetting.domain}/?chat_id={chat_id}&message_id={sent_message_id}&user_id={user_id}&timestamp={join_m_time}&signature={signature}"
@@ -234,10 +234,12 @@ class BotRunner(object):
             try:
                 event = await bot.get_chat(message.from_user.id)
             except Exception as exc:
-                logger.info(f"Get Chat Failed {exc} When Pre Process {message.from_user.id}")
+                logger.info(
+                    f"[CHECK] Failed fetch chat profile of {message.from_user.id} because {exc}"
+                )
                 # 存储一份参数快照，并生成一个唯一数据命令+ID
                 snapshot_uid = shortuuid.uuid()[0:6]
-                verify_tip = f"**Type `/verify {snapshot_uid}` to continue the verification for `{chat_title}`**"
+                verify_tip = f"**Copy `/verify {snapshot_uid}` then send me to continue verification of `{chat_title}`**"
                 await RESEND_MANAGER.save(
                     event_id=snapshot_uid,
                     data=ResendEvnet(

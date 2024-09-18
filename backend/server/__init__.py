@@ -115,7 +115,6 @@ async def verify_cloudflare(data: CloudflareData):
 async def verify_captcha(captcha_data: VerifyData):
     # 获取可信数据
     web_app_data = telebot.util.parse_web_app_data(token=TELEGRAM_BOT_TOKEN, raw_init_data=captcha_data.web_app_data)
-
     if not web_app_data:
         logger.warning(f"Unsigned Request Received From {captcha_data.source}")
         return JSONResponse(
@@ -147,13 +146,12 @@ async def verify_captcha(captcha_data: VerifyData):
     )
     t_s = generate_oko(data=captcha_data.web_app_data, time=captcha_data.timestamp)
     if recover_sign != captcha_data.signature:
-        logger.error(f"Someone Try To Fake Request {captcha_data.source}")
+        logger.error(f"[OKO] Someone Try To Fake Request {captcha_data.source}")
         return JSONResponse(
             status_code=400,
             content={"status": EnumStatu.error.value, "message": "FAKE_REQUEST"}
         )
-    logger.info(f"[USER] {user_id}")
-    logger.info(f"[TIMES] {captcha_data.timestamp}")
+    logger.info(f"[USER] {user_id}:{chat_id}")
     if not t_s:
         logger.error(f"[OKO] OKO Failed {captcha_data}")
     else:
@@ -181,27 +179,27 @@ async def verify_captcha(captcha_data: VerifyData):
             if str(join_request.user_id) == str(user_id) and str(join_request.chat_id) == str(chat_id):
                 removed.append(join_request)
         if not removed:
-            logger.error(f"JOIN_MANAGER Not Found[{user_id}-{chat_id}]")
+            logger.error(f"Dead queue JOIN_MANAGER not found for {user_id}:{chat_id}")
         else:
             for join_request in removed:
                 data.join_queue.remove(join_request)
             await JOIN_MANAGER.save(data)
     except Exception as exc:
-        logger.error(f"JOIN_MANAGER Failed {exc}")
+        logger.error(f"Dead queue about JOIN_MANAGER failed, because {exc}")
     # 更新记录
     try:
         history = await MONGO_ENGINE.find_one(VerifyRequest, VerifyRequest.signature == captcha_data.signature)
         if not history:
-            logger.error(f"MONGO_ENGINE History Not Found {captcha_data.source}")
+            logger.error(f"[MONGODB] MONGO_ENGINE History Not Found {captcha_data.source}")
         history.passed = True
         await MONGO_ENGINE.save(history)
     except Exception as exc:
-        logger.error(f"Modify Request Failed when {exc}")
+        logger.error(f"[MRF] Modify Request Failed when {exc}")
     try:
         await BOT.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
         await BOT.delete_message(chat_id=user_id, message_id=message_id)
     except Exception as exc:
-        logger.exception(f"Approve Request Failed {exc}")
+        logger.exception(f"[AFE] Approve Request Failed {exc}")
     finally:
         # Accept user's join request
         return JSONResponse(
