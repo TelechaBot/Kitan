@@ -3,6 +3,7 @@
 
 import time
 from enum import Enum
+from typing import Optional
 
 import telebot.util
 from fastapi import FastAPI
@@ -45,12 +46,12 @@ class VerifyData(BaseModel):
     """
     响应数据
     """
-    id: str
+    # id: str
     source: Source
     acc: dict
     signature: str
     web_app_data: str
-    timestamp: str
+    timestamp: Optional[str] = None
 
     model_config = ConfigDict(extra="allow")
 
@@ -151,6 +152,7 @@ async def verify_captcha(captcha_data: VerifyData):
             content={"status": EnumStatu.error.value, "message": "FAKE_REQUEST"}
         )
     logger.info(f"[USER] {user_id}")
+    logger.info(f"[TIMES] {captcha_data.timestamp}")
     logger.info(f"[OKO] {generate_oko(data=captcha_data.web_app_data, time=captcha_data.timestamp)} {captcha_data.id}")
     # 会话过旧，虽然我们有死亡队列，但是这里还是要做一下判断，防止重放攻击
     if now_m_time - int(join_time) > EXPIRE_M_TIME:
