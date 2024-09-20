@@ -27,5 +27,9 @@ const vuetify = createVuetify({
         defaultSet: 'mdi', // This is already the default value - only for display purposes
     },
 })
+import i18n from './i18n';
 
-createApp(App).use(vuetify).use(VueTelegram).use(router).mount('#app')
+const app = createApp(App)
+app.use(vuetify).use(VueTelegram).use(router)
+app.use(i18n)
+app.mount('#app')

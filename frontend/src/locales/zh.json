@@ -1,0 +1,11 @@
+{
+  "updateNeeded": "此页面应在支持WebApp的应用程序版本上运行",
+  "cloudflareAuthIfLoadingFailed": "如果无法验证，请使用拼图验证",
+  "cloudflareAuth": "Cloudflare 验证",
+  "gameAuthTitle": "华容道验证",
+  "gameTips": "请按照华容道规则依次排列数字",
+  "gameBottomTips": "如果您无法完成华容道拼图，请打开 Telegram APP 使用指纹快速验证。",
+  "biometricTitle": "生物识别验证",
+  "biometricSubtitle": "点击指纹图标唤起系统硬件",
+  "biometricTips": "当您无法唤起生物识别验证时，请尝试点击设置"
+}

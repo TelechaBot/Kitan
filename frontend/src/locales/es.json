@@ -1,0 +1,11 @@
+{
+  "updateNeeded": "Esta página debe ejecutarse en una versión de la aplicación que soporte WebApp",
+  "cloudflareAuthIfLoadingFailed": "Si la verificación falla, utilice la verificación de captcha",
+  "cloudflareAuth": "Verificación de Cloudflare",
+  "gameAuthTitle": "Verificación por Rompecabezas",
+  "gameTips": "Coloca los números en orden según las reglas del rompecabezas",
+  "gameBottomTips": "Si no puedes completar el rompecabezas, abre la APP de Telegram para una verificación rápida con huella digital.",
+  "biometricTitle": "Verificación Biométrica",
+  "biometricSubtitle": "Haz clic en el icono de huella digital para invocar el hardware del sistema",
+  "biometricTips": "Si no puedes iniciar la verificación biométrica, intenta hacer clic en configuraciones"
+}

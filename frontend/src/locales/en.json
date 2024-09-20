@@ -1,0 +1,11 @@
+{
+  "updateNeeded": "This page should run on the version of the app which supports WebApp",
+  "cloudflareAuthIfLoadingFailed": "If loading failed, solve game instead",
+  "cloudflareAuth": "Cloudflare Auth",
+  "gameAuthTitle": "Game Auth",
+  "gameTips": "Sort 1~9 from left to right → ↓",
+  "gameBottomTips": "If you can't do it, you can open the Telegram mobile app and use your fingerprint to quickly authenticate.",
+  "biometricTitle": "Biometric Auth",
+  "biometricSubtitle": "Tap the fingerprint icon to verify",
+  "biometricTips": "If you can't verify with biometrics, try tapping settings"
+}

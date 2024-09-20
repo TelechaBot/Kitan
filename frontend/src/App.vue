@@ -9,7 +9,9 @@ import {useGyroscopeExists} from "./hook/useGyroscopeExists.ts";
 import {useAccelerometerExists} from "./hook/useAccelerometerExists.ts";
 import CryptoJS from 'crypto-js';
 import VersionInfo from "./components/VersionInfo.vue";
+import {useI18n} from 'vue-i18n';
 
+const {t} = useI18n();
 const route = useRoute();
 
 enum AuthType {
@@ -33,6 +35,7 @@ const verifyBackendMessage = reactive({
   success: false,
   message: ''
 })
+// Cloudflare 验证失败
 const isCloudflareFailed = reactive(
     {
       status: false,
@@ -45,7 +48,7 @@ const WebApp = useWebApp();
 const WebAppBiometricManager = useWebAppBiometricManager();
 const isGyroscopeExist = useGyroscopeExists();
 const isAccelerometerExist = useAccelerometerExists();
-
+// 路由参数
 const routerGet = (): RouteParams | null => {
   if (!route.query.chat_id || !route.query.message_id || !route.query.timestamp || !route.query.signature) {
     return null
@@ -58,8 +61,7 @@ const routerGet = (): RouteParams | null => {
   }
 }
 
-console.log(routerGet())
-
+console.log(`Page Route`, routerGet())
 // 验证类型
 const authType = computed(() => {
   // 验证类型
@@ -97,12 +99,30 @@ class Data {
   }
 }
 
+// 处理 Cloudflare 验证失败
+const handleCloudflareFail = (error: string) => {
+  isCloudflareFailed.status = true
+  isCloudflareFailed.message = `Cloudflare error: ${error}`
+}
+// 处理 Cloudflare 不支持
+const handleCloudflareUnsupported = () => {
+  isCloudflareFailed.status = true
+  isCloudflareFailed.message = 'Cloudflare not supported'
+  isCloudflareFailed.show_turnstile = false
+}
+// 处理拼图验证成功
+const handlePuzzleSuccess = () => {
+  console.log('Puzzle success')
+  authSuccess()
+}
+// 打开生物识别设置
 const openAuthSettings = () => {
   if (!WebAppBiometricManager.isBiometricInited.value) {
     return WebAppPopup.showAlert('Biometric not initialized')
   }
   WebAppBiometricManager.openBiometricSettings()
 }
+// 生物识别验证
 const authBiometric = () => {
   const biometricCallback = (is_authed: boolean, auth_token?: (string | undefined)) => {
     if (is_authed) {
@@ -130,8 +150,7 @@ const authBiometric = () => {
   )
   console.log(result)
 }
-
-
+// 验证 Cloudflare
 const authCloudflare = () => {
   const backendEndpoint = import.meta.env.VITE_BACKEND_URL
   if (!backendEndpoint) {
@@ -174,8 +193,7 @@ const authCloudflare = () => {
         isCloudflareFailed.message = `Network issue: ${error.response?.data?.message}` || `Cloudflare server error: ${error.code}`
       })
 }
-
-// 发送数据到后端，代表验证成功
+// 通知后端中心
 const authSuccess = () => {
   // 从环境变量获取后端地址
   const backendEndpoint = import.meta.env.VITE_BACKEND_URL
@@ -197,7 +215,6 @@ const authSuccess = () => {
     return
   }
   // console.log('Backend URL:', backendUrl)
-  // 将本人移出死亡定时队列 :D
   const requestBody = {
     // 防止攻击，记录时间戳
     id: `${router.chat_id}-${router.message_id}-${date_now}`,
@@ -257,6 +274,7 @@ const grantBiometricAccess = () => {
       }
   )
 }
+// 初始化生物识别
 const initBiometric = () => {
   WebAppBiometricManager.initBiometric(
       () => {
@@ -264,7 +282,6 @@ const initBiometric = () => {
       }
   )
 }
-
 // 逻辑区域
 WebAppBiometricManager.onBiometricManagerUpdated(() => {
   console.log('Biometric manager updated')
@@ -304,124 +321,151 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
 </script>
 
 <template>
-  <div class="mx-5 ma-5">
+  <v-container class="py-8">
     <!-- 更新提示 -->
     <v-card
-        class="mx-0 ma-5"
-        prepend-icon="mdi-update"
+        v-if="authType === AuthType.OUTLINE"
+        class="mb-6"
         color="indigo"
         variant="outlined"
-        v-if="authType === AuthType.OUTLINE"
         link
         href="https://telegram.org/"
     >
-      <template v-slot:title>
-        <span class="font-weight-black">Update Needed</span>
-      </template>
-      <v-card-text
-          class="bg-surface-light pt-4">
-        This page should run on the version of the app which supports WebApp
+      <v-card-item prepend-icon="mdi-update">
+        <v-card-title class="font-weight-bold">
+          Update Needed
+        </v-card-title>
+      </v-card-item>
+      <v-card-text class="bg-surface-light pt-4">
+        {{ t('updateNeeded') }}
         <br>
-        Details:
-        https://telegram.org/
+        Details: https://telegram.org/
       </v-card-text>
     </v-card>
-    <!-- 拼图辅助验证 -->
-    <div class="mx-0 ma-5"
-         v-if="authType===AuthType.POW && cloudflareSiteKey"
-    >
-      <v-card
-          prepend-icon="mdi-cloud"
-          color="indigo"
-          variant="outlined"
-          subtitle="If loading failed, solve game instead"
-      >
-        <template v-slot:title>
-          <span class="font-weight-black">Cloudflare Auth</span>
-        </template>
-        <v-card-text
-            v-if="isCloudflareFailed.show_turnstile"
-        >
-          <vue-turnstile
-              v-model="turnstile_token"
-              :site-key="cloudflareSiteKey"
-              @error="(error) => {
-                isCloudflareFailed.status = true
-                isCloudflareFailed.message = `Cloudflare error: ${error}`
-              }"
-              @unsupported="() => {
-                isCloudflareFailed.status = true
-                isCloudflareFailed.message = 'Cloudflare not supported'
-                isCloudflareFailed.show_turnstile = false
-              }"
-          ></vue-turnstile>
-        </v-card-text>
-        <v-card-text class="bg-surface-light pt-4" v-if="isCloudflareFailed.status">
-          <span
-              :class="isCloudflareFailed.status ? 'font-mono color-black' : 'font-mono color-green'"
-          >
-            {{ isCloudflareFailed.message }}
-          </span>
-        </v-card-text>
-      </v-card>
-    </div>
-    <!-- 拼图验证 -->
-    <div class="mx-0 ma-5"
-         v-if="authType === AuthType.POW">
-      <v-card
-          class="mx-0 pb-10"
-          prepend-icon="mdi-puzzle"
-          color="indigo"
-          variant="outlined"
-          subtitle="Solve the puzzle to join group (1~9)"
-      >
-        <template v-slot:title>
-          <span class="font-weight-black">Game Auth</span>
-        </template>
-        <Puzzles
-            :difficulty-level="1"
-            :on-success="() => {
-            console.log('Puzzle success')
-            authSuccess()
-          }"
-        />
-      </v-card>
-    </div>
-    <!-- 生物识别验证 -->
+
+    <!-- Cloudflare 验证 -->
     <v-card
-        class="mx-0 ma-5"
-        prepend-icon="mdi-fingerprint"
+        v-if="authType !== AuthType.POW && cloudflareSiteKey"
+        class="mb-6"
         color="indigo"
-        v-if="authType === AuthType.BIOMETRIC"
-        subtitle="Press to authenticate with biometric"
         variant="outlined"
     >
-      <template v-slot:title>
-        <span class="font-weight-black">Biometric Auth</span>
-      </template>
-      <v-card-text class="bg-surface-light pt-4" v-if="authToken">
-        {{ authToken }}
+      <v-card-item prepend-icon="mdi-cloud">
+        <v-card-title class="font-weight-bold">
+          {{ t('cloudflareAuth') }}
+        </v-card-title>
+        <v-card-subtitle>
+          {{ t('cloudflareAuthIfLoadingFailed') }}
+        </v-card-subtitle>
+      </v-card-item>
+      <v-card-text v-if="isCloudflareFailed.show_turnstile" class="d-flex justify-center">
+        <vue-turnstile
+            v-model="turnstile_token"
+            :site-key="cloudflareSiteKey"
+            @error="handleCloudflareFail"
+            @unsupported="handleCloudflareUnsupported"
+        ></vue-turnstile>
       </v-card-text>
-      <v-card-actions>
-        <v-btn @click="authBiometric">
-          Auth
-        </v-btn>
-        <v-btn
-            @click="openAuthSettings"
+      <v-card-text v-if="isCloudflareFailed.status" class="bg-surface-light pt-4">
+        <span :class="{'text-error': isCloudflareFailed.status, 'text-success': !isCloudflareFailed.status}">
+          {{ isCloudflareFailed.message }}
+        </span>
+      </v-card-text>
+    </v-card>
+
+    <!-- 拼图验证 -->
+    <v-card
+        v-if="authType !== AuthType.POW"
+        class="mb-6"
+        color="indigo"
+        variant="outlined"
+    >
+      <v-card-item prepend-icon="mdi-puzzle">
+        <v-card-title class="font-weight-bold">
+          {{ t('gameAuthTitle') }}
+        </v-card-title>
+        <v-card-subtitle>
+          {{ t('gameTips') }}
+        </v-card-subtitle>
+      </v-card-item>
+      <v-card-text>
+        <Puzzles
+            :difficulty-level="1"
+            :on-success="handlePuzzleSuccess"
+        />
+        <span
+            class="pt-2 self-center flex text-caption text-gray"
         >
+          Tips: {{ t('gameBottomTips') }}
+        </span>
+      </v-card-text>
+    </v-card>
+
+    <!-- 生物识别验证 -->
+    <v-card
+        v-if="authType !== AuthType.BIOMETRIC"
+        class="mb-6"
+        color="indigo"
+        variant="outlined"
+    >
+      <v-card-item>
+        <v-card-title class="font-weight-bold">
+          {{ t('biometricTitle') }}
+        </v-card-title>
+        <v-card-subtitle>
+          {{ t('biometricSubtitle') }}
+        </v-card-subtitle>
+      </v-card-item>
+      <v-card-text
+          v-if="authToken"
+          class="pt-4"
+      >
+        <v-icon>mdi-progress-check</v-icon>
+        Success {{ authToken }}
+      </v-card-text>
+      <v-card-text v-else class="d-flex justify-center align-center py-8">
+        <v-btn
+            icon="mdi-fingerprint"
+            size="x-large"
+            variant="plain"
+            elevation="0"
+            @click="authBiometric"
+        >
+          <div class="flex flex-col items-center">
+            <v-icon size="64">mdi-fingerprint</v-icon>
+            <span
+                class="p-5 self-center flex text-caption text-gray"
+            >
+              {{ t('biometricTips') }}
+          </span>
+          </div>
+        </v-btn>
+      </v-card-text>
+      <v-card-actions class="justify-center">
+
+        <v-btn
+            prepend-icon="mdi-cog"
+            base-color="indigo-lighten-2"
+            text="Settings"
+            rounded="2xl"
+            size="small"
+            @click="openAuthSettings">
           Settings
         </v-btn>
+
       </v-card-actions>
     </v-card>
-    <!-- 后端验证 -->
+
+    <!-- 后端验证结果 -->
     <v-alert
         v-if="verifyBackendMessage.message"
-        :text="verifyBackendMessage.message"
-        :title="verifyBackendMessage.success ? 'Success' : 'Error'"
         :type="verifyBackendMessage.success ? 'success' : 'error'"
+        :title="verifyBackendMessage.success ? 'Success' : 'Error'"
+        :text="verifyBackendMessage.message"
+        class="mb-6"
     ></v-alert>
     <VersionInfo/>
-  </div>
+  </v-container>
 </template>
 
 <style scoped>

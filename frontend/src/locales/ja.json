@@ -1,0 +1,11 @@
+{
+  "updateNeeded": "このページはWebAppをサポートするアプリのバージョンで実行する必要があります",
+  "cloudflareAuthIfLoadingFailed": "認証に失敗した場合、ピクチャ認証をご利用ください",
+  "cloudflareAuth": "Cloudflare 認証",
+  "gameAuthTitle": "パズル認証",
+  "gameTips": "パズルのルールに従って数字を順に並べてください",
+  "gameBottomTips": "パズルを完成できない場合は、Telegram APPを開き、指紋での迅速な認証を使用してください。",
+  "biometricTitle": "生体認証",
+  "biometricSubtitle": "指紋アイコンをクリックしてシステムハードウェアを起動",
+  "biometricTips": "生体認証を起動できない場合は、設定をクリックしてみてください"
+}
