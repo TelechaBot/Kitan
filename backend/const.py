@@ -1,2 +1,2 @@
-EXPIRE_M_TIME = 60 * 5 * 1000  # 5 minutes
-EXPIRE_SHOW = "5 minutes"
+EXPIRE_M_TIME = 60 * 4 * 1000  # 4 minutes
+EXPIRE_SHOW = "4 minutes"
