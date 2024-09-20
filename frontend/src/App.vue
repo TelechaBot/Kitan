@@ -4,7 +4,7 @@ import {useRoute} from 'vue-router';
 import axios from 'axios';
 import VueTurnstile from 'vue-turnstile';
 import Puzzles from "./components/Puzzles.vue";
-import {useWebApp, useWebAppBiometricManager, useWebAppPopup} from "vue-tg";
+import {useWebApp, useWebAppBiometricManager, useWebAppNavigation, useWebAppPopup} from "vue-tg";
 import {useGyroscopeExists} from "./hook/useGyroscopeExists.ts";
 import {useAccelerometerExists} from "./hook/useAccelerometerExists.ts";
 import CryptoJS from 'crypto-js';
@@ -13,6 +13,7 @@ import {useI18n} from 'vue-i18n';
 
 const {t} = useI18n();
 const route = useRoute();
+const {openLink} = useWebAppNavigation()
 
 enum AuthType {
   POW = 'pow',
@@ -329,7 +330,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
         color="indigo"
         variant="outlined"
         link
-        href="https://telegram.org/"
+        @click="openLink('https://telegram.org/')"
     >
       <v-card-item prepend-icon="mdi-update">
         <v-card-title class="font-weight-bold">
