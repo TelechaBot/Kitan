@@ -345,7 +345,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
 
     <!-- Cloudflare 验证 -->
     <v-card
-        v-if="authType !== AuthType.POW && cloudflareSiteKey"
+        v-if="authType === AuthType.POW && cloudflareSiteKey"
         class="mb-6"
         color="indigo"
         variant="outlined"
@@ -375,7 +375,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
 
     <!-- 拼图验证 -->
     <v-card
-        v-if="authType !== AuthType.POW"
+        v-if="authType === AuthType.POW"
         class="mb-6"
         color="indigo"
         variant="outlined"
@@ -403,7 +403,7 @@ const imageSrc = `https://avatars.githubusercontent.com/u/${user}?s=300&v=4`
 
     <!-- 生物识别验证 -->
     <v-card
-        v-if="authType !== AuthType.BIOMETRIC"
+        v-if="authType === AuthType.BIOMETRIC"
         class="mb-6"
         color="indigo"
         variant="outlined"
