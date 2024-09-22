@@ -84,7 +84,8 @@ class BotRunner(object):
                 user_id: int,
                 message_id: str,
                 verify_url: str,
-                preprocess_data: types.Chat
+                preprocess_data: types.Chat,
+                addon_bio: Optional[str] = None
         ):
             """
             预处理用户的资料页
@@ -93,13 +94,15 @@ class BotRunner(object):
             :param message_id: 用户验证消息ID
             :param verify_url: 验证URL
             :param preprocess_data: 用户资料
+            :param addon_bio: 附加的用户 BIO
             """
             # 读取待验证的群组策略
             policy = await GROUP_POLICY.read(group_id=str(chat_id))
             if policy.join_check:
                 logger.debug(f"pre check enabled for group/{chat_id}")
                 # 检查用户资料
-                check_string = f"{preprocess_data.first_name} {preprocess_data.last_name} {preprocess_data.bio}"
+                bio = addon_bio if addon_bio else preprocess_data.bio
+                check_string = f"{preprocess_data.first_name} {preprocess_data.last_name} {bio}"
                 if judge_pre_join_text(check_string):
                     try:
                         await bot.send_message(
@@ -264,7 +267,8 @@ class BotRunner(object):
                     user_id=int(user_id),
                     message_id=sent_message_id,
                     verify_url=verify_url,
-                    preprocess_data=event
+                    preprocess_data=event,
+                    addon_bio=message.bio
                 )
             return True
 
@@ -296,7 +300,7 @@ class BotRunner(object):
             try:
                 user = await bot.get_chat(message.from_user.id)
             except Exception as exc:
-                return logger.error(f"Get Chat Failed {exc}")
+                return logger.error(f"Failed get chat profile in /verify {exc}")
             # 预处理用户资料
             await pre_process_user(
                 chat_id=event.chat_id,
