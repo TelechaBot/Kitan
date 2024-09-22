@@ -53,7 +53,12 @@ class ArLocales(BaseLocales):
     anti_spam_toggle = "الآن سأقوم بفحص الرسائل الجديدة للبحث عن الرسائل غير المرغوب فيها والإعلانات ، سأقوم فقط بحذفها وكتمها لمدة 2 دقيقة."
 
 
-def get_locales(language: str):
+def get_locales(language: str, only_prefix=False):
+    """
+    Get locales by language
+    :param language: str - language code
+    :param only_prefix: bool - if True, it will cut the language code to the first part
+    """
     if not language:
         return EnLocales
     language = language.lower()
@@ -67,10 +72,9 @@ def get_locales(language: str):
     if language in lang_map:
         return lang_map[language]
     # 切分语言
-    if "-" in language:
-        main_lang = language.split("-")[0]
-    else:
-        main_lang = language
-    if main_lang in lang_map:
-        return lang_map[main_lang]
+    if "-" in language and only_prefix:
+        language = language.split("-")[0]
+    for lang, locales in lang_map.items():
+        if lang in language.lower():
+            return locales
     return EnLocales
