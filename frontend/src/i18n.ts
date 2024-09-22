@@ -4,14 +4,20 @@ import zh from './locales/zh.json';
 import ja from './locales/ja.json';
 import ru from './locales/ru.json';
 import es from './locales/es.json';
+import ar from './locales/ar.json';
+import bn from './locales/bn.json';
+import hi from './locales/hi.json';
 
-const availableLanguages = ['en', 'zh', 'ja', 'ru', 'es'];
+const availableLanguages = ['en', 'zh', 'ja', 'ru', 'es', 'ar', 'bn', 'hi'];
 const messages = {
     en,
     zh,
     ja,
     ru,
     es,
+    ar,
+    bn,
+    hi
 };
 
 // Function to detect browser language
