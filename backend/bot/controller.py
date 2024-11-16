@@ -84,7 +84,7 @@ class BotRunner(object):
                 user_id: int,
                 message_id: str,
                 verify_url: str,
-                preprocess_data: types.Chat,
+                preprocess_data: types.ChatFullInfo,
                 addon_bio: Optional[str] = None
         ):
             """
@@ -570,7 +570,12 @@ async def execution_ground():
                         parse_mode="MarkdownV2",
                     )
                 except Exception as exc:
-                    logger.error(f"[MSG] Send Expired Message Failed {exc}")
+                    if "initiate conversation" in str(exc):
+                        logger.info(
+                            f"[BLOCKED] Send Expired Message Failed, User({join_request.user_chat_id}) blocked the bot"
+                        )
+                    else:
+                        logger.error(f"[MSG] Send Expired Message Failed {exc}")
                 try:
                     await BOT.delete_message(chat_id=join_request.user_id, message_id=join_request.message_id)
                 except Exception as exc:
@@ -579,7 +584,12 @@ async def execution_ground():
                 try:
                     await BOT.decline_chat_join_request(chat_id=join_request.chat_id, user_id=join_request.user_id)
                 except Exception as exc:
-                    logger.error(f"[DECLINE] Decline Chat Join Request failed, because {exc}")
+                    if "HIDE_REQUESTER_MISSING" in str(exc):
+                        logger.info(
+                            f"[MISSING] Missing Chat Join Request for user_id:{join_request.user_id} chat_id:{join_request.chat_id}"
+                        )
+                    else:
+                        logger.error(f"[DECLINE] Decline Chat Join Request failed, because {exc}")
                 else:
                     logger.info(
                         f"[DECLINE] Decline Expired Chat Join Request for user_id:{join_request.user_id} chat_id:{join_request.chat_id}"

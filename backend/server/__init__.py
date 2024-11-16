@@ -32,6 +32,7 @@ if ServerSetting.cors_origin:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
 TELEGRAM_BOT_TOKEN = BotSetting.token
 
 
@@ -199,7 +200,10 @@ async def verify_captcha(captcha_data: VerifyData):
         await BOT.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
         await BOT.delete_message(chat_id=user_id, message_id=message_id)
     except Exception as exc:
-        logger.exception(f"[AFE] Approve Request Failed {exc}")
+        if "USER_ALREADY_PARTICIPANT" in str(exc):
+            logger.info(f"[AFE] User Already In Group {user_id}:{chat_id}")
+        else:
+            logger.exception(f"[AFE] Approve Request Failed {exc}")
     finally:
         # Accept user's join request
         return JSONResponse(
