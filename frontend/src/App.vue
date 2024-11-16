@@ -63,13 +63,27 @@ const routerGet = (): RouteParams | null => {
 }
 
 console.log(`Page Route`, routerGet())
+
+function compareVersions(v1: string, v2: string): number {
+  const v1Parts = v1.split('.').map(Number);
+  const v2Parts = v2.split('.').map(Number);
+  for (let i = 0; i < Math.max(v1Parts.length, v2Parts.length); i++) {
+    const v1Part = v1Parts[i] || 0;
+    const v2Part = v2Parts[i] || 0;
+
+    if (v1Part > v2Part) return 1;
+    if (v1Part < v2Part) return -1;
+  }
+  return 0;
+}
+
 // 验证类型
 const authType = computed(() => {
   // 验证类型
   if (WebApp.isPlatformUnknown || !WebApp.initData) {
     console.log('OUTLINE')
     return AuthType.OUTLINE
-  } else if (WebApp.version >= '7.2' && isBiometricInitialized.value) {
+  } else if (compareVersions(WebApp.version, '7.2') >= 0 && isBiometricInitialized.value) {
     console.log('BIOMETRIC')
     return AuthType.BIOMETRIC
   } else {
@@ -77,6 +91,7 @@ const authType = computed(() => {
     return AuthType.POW
   }
 });
+
 // 构造用户可信度信息
 const getUserAcc = () => {
   return {

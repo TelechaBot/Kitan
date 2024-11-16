@@ -9,23 +9,23 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mcaptcha/core-glue": "^0.1.0-alpha-5",
-    "axios": "^1.6.8",
+    "@mcaptcha/core-glue": "0.1.0-alpha-5",
+    "axios": "^1.7.7",
     "crypto-js": "^4.2.0",
-    "vue": "^3.4.21",
-    "vue-i18n": "^10.0.0",
-    "vue-router": "^4.3.2",
+    "vue": "^3.5.13",
+    "vue-i18n": "^10.0.4",
+    "vue-router": "^4.4.5",
     "vue-tg": "^0.6.1",
-    "vue-turnstile": "^1.0.8",
-    "vuetify": "^3.6.4"
+    "vue-turnstile": "^1.0.11",
+    "vuetify": "^3.7.4"
   },
   "devDependencies": {
     "@mdi/font": "^7.4.47",
     "@types/crypto-js": "^4.2.2",
-    "@vitejs/plugin-vue": "^5.0.4",
-    "typescript": "^5.2.2",
+    "@vitejs/plugin-vue": "^5.2.0",
+    "typescript": "^5.6.3",
     "unocss": "^0.59.4",
-    "vite": "^5.2.0",
-    "vue-tsc": "^2.0.6"
+    "vite": "^5.4.11",
+    "vue-tsc": "^2.1.10"
   }
 }
