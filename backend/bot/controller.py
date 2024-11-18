@@ -180,7 +180,7 @@ async def handle_join_request(
         return False
     logger.info(
         f"join-request:start:{chat_id}:{user_id} "
-        f"--chat [{message.chat.title}]@{message.chat.username} --lang {message.from_user.language_code} --bio {message.bio}"
+        f"--chat [{message.chat.title}]@{message.chat.username} --lang {message.from_user.language_code} --bio {message.bio} --name [{message.from_user.full_name}]"
     )
     # 尝试发送消息
     try:
