@@ -687,14 +687,24 @@ async def execution_ground():
                         logger.info(
                             f"decline:refuse:{join_request.user_id}:{join_request.chat_id}"
                         )
+                    elif "blocked" in str(exc):
+                        logger.info(
+                            f"decline:blocked:{join_request.user_id}:{join_request.chat_id}"
+                        )
                     else:
                         logger.error(
                             f"decline:failed-send-message:{join_request.user_id}:{join_request.chat_id} chat-join-request because {exc}")
                 try:
                     await BOT.delete_message(chat_id=join_request.user_id, message_id=join_request.message_id)
                 except Exception as exc:
-                    logger.error(
-                        f"decline:failed-del-join-message:{join_request.user_id}:{join_request.chat_id} chat-join-request because {exc}")
+                    if "message to delete not found" in str(exc):
+                        logger.info(
+                            f"decline:delete-message-not-found:{join_request.user_id}:{join_request.chat_id}"
+                        )
+                    else:
+                        logger.error(
+                            f"decline:failed-del-join-message:{join_request.user_id}:{join_request.chat_id} chat-join-request because {exc}"
+                        )
             for join_request in expired:
                 try:
                     await BOT.decline_chat_join_request(chat_id=join_request.chat_id, user_id=join_request.user_id)
