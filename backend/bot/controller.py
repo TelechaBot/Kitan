@@ -689,7 +689,7 @@ async def execution_ground():
                         )
                     elif "blocked" in str(exc):
                         logger.info(
-                            f"decline:blocked:{join_request.user_id}:{join_request.chat_id}"
+                            f"decline:user-blocked-bot:{join_request.user_id}:{join_request.chat_id}"
                         )
                     else:
                         logger.error(
