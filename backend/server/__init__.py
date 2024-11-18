@@ -163,8 +163,8 @@ async def verify_captcha(captcha_data: VerifyData):
             status_code=400,
             content={"status": EnumStatu.error.value, "message": "EXPIRED_REQUEST"}
         )
-    logger.info(f"verify-captcha:print-acc:{captcha_data.acc}")
-    logger.info(f"verify-captcha:print-webapp:{web_app_data}")
+    logger.info(f"verify-captcha:print-acc:{user_id}:{chat_id}:{captcha_data.acc}")
+    logger.info(f"verify-captcha:print-webapp:{user_id}:{chat_id}:{web_app_data}")
     if not captcha_data.acc.get("verify_mode"):
         return JSONResponse(
             status_code=400,
