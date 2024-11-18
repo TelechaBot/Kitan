@@ -30,7 +30,7 @@ class JoinManager:
         try:
             return JoinData.model_validate(data)
         except Exception as exc:
-            logger.error(f"JoinManager.read: {exc}")
+            logger.error(f"JoinManager:read:error:{exc}")
             return JoinData(join_queue=[])
 
     async def save(self, data: JoinData):

@@ -6,7 +6,7 @@ import uvicorn
 from dotenv import load_dotenv
 from loguru import logger
 
-from bot.controller import BotRunner, execution_ground
+from bot.controller import Runner, execution_ground
 from server import app
 from setting.server import ServerSetting
 
@@ -36,7 +36,7 @@ async def run_app():
     server = uvicorn.Server(
         config=uvicorn.Config(app, host=ServerSetting.host, port=ServerSetting.port, loop="asyncio")
     )
-    TelegramBot = BotRunner()
+    TelegramBot = Runner()
     await asyncio.gather(
         TelegramBot.run(),
         execution_ground(),
