@@ -33,22 +33,17 @@ class BotRunner(object):
         self.bot = bot
 
     async def download(self, file):
-        try:
-            assert hasattr(file, "file_id"), "file_id not found"
-            name = file.file_id
-            _file_info = await self.bot.get_file(file.file_id)
-            if isinstance(file, types.PhotoSize):
-                name = f"{_file_info.file_unique_id}.jpg"
-            if isinstance(file, types.Document):
-                name = f"{file.file_unique_id} {file.file_name}"
-            if not name.endswith(("jpg", "png", "webp")):
-                return None
-            downloaded_file = await self.bot.download_file(_file_info.file_path)
-        except Exception as exc:
-            logger.error(f"[Telegram API] Download File Failed {exc}")
+        assert hasattr(file, "file_id"), "file_id not found"
+        name = file.file_id
+        _file_info = await self.bot.get_file(file.file_id)
+        if isinstance(file, types.PhotoSize):
+            name = f"{_file_info.file_unique_id}.jpg"
+        if isinstance(file, types.Document):
+            name = f"{file.file_unique_id} {file.file_name}"
+        if not name.endswith(("jpg", "png", "webp")):
             return None
-        else:
-            return downloaded_file
+        downloaded_file = await self.bot.download_file(_file_info.file_path)
+        return downloaded_file
 
     async def run(self):
         logger.info("Bot Start")
@@ -75,9 +70,9 @@ class BotRunner(object):
                     )
                 )
             except Exception as exc:
-                logger.error(f"[DQF] Dead Queue Insert Failed {exc}")
+                logger.error(f"dead-shot:failed-insert-join-queue:{user_id}:{chat_id}:{exc}")
             else:
-                logger.info(f"[WAIT] Success insert {user_id}:{chat_id}]")
+                logger.success(f"dead-shot:success-insert-join-queue:{user_id}:{chat_id}")
 
         async def pre_process_user(
                 chat_id: int,
@@ -99,7 +94,7 @@ class BotRunner(object):
             # 读取待验证的群组策略
             policy = await GROUP_POLICY.read(group_id=str(chat_id))
             if policy.join_check:
-                logger.debug(f"pre check enabled for group/{chat_id}")
+                logger.debug(f"pre-process-user:join-check:{user_id}:{chat_id}")
                 # 检查用户资料
                 bio = addon_bio if addon_bio else preprocess_data.bio
                 check_string = f"{preprocess_data.first_name} {preprocess_data.last_name} {bio}"
@@ -116,13 +111,13 @@ class BotRunner(object):
                             parse_mode="MarkdownV2",
                         )
                     except Exception as exc:
-                        logger.error(f"Send Sorry Message Failed {exc}")
+                        logger.error(f"pre-process-user:send-message-failed:{user_id}:{chat_id}:{exc}")
                     try:
                         await bot.decline_chat_join_request(chat_id=chat_id, user_id=user_id)
                     except Exception as exc:
-                        logger.error(f"Failed decline {user_id}:{chat_id} chat-join-request because {exc}")
+                        logger.error(f"pre-process-user:decline-failed:{user_id}:{chat_id}:{exc}")
                     else:
-                        logger.info(f"[NOT_PASS] Failed to pass the join check for {user_id}")
+                        logger.info(f"pre-process-user:pre-check-not-pass:{user_id}:{chat_id}")
                     # 删除死亡队列
                     try:
                         data = await JOIN_MANAGER.read()
@@ -133,15 +128,14 @@ class BotRunner(object):
                                     chat_id):
                                 removed.append(join_request)
                         if not removed:
-                            logger.error(f"There is no dead queue JOIN_MANAGER found for {user_id}:{chat_id}")
+                            logger.error(f"pre-process-user:not-found-dead-queue:{user_id}:{chat_id}")
                         else:
                             for join_request in removed:
                                 data.join_queue.remove(join_request)
                             await JOIN_MANAGER.save(data)
                     except Exception as exc:
-                        logger.error(f"An error occurred while deleting the dead queue {exc}")
-                    return logger.info(f"Join Check for {user_id}")
-
+                        logger.error(f"pre-process-user:remove-join-queue-failed:{exc}")
+                    return logger.info(f"pre-process-user:join-check-failed:{user_id}:{chat_id}")
             # 发送验证按钮
             try:
                 await bot.edit_message_reply_markup(
@@ -169,21 +163,21 @@ class BotRunner(object):
             创建验证数据，并给用户发送验证信息
             """
             locale = get_locales(message.from_user.language_code)
-            logger.info(
-                f"[JOIN] user {message.from_user.full_name} join-in chat {message.chat.title} @{message.chat.username} "
-                f"{message.from_user.id}:{message.chat.id} - {message.from_user.language_code} - {message.bio}"
-            )
             # 解析请求
             try:
                 chat_title = message.chat.title[:20]
                 user_name = message.from_user.full_name[:20]
                 chat_id = str(message.chat.id)
                 user_id = str(message.from_user.id)
-                join_m_time = str(int(time.time() * 1000))
+                join_m_time = str(int(time.time() * 1000))  # 防止停机
                 expired_m_at = str(int(join_m_time) + EXPIRE_M_TIME)
             except Exception as exc:
-                logger.exception(f"Data Parse Failed {exc}")
+                logger.exception(f"join_request:parse-failed:{exc} --data {message}")
                 return False
+            logger.info(
+                f"join_request:start:{chat_id}:{user_id} "
+                f"--chat [{message.chat.title}]@{message.chat.username} --lang {message.from_user.language_code} --bio {message.bio}"
+            )
             # 尝试发送消息
             try:
                 sent_message = await bot.send_message(
@@ -201,7 +195,7 @@ class BotRunner(object):
                 sent_message_id = str(sent_message.message_id)
             except Exception as exc:
                 sent_message_id = None
-                logger.error(f"[REFUSE] Send Welcome Message Failed {exc}")
+                logger.error(f"join_request:send-welcome-failed:{chat_id}:{user_id}:{exc}")
             # 投入死亡队列
             await dead_shot(
                 user_id=user_id,
@@ -212,7 +206,7 @@ class BotRunner(object):
                 message_id=sent_message_id
             )
             if not sent_message_id:
-                return logger.error(f"[REFUSE] User Refuse Message {message.from_user.id}")
+                return logger.error(f"join_request:user-refuse:{user_id}:{chat_id}")
 
             # 用户没有拉黑机器人，生产签名
             signature = generate_sign(
@@ -228,18 +222,16 @@ class BotRunner(object):
                 mongo_data = VerifyRequest(user_id=user_id, chat_id=chat_id, timestamp=join_m_time, signature=signature)
                 await MONGO_ENGINE.save(mongo_data)
             except Exception as exc:
-                logger.error(f"[HSF] Failed save history  {exc}")
+                logger.error(f"join_request:save-history-failed:{chat_id}:{user_id}:{exc}")
 
             # 生产验证URL
             verify_url = f"https://{EndpointSetting.domain}/?chat_id={chat_id}&message_id={sent_message_id}&user_id={user_id}&timestamp={join_m_time}&signature={signature}"
-            logger.info(f"[GATE] Verify URL: {verify_url}")
+            logger.info(f"join_request:gen-verify-url:{verify_url}")
             # 预先检查用户资料
             try:
                 event = await bot.get_chat(message.from_user.id)
             except Exception as exc:
-                logger.info(
-                    f"[CHECK] Failed fetch chat profile of {message.from_user.id} because {exc}"
-                )
+                logger.info(f"join_request:cant-get-user-profile:jump to fallback:{exc}")
                 # 存储一份参数快照，并生成一个唯一数据命令+ID
                 snapshot_uid = shortuuid.uuid()[0:6]
                 verify_tip = f"**Copy `/verify {snapshot_uid}` then send me to continue verification of `{chat_title}`**"
@@ -256,11 +248,11 @@ class BotRunner(object):
                 try:
                     await bot.send_message(
                         chat_id=message.user_chat_id,
-                        text=telegramify_markdown.convert(verify_tip),
+                        text=telegramify_markdown.markdownify(verify_tip),
                         parse_mode="MarkdownV2",
                     )
                 except Exception as exc:
-                    logger.error(f"Resend Ack Message Failed: {exc}")
+                    logger.error(f"join_request:send-verify-tip-failed:{chat_id}:{user_id}:{exc}")
             else:
                 await pre_process_user(
                     chat_id=int(chat_id),
@@ -282,25 +274,26 @@ class BotRunner(object):
             注意确认用户的身份
             """
             locale = get_locales(message.from_user.language_code)
+            chat_id, user_id = str(message.chat.id), str(message.from_user.id)
             logger.info(
-                f"[VERIFY] {message.from_user.id}:{message.from_user.full_name} - {message.from_user.language_code}"
-            )
+                f"verify:start:{chat_id}:{user_id} --name [{message.from_user.full_name}] --lang {message.from_user.language_code}")
             # 解析命令
             try:
                 command, event_id = parse_command(message.text)
-                assert event_id, "User not provide event_id"
+                if not event_id:
+                    return logger.info(f"verify:command-parse-failed")
             except Exception as exc:
-                return logger.info(f"Command Parse Failed {exc}")
+                return logger.info(f"verify:command-parse-failed:{exc}")
             event = await RESEND_MANAGER.read(event_id=event_id)
             if not event:
-                return logger.info(f"Event Not Found {event_id}")
+                return logger.info(f"verify:event-not-found:{event_id}")
             if str(event.user_id) != str(message.from_user.id):
-                return logger.info(f"Event Not Match {event_id}")
+                return logger.info(f"verify:event-user-not-match:{event.user_id}:{message.from_user.id}")
             # 尝试读取用户 BIO
             try:
                 user = await bot.get_chat(message.from_user.id)
             except Exception as exc:
-                return logger.error(f"Failed get chat profile in /verify {exc}")
+                return logger.error(f"verify:failed-fetch-user-profile:{exc}")
             # 预处理用户资料
             await pre_process_user(
                 chat_id=event.chat_id,
@@ -320,15 +313,15 @@ class BotRunner(object):
             Join Check Command
             """
             locale = get_locales(message.from_user.language_code)
+            chat_id, user_id = str(message.chat.id), str(message.from_user.id)
             logger.info(
-                f"[ADMIN] join check cmd for {message.from_user.id} - {message.from_user.language_code}"
-            )
+                f"join_check:start:{chat_id}:{user_id} --name [{message.from_user.full_name}] --lang {message.from_user.language_code}")
             # 读取群组策略
-            policy = await GROUP_POLICY.read(group_id=str(message.chat.id))
+            policy = await GROUP_POLICY.read(group_id=chat_id)
             # 切换开关
             policy.join_check = not policy.join_check
             # 保存策略
-            await GROUP_POLICY.save(group_id=str(message.chat.id), data=policy)
+            await GROUP_POLICY.save(group_id=chat_id, data=policy)
             return await bot.send_message(
                 message.chat.id,
                 text=telegramify_markdown.convert(
@@ -348,15 +341,15 @@ class BotRunner(object):
             Anti Spam Command
             """
             locale = get_locales(message.from_user.language_code)
+            chat_id, user_id = str(message.chat.id), str(message.from_user.id)
             logger.info(
-                f"[ADMIN] Received a new anti spam command from {message.from_user.id} - {message.from_user.language_code}"
-            )
+                f"anti_spam:start:{chat_id}:{user_id} --name [{message.from_user.full_name}] --lang {message.from_user.language_code}")
             # 读取群组策略
-            policy = await GROUP_POLICY.read(group_id=str(message.chat.id))
+            policy = await GROUP_POLICY.read(group_id=chat_id)
             # 切换开关
             policy.anti_spam = not policy.anti_spam
             # 保存策略
-            await GROUP_POLICY.save(group_id=str(message.chat.id), data=policy)
+            await GROUP_POLICY.save(group_id=chat_id, data=policy)
             return await bot.send_message(
                 message.chat.id,
                 text=telegramify_markdown.convert(
@@ -376,11 +369,11 @@ class BotRunner(object):
             Complaints Guide Command
             """
             locale = get_locales(message.from_user.language_code)
+            chat_id, user_id = str(message.chat.id), str(message.from_user.id)
             logger.info(
-                f"[ADMIN] Received a new complaints guide command from {message.from_user.id} - {message.from_user.language_code}"
-            )
+                f"complaints_guide:start:{chat_id}:{user_id} --name [{message.from_user.full_name}] --lang {message.from_user.language_code}")
             # 读取群组策略
-            policy = await GROUP_POLICY.read(group_id=str(message.chat.id))
+            policy = await GROUP_POLICY.read(group_id=chat_id)
             # 读取指引
             command, guide = parse_command(message.text)
             if not guide:
@@ -433,76 +426,84 @@ class BotRunner(object):
             """
             Group Message No Admin
             """
-            locale = get_locales(message.from_user.language_code)
-            logger.debug(
-                f"[GROUP] Received a new group message from {message.from_user.id} - {message.from_user.language_code}"
-            )
-            GATE = 8
-            familiarity = await STATISTICS.increase(user_id=str(message.from_user.id), group_id=str(message.chat.id))
-            if familiarity < GATE:
-                # 读取群组策略
-                policy = await GROUP_POLICY.read(group_id=str(message.chat.id))
-                if policy.anti_spam:
-                    # 检查发言
-                    check_string = f"{message.text}"
-                    reason = [
-                        reason_chat_text(check_string),
-                    ]
-                    if message.video:
-                        reason.append("INACTIVE_ACCOUNT_SEND_VIDEO")
-                    if message.video_note:
-                        reason.append("INACTIVE_ACCOUNT_SEND_VIDEO_NOTE")
-                    if message.voice:
-                        reason.append("INACTIVE_ACCOUNT_SEND_VOICE")
-                    if message.story:
-                        reason.append("INACTIVE_ACCOUNT_SEND_STORY")
-                    """
-                    if message.sticker:
-                        reason.append("INACTIVE_ACCOUNT_SEND_STICKER")
-                    """
-                    if message.photo:
-                        downloaded_file = await self.download(message.photo[-1])
-                        if downloaded_file:
-                            reason.append(reason_chat_photo(downloaded_file))
-                    if any(reason):
-                        try:
-                            await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
-                        except Exception as exc:
-                            logger.error(f"Delete Message Failed {exc}")
-                        try:
-                            await bot.restrict_chat_member(
-                                chat_id=message.chat.id,
-                                user_id=message.from_user.id,
-                                permissions=types.ChatPermissions(
-                                    can_send_messages=False,
-                                    can_send_polls=False,
-                                    can_send_audios=False,
-                                    can_send_documents=False,
-                                    can_send_photos=False,
-                                    can_send_videos=False,
-                                    can_send_video_notes=False,
-                                    can_send_voice_notes=False,
-                                    can_send_other_messages=False,
-                                ),
-                                until_date=int(time.time() + 60 * 3),
-                            )
-                        except Exception as exc:
-                            logger.error(f"Restrict Chat Member Failed {exc}")
-                        try:
-                            await bot.send_message(
-                                chat_id=message.chat.id,
-                                text=telegramify_markdown.convert(
-                                    f"**Message from inactive user `{message.from_user.full_name}` is detected as spam,"
-                                    f"so it has been deleted and muted for 3 minutes.**\n"
-                                    f"Target Rule: `{','.join([item for item in reason if item])}`\n"
-                                    f"*Please call admin in case of emergency.*",
-                                ),
-                                parse_mode="MarkdownV2",
-                            )
-                            await STATISTICS.reset(user_id=str(message.from_user.id), group_id=str(message.chat.id))
-                        except Exception as exc:
-                            logger.error(f"Send Group Message Failed {exc}")
-                        return logger.info(f"Anti Spam for {message.from_user.id}")
+            # locale = get_locales(message.from_user.language_code)
+            chat_id, user_id = str(message.chat.id), str(message.from_user.id)
+            logger.trace(f"antispam:{chat_id}:{user_id} send a message")
+            familiarity = await STATISTICS.increase(user_id=user_id, group_id=chat_id)
+            if familiarity >= 8:
+                # 不在检查范围内
+                return "unfit for check"
+
+            policy = await GROUP_POLICY.read(group_id=chat_id)
+            if not policy.anti_spam:
+                # 未启用反垃圾系统
+                return "anti_spam disabled"
+
+            check_string = f"{message.text}"
+            reason = [
+                reason_chat_text(check_string),
+            ]
+            if message.video:
+                reason.append("INACTIVE_ACCOUNT_SEND_VIDEO")
+            if message.video_note:
+                reason.append("INACTIVE_ACCOUNT_SEND_VIDEO_NOTE")
+            if message.voice:
+                reason.append("INACTIVE_ACCOUNT_SEND_VOICE")
+            if message.story:
+                reason.append("INACTIVE_ACCOUNT_SEND_STORY")
+            """
+            if message.sticker:
+                reason.append("INACTIVE_ACCOUNT_SEND_STICKER")
+            """
+            if message.photo:
+                try:
+                    downloaded_file = await self.download(message.photo[-1])
+                except Exception as exc:
+                    logger.error(f"antispam:{chat_id}:{user_id}:{message.message_id} download photo failed {exc}")
+                else:
+                    if downloaded_file:
+                        reason.append(reason_chat_photo(downloaded_file))
+            if not any(reason):
+                return "valid message"
+
+            try:
+                await bot.delete_message(chat_id=chat_id, message_id=message.message_id)
+            except Exception as exc:
+                logger.error(f"antispam:{chat_id}:{user_id}:{message.message_id} delete message failed {exc}")
+            try:
+                await bot.restrict_chat_member(
+                    chat_id=message.chat.id,
+                    user_id=message.from_user.id,
+                    permissions=types.ChatPermissions(
+                        can_send_messages=False,
+                        can_send_polls=False,
+                        can_send_audios=False,
+                        can_send_documents=False,
+                        can_send_photos=False,
+                        can_send_videos=False,
+                        can_send_video_notes=False,
+                        can_send_voice_notes=False,
+                        can_send_other_messages=False,
+                    ),
+                    until_date=int(time.time() + 60 * 3),
+                )
+            except Exception as exc:
+                logger.error(f"antispam:{chat_id}:{user_id}:{message.message_id} restrict chat member failed {exc}")
+            try:
+                await bot.send_message(
+                    chat_id=message.chat.id,
+                    text=telegramify_markdown.convert(
+                        f"**Message from inactive user `{message.from_user.full_name}` is detected as spam,"
+                        f"so it has been deleted and muted for 3 minutes.**\n"
+                        f"Target Rule: `{','.join([item for item in reason if item])}`\n"
+                        f"*Please call admin in case of emergency.*",
+                    ),
+                    parse_mode="MarkdownV2",
+                )
+                await STATISTICS.reset(user_id=str(message.from_user.id), group_id=str(message.chat.id))
+            except Exception as exc:
+                logger.error(f"antispam:{chat_id}:{user_id}:{message.message_id} send message failed {exc}")
+            return logger.info(f"antispam:{chat_id}:{user_id}:{message.message_id} is spam, reason: {reason}")
 
         @bot.message_handler(
             commands="start",
@@ -512,9 +513,11 @@ class BotRunner(object):
             """
             Start Command
             """
-            locale = get_locales(message.from_user.language_code)
+            chat_id, user_id = str(message.chat.id), str(message.from_user.id)
+            language_code = message.from_user.language_code
+            locale = get_locales(language_code)
             logger.info(
-                f"[START] Start command from {message.from_user.id}:{message.from_user.full_name} - {message.from_user.language_code}"
+                f"start:{chat_id}:{user_id} --name [{message.from_user.full_name}] --lang {message.from_user.language_code}"
             )
             # https://core.telegram.org/api/links#bot-links
             invite_link = (f"https://t.me/{BotSetting.bot_username}?startgroup"
@@ -551,7 +554,7 @@ async def execution_ground():
     """
     监听死亡队列，处理过期的验证请求
     """
-    logger.info("Listen Dead Queue Start")
+    logger.info("death-queue:execution-ground:start")
     while True:
         try:
             data = await JOIN_MANAGER.read()
@@ -560,7 +563,7 @@ async def execution_ground():
                 if int(join_request.expired_at) < int(time.time() * 1000):
                     expired.append(join_request)
             if expired:
-                logger.info(f"[EXPIRED] Process Expired Join Request:{expired}")
+                logger.info(f"decline:expired:processing --lens {len(expired)}")
             for join_request in expired:
                 try:
                     # https://core.telegram.org/bots/api#chatjoinrequest
@@ -572,30 +575,28 @@ async def execution_ground():
                 except Exception as exc:
                     if "initiate conversation" in str(exc):
                         logger.info(
-                            f"[BLOCKED] Send Expired Message Failed, User({join_request.user_chat_id}) blocked the bot"
+                            f"decline:refuse:{join_request.user_id}:{join_request.chat_id}"
                         )
                     else:
-                        logger.error(f"[MSG] Send Expired Message Failed {exc}")
+                        logger.error(
+                            f"decline:failed-send-message:{join_request.user_id}:{join_request.chat_id} chat-join-request because {exc}")
                 try:
                     await BOT.delete_message(chat_id=join_request.user_id, message_id=join_request.message_id)
                 except Exception as exc:
-                    logger.error(f"[MSG] Delete Message Failed {exc}")
+                    logger.error(
+                        f"decline:failed-del-join-message:{join_request.user_id}:{join_request.chat_id} chat-join-request because {exc}")
             for join_request in expired:
                 try:
                     await BOT.decline_chat_join_request(chat_id=join_request.chat_id, user_id=join_request.user_id)
+                    logger.info(f"decline:success:{join_request.user_id}:{join_request.chat_id} chat-join-request")
                 except Exception as exc:
                     if "HIDE_REQUESTER_MISSING" in str(exc):
-                        logger.info(
-                            f"[MISSING] Missing Chat Join Request for user_id:{join_request.user_id} chat_id:{join_request.chat_id}"
-                        )
+                        logger.info(f"decline:hide-requester-missing:{join_request.user_id}:{join_request.chat_id}")
                     else:
-                        logger.error(f"[DECLINE] Decline Chat Join Request failed, because {exc}")
-                else:
-                    logger.info(
-                        f"[DECLINE] Decline Expired Chat Join Request for user_id:{join_request.user_id} chat_id:{join_request.chat_id}"
-                    )
+                        logger.error(
+                            f"decline:failed-decline:{join_request.user_id}:{join_request.chat_id} chat-join-request because {exc}")
             data.join_queue = [join_request for join_request in data.join_queue if join_request not in expired]
             await JOIN_MANAGER.save(data)
         except Exception as exc:
-            logger.exception(f"Listen Dead Queue Failed {exc}")
-        await asyncio.sleep(3)
+            logger.exception(f"detect:unknown-failed:{exc}")
+        await asyncio.sleep(2)

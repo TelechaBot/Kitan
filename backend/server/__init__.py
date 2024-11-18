@@ -202,6 +202,8 @@ async def verify_captcha(captcha_data: VerifyData):
     except Exception as exc:
         if "USER_ALREADY_PARTICIPANT" in str(exc):
             logger.info(f"[AFE] User Already In Group {user_id}:{chat_id}")
+        elif "HIDE_REQUESTER_MISSING" in str(exc):
+            logger.info(f"[AFE] Hide Requester Missing {user_id}:{chat_id}")
         else:
             logger.exception(f"[AFE] Approve Request Failed {exc}")
     finally:
