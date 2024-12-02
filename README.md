@@ -72,7 +72,7 @@ cd Kitan
 See `/frontend/README.MD`.
 
 ```shell
-cd frontend
+cd app
 npm install
 env VITE_BACKEND_URL="https://api.example.com"
 # env VITE_CLOUDFLARE_SITE_KEY="optional"

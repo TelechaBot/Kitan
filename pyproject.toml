@@ -1,0 +1,38 @@
+[project]
+name = ""
+version = ""
+description = ""
+authors = [
+    { name = "sudoskys", email = "coldlando@hotmail.com" },
+]
+dependencies = [
+    "pydantic<3.0.0,>=2.0.0",
+    "pydantic-settings<3.0.0,>=2.1.0",
+    "python-dotenv<2.0.0,>=1.0.0",
+    "pytelegrambotapi<5.0.0,>=4.14.0",
+    "loguru>=0.7.2",
+    "elara<1.0.0,>=0.5.5",
+    "httpx<1.0.0,>=0.25.1",
+    "shortuuid<2.0.0,>=1.0.11",
+    "aiohttp>=3.9.1",
+    "pre-commit>=3.5.0",
+    "telegramify-markdown>=0.1.2",
+    "fastapi>=0.111.0",
+    "odmantic>=1.0.2",
+    "redis>=5.0.4",
+    "lmdb>=1.4.1",
+    "rapidocr-onnxruntime>=1.2.3",
+    "cleanse-speech>=0.1.3",
+    "uvicorn>=0.30.3",
+    "SQLAlchemy>=2.0.36",
+    "sqlmodel>=0.0.22",
+    "mnemonic>=0.21",
+]
+
+
+
+requires-python = ">=3.10,<4.0"
+readme = "README.md"
+license = { text = "MIT" }
+
+[tool.pdm]

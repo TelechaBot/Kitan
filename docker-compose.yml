@@ -3,7 +3,7 @@ version: '3.8'
 services:
   frontend:
     build:
-      context: frontend
+      context: app
       dockerfile: Dockerfile
       args:
         VITE_BACKEND_URL: ${VITE_BACKEND_URL}
