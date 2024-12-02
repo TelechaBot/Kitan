@@ -1,0 +1,11 @@
+{
+  "tasks": {
+    "dev": "deno task dev:vite & deno task dev:server",
+    "dev:server": "deno run --env-file=.env.local --allow-env --allow-import --allow-net --allow-read --allow-write  server/main.ts",
+    "dev:vite": "deno run -A npm:vite serve /webapp"
+  },
+  "workspace": ["./app", "./server"],
+  "imports": {
+    "@std/assert": "jsr:@std/assert@1"
+  }
+}
