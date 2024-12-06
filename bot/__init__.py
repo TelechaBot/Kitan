@@ -291,7 +291,7 @@ async def handle_verify(
                 chat_id=event.user_id,
                 message_id=int(event.message_id),
                 text=telegramify_markdown.convert(
-                    f"Well, `{user.last_name}`.\n\n"
+                    f"Well, `{user.first_name}`.\n\n"
                     f"You are requesting to join the group `{message.chat.title}`.\n"
                     "But you need to prove that you are not a **robot**.\n\n"
                     f"*{locale.verify_join}*\n"

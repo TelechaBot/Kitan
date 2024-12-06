@@ -16,20 +16,21 @@ AREA = "configure"
 """
 
 
-class PolicyRule(BaseModel):
-    active_message: bool = Field(default=False, description="检查加入成员的简历是否包含广告")
-    """Join Check"""
-    regex_check: bool = Field(default=False, description="反骚扰反侮辱反刷屏")
-    """Anti Spam"""
-    complaints_guide: str = Field(
-        default="*There is no appeal channel set up for this group, please contact the administrator to join in.*",
-        description="Used to direct users where to make appeals"
-    )
-    """Complaints Guide"""
+class GroupConfig(BaseModel):
+    active_threshold: int = Field(default=7, description="活跃检查阈值")
+    """Active Threshold"""
+    ban_words: list[str] = Field(default=list, description="违禁词列表")
+    """Ban Words"""
+    pre_check_regex: list[str] = Field(default=list, description="预检正则列表")
+    """Pre Check Regex"""
+    skip_message_type: list[str] = Field(default=list, description="跳过消息类型")
+    """不会被检查的消息类型"""
+    ban_language: list[str] = Field(default=list, description="被禁止的语言地区")
+    """Ban Language"""
     model_config = ConfigDict(extra="ignore")
 
 
-class PolicyManager:
+class GroupConfigManager:
     def __init__(self):
         self.cache = global_cache_runtime.get_client()
 
@@ -37,17 +38,17 @@ class PolicyManager:
     def prefix(key: str) -> str:
         return f"{AREA}:{key}"
 
-    async def read(self, group_id: str) -> PolicyRule:
-        data = await self.cache.read_data(self.prefix(group_id))
+    async def read(self, chat_id: str) -> GroupConfig:
+        data = await self.cache.read_data(self.prefix(chat_id))
         try:
-            return PolicyRule.model_validate(data)
+            return GroupConfig.model_validate(data)
         except Exception as exc:
             logger.debug(f"PolicyManager.read: {exc}")
-            return PolicyRule()
+            return GroupConfig()
 
-    async def save(self, group_id: str, data: PolicyRule):
-        await self.cache.set_data(self.prefix(group_id), data.model_dump_json())
+    async def save(self, chat_id: str, data: GroupConfig):
+        await self.cache.set_data(self.prefix(chat_id), data.model_dump_json())
         return True
 
 
-globalGroupPolicy = PolicyManager()
+globalGroupConfig = GroupConfigManager()

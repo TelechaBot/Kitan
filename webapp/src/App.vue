@@ -4,7 +4,13 @@ import {useRoute} from 'vue-router';
 import axios from 'axios';
 import VueTurnstile from 'vue-turnstile';
 import Puzzles from "./components/Puzzles.vue";
-import {useWebApp, useWebAppBiometricManager, useWebAppNavigation, useWebAppPopup} from "vue-tg";
+import {
+  useWebApp,
+  useWebAppBiometricManager,
+  useWebAppHapticFeedback,
+  useWebAppNavigation,
+  useWebAppPopup
+} from "vue-tg";
 import {useGyroscopeExists} from "./hook/useGyroscopeExists.ts";
 import {useAccelerometerExists} from "./hook/useAccelerometerExists.ts";
 import CryptoJS from 'crypto-js';
@@ -14,6 +20,7 @@ import {useI18n} from 'vue-i18n';
 const {t} = useI18n();
 const route = useRoute();
 const {openLink} = useWebAppNavigation()
+const {notificationOccurred} = useWebAppHapticFeedback()
 
 enum AuthType {
   POW = 'pow',
@@ -143,6 +150,7 @@ const openAuthSettings = () => {
 }
 // 生物识别验证
 const authBiometric = () => {
+  notificationOccurred("success")
   const biometricCallback = (is_authed: boolean, auth_token?: (string | undefined)) => {
     if (is_authed) {
       console.log('Biometric authenticated')
