@@ -1,0 +1,24 @@
+{
+  "apps": [
+    {
+      "name": "verify-webapp",
+      "script": "",
+      "instances": 1,
+      "max_restarts": 3,
+      "restart_delay": 10000,
+      "exp_backoff_restart_delay": 50,
+      "out_file": "webapp.log",
+      "log_date_format": "YYYY-MM-DD HH-mm-ss"
+    },
+    {
+      "name": "verify-bot",
+      "script": "pdm run main.py",
+      "instances": 1,
+      "max_restarts": 3,
+      "restart_delay": 10000,
+      "exp_backoff_restart_delay": 50,
+      "out_file": "bot.log",
+      "log_date_format": "YYYY-MM-DD HH-mm-ss"
+    }
+  ]
+}
