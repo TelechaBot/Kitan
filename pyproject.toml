@@ -27,6 +27,10 @@ dependencies = [
     "SQLAlchemy>=2.0.36",
     "sqlmodel>=0.0.22",
     "mnemonic>=0.21",
+    "dramatiq[redis,watch]>=1.17.1",
+    "psycopg2-binary>=2.9.10",
+    "pydantic-ai>=0.0.9",
+    "instructor>=1.7.0",
 ]
 
 

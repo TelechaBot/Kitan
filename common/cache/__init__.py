@@ -112,6 +112,6 @@ class RedisRuntime(BaseRuntime):
         return self.client
 
 
-global_cache_runtime: BaseRuntime = RedisRuntime()
+global_cache_runtime: RedisRuntime = RedisRuntime()
 if not RedisRuntime().check_client():
     raise ValueError("RedisRuntime Server Not Found")

@@ -12,13 +12,30 @@ class JoinRequest(SQLModel, table=True):
     包含用户 ID、聊天 ID、过期时间、用户聊天 ID、消息 ID 和语言代码。
     """
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    """
+    唯一标识符
+    """
     user_id: str = Field(index=True)
+    """
+    用户 ID
+    """
     chat_id: str
-    message_id: str
+    """
+    群组聊天 ID
+    """
+    message_id: str | None = Field(default=None)
+    """
+    创建的消息 ID
+    初次无法发送消息，所以可能是 None
+    """
     user_chat_id: int  # 5 MINUTES VALID
+    """
+    加入请求的用户聊天 ID
+    """
     expired_at: int | None = Field(default=None, index=True)
     language_code: str | None = Field(default=None)
-    passed: bool = False
+    status: str = "waiting"
+    solved: bool = False
 
 
 class VerifyRequest(SQLModel, table=True):
@@ -42,10 +59,11 @@ class Database:
         load_dotenv()  # 加载 .env 文件中的环境变量
 
         self.postgresql_dsn = os.getenv(
-            "POSTGRESQL_DSN", "postgres://@localhost:5432/verify"
+            "POSTGRESQL_DSN", "postgresql://@localhost:5432/postgres"
         )
         try:
             self.engine = create_engine(self.postgresql_dsn, echo=True)
+            self.create_all_tables()
             self._check_database_connection()
             logger.info("Database connection established successfully.")
         except Exception as e:
@@ -69,4 +87,3 @@ class Database:
 
 # 初始化并创建全局 Database 实例
 dbInstance = Database()
-dbInstance.create_all_tables()  # 确保表结构已创建

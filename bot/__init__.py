@@ -8,23 +8,28 @@ import telebot.async_telebot
 import telegramify_markdown
 from loguru import logger
 from pydantic import SecretStr
-from sqlmodel import select
 from telebot import types, asyncio_filters
 from telebot import util
 from telebot.asyncio_helper import ApiTelegramException
 from telebot.types import InlineKeyboardMarkup, WebAppInfo
 
+from bot.box import generate_verification_message
+from bot.locales_config import get_locales
+from bot.service.judge import judge_pre_join_text, reason_chat_text, reason_chat_photo
+from bot.service.utils import parse_command
 from common.config.endpoint import EndpointSetting
 from common.config.telegrambot import BOT, BotSetting
-from common.const import EXPIRE_M_TIME, EXPIRE_SHOW
-from common.database import dbInstance, VerifyRequest, JoinRequest
+from common.const import EXPIRE_M_TIME
+from common.database import dbInstance
+from common.database.service import DatabaseService
 from common.middleware import globalGroupPolicy
 from common.recall import globalResendManager, ResendEvnet
 from common.safety.signature import generate_sign
 from common.statistics import globalStatistics
-from locales_config import get_locales
-from service.judge import judge_pre_join_text, reason_chat_text, reason_chat_photo
-from service.utils import parse_command
+
+db_service = DatabaseService(dbInstance)
+SOLVE_SEMAPHORE_LIMIT = 15  # 最大并发数
+FETCH_INTERVAL = 5  # 拉取间隔
 
 
 async def judgment(
@@ -42,70 +47,19 @@ async def judgment(
     return None
 
 
-async def pre_process_user(
+async def send_button(
         telegram_bot: telebot.async_telebot.AsyncTeleBot,
-        chat_id: int,
         user_id: int,
         message_id: str,
         verify_url: str,
-        preprocess_data: types.ChatFullInfo,
-        addon_bio: Optional[str] = None
 ):
     """
     预处理用户的资料页
     :param telegram_bot: 机器人实例
-    :param chat_id: 群组ID
     :param user_id: 用户ID
     :param message_id: 用户验证消息ID
     :param verify_url: 验证URL
-    :param preprocess_data: 用户资料
-    :param addon_bio: 附加的用户 BIO
     """
-    # 读取待验证的群组策略
-    policy = await globalGroupPolicy.read(group_id=str(chat_id))
-    if policy.join_check:
-        logger.debug(f"pre-process-user:join-check:{user_id}:{chat_id}")
-        # 检查用户资料
-        bio = addon_bio if addon_bio else preprocess_data.bio
-        check_string = f"{preprocess_data.first_name} {preprocess_data.last_name} {bio}"
-        if judge_pre_join_text(check_string):
-            try:
-                await telegram_bot.send_message(
-                    chat_id=user_id,
-                    text=telegramify_markdown.convert(
-                        f"# Sorry, this group enabled join check.\n"
-                        f"`You are recognized as a Advertiser or a Robot` by our risk control system.`\n\n"
-                        f"**What should I do?**\n"
-                        f"{policy.complaints_guide}",
-                    ),
-                    parse_mode="MarkdownV2",
-                )
-            except Exception as exc:
-                logger.error(f"pre-process-user:send-message-failed:{user_id}:{chat_id}:{exc}")
-            try:
-                await telegram_bot.decline_chat_join_request(chat_id=chat_id, user_id=user_id)
-            except Exception as exc:
-                logger.error(f"pre-process-user:decline-failed:{user_id}:{chat_id}:{exc}")
-            else:
-                logger.info(f"pre-process-user:pre-check-not-pass:{user_id}:{chat_id}")
-            # 删除死亡队列
-            try:
-                data = await globalJoinManager.read()
-                removed = []
-                for join_request in data.join_queue:
-                    join_request: JoinRequest
-                    if str(join_request.user_id) == str(user_id) and str(join_request.chat_id) == str(
-                            chat_id):
-                        removed.append(join_request)
-                if removed:
-                    for join_request in removed:
-                        data.join_queue.remove(join_request)
-                    await globalJoinManager.save(data)
-                else:
-                    logger.error(f"pre-process-user:not-found-dead-queue:{user_id}:{chat_id}")
-            except Exception as exc:
-                logger.error(f"pre-process-user:remove-join-queue-failed:{exc}")
-            return logger.info(f"pre-process-user:join-check-failed:{user_id}:{chat_id}")
     # 发送验证按钮
     try:
         await telegram_bot.edit_message_reply_markup(
@@ -125,10 +79,10 @@ async def pre_process_user(
             )
         )
     except Exception as exc:
-        logger.error(f"Edit Message Failed {exc}")
+        logger.error(f"pre-process-user:send-button-failed:{user_id}:{message_id}:{exc}")
 
 
-async def download(telegram_bot: telebot.async_telebot.AsyncTeleBot, file):
+async def download_file(telegram_bot: telebot.async_telebot.AsyncTeleBot, file):
     """
     下载文件
     :param telegram_bot: 机器人实例
@@ -147,41 +101,6 @@ async def download(telegram_bot: telebot.async_telebot.AsyncTeleBot, file):
     return downloaded_file
 
 
-async def dead_shot(
-        user_id: str,
-        chat_id: str,
-        expired_m_at: int,
-        language_code: str,
-        user_chat_id: int,
-        message_id: Optional[str] = None
-):
-    try:
-        with dbInstance.get_session() as session:
-            select_statement = select(JoinRequest).where(
-                JoinRequest.user_id == user_id,
-                JoinRequest.chat_id == chat_id
-            )
-            results = session.exec(select_statement)
-            if results:
-                for result in results:
-                    session.delete(result)
-                session.commit()
-            dto = JoinRequest(
-                user_id=str(user_id),
-                chat_id=str(chat_id),
-                expired_at=expired_m_at,
-                language_code=str(language_code),
-                user_chat_id=int(user_chat_id),
-                message_id=str(message_id)
-            )
-            session.add(dto)
-            session.commit()
-    except Exception as exc:
-        logger.error(f"dead-shot:failed-insert-join-queue:{user_id}:{chat_id}:{exc}")
-    else:
-        logger.success(f"dead-shot:success-insert-join-queue:{user_id}:{chat_id}")
-
-
 async def handle_join_request(
         telegram_bot: telebot.async_telebot.AsyncTeleBot,
         message: types.ChatJoinRequest
@@ -196,7 +115,7 @@ async def handle_join_request(
         user_name = message.from_user.full_name[:20]
         chat_id = str(message.chat.id)
         user_id = str(message.from_user.id)
-        join_m_time = str(int(time.time() * 1000))  # 防止停机
+        join_m_time = str(int(time.time() * 1000))
         expired_m_at = int(join_m_time) + EXPIRE_M_TIME
     except Exception as exc:
         logger.exception(f"join-request:parse-failed:{exc} --data {message}")
@@ -211,23 +130,24 @@ async def handle_join_request(
     # 尝试发送消息
     try:
         sent_message = await telegram_bot.send_message(
-            message.user_chat_id,
-            text=telegramify_markdown.convert(
-                f"# Hello, `{user_name}`.\n\n"
-                f"You are requesting to join the group `{chat_title}`.\n"
-                "But you need to prove that you are not a **robot**.\n"
-                f"**You have {EXPIRE_SHOW}.**\n\n"
-                f"*{locale.verify_join}*\n"
-                f"`{chat_id}-{user_id}-{expired_m_at}`",
-            ),
-            parse_mode="MarkdownV2",
+            chat_id=message.user_chat_id,
+            text=generate_verification_message(
+                instructions=locale.join_request,
+                chat_title=chat_title,
+                user_name=user_name,
+            ), parse_mode="MarkdownV2",
         )
         sent_message_id = str(sent_message.message_id)
     except Exception as exc:
         sent_message_id = None
-        logger.error(f"join-request:send-welcome-failed:{user_id}:{chat_id}:{exc}")
+        if "initiate conversation" in str(exc):
+            logger.info(f"join-request:send-welcome-be-refused:{user_id}:{chat_id}")
+        elif "was blocked" in str(exc):
+            logger.info(f"join-request:send-welcome-be-blocked:{user_id}:{chat_id}")
+        else:
+            logger.error(f"join-request:send-welcome-failed:{user_id}:{chat_id}:{exc}")
     # 投入死亡队列
-    await dead_shot(
+    db_service.save_join_request(
         user_id=user_id,
         chat_id=chat_id,
         expired_m_at=expired_m_at,
@@ -235,6 +155,7 @@ async def handle_join_request(
         user_chat_id=message.user_chat_id,
         message_id=sent_message_id
     )
+    # 消息未发送，无法继续
     if not sent_message_id:
         return logger.error(f"join-request:user-refuse:{user_id}:{chat_id}")
     # 用户没有拉黑机器人，生产签名
@@ -245,13 +166,14 @@ async def handle_join_request(
         join_time=join_m_time,
         secret_key=SecretStr(BotSetting.token),
     )
-
     # 保存历史记录
     try:
-        with dbInstance.get_session() as session:
-            _request = VerifyRequest(user_id=user_id, chat_id=chat_id, timestamp=join_m_time, signature=signature)
-            session.add(_request)
-            session.commit()
+        db_service.add_verify_request(
+            chat_id=chat_id,
+            user_id=user_id,
+            timestamp=join_m_time,
+            signature=signature
+        )
     except Exception as exc:
         logger.error(f"join-request:save-history-failed:{user_id}:{chat_id}:{exc}")
 
@@ -263,9 +185,18 @@ async def handle_join_request(
         event = await telegram_bot.get_chat(message.from_user.id)
     except Exception as exc:
         logger.info(f"join-request:cant-get-user-profile:jump to fallback:{exc}")
-        # 存储一份参数快照，并生成一个唯一数据命令+ID
+        # 存储一份参数快照，并生成一个唯一数据命令
         snapshot_uid = shortuuid.uuid()[0:6]
         verify_tip = f"**Copy `/verify {snapshot_uid}` then send me to continue verification of `{chat_title}`**"
+        # 发送一个提示，提示让用户使用 verify 命令
+        try:
+            sent_message_id = await telegram_bot.send_message(
+                chat_id=message.user_chat_id,
+                text=telegramify_markdown.markdownify(verify_tip),
+                parse_mode="MarkdownV2",
+            )
+        except Exception as exc:
+            logger.error(f"join-request:send-verify-tip-failed:{user_id}:{chat_id}:{exc}")
         await globalResendManager.save(
             event_id=snapshot_uid,
             data=ResendEvnet(
@@ -275,15 +206,6 @@ async def handle_join_request(
                 user_id=str(user_id),
             )
         )
-        # 发送一个提示，提示让用户使用 verify 命令
-        try:
-            await telegram_bot.send_message(
-                chat_id=message.user_chat_id,
-                text=telegramify_markdown.markdownify(verify_tip),
-                parse_mode="MarkdownV2",
-            )
-        except Exception as exc:
-            logger.error(f"join-request:send-verify-tip-failed:{user_id}:{chat_id}:{exc}")
     else:
         invalid = await judgment(
             chat_id=int(chat_id),
@@ -303,15 +225,13 @@ async def handle_join_request(
                 )
             except Exception as exc:
                 logger.error(f"pre-process-user:send-message-failed:{user_id}:{chat_id}:{exc}")
-        await pre_process_user(
-            telegram_bot=telegram_bot,
-            chat_id=int(chat_id),
-            user_id=int(user_id),
-            message_id=sent_message_id,
-            verify_url=verify_url,
-            preprocess_data=event,
-            addon_bio=message.bio
-        )
+        else:
+            await send_button(
+                telegram_bot=telegram_bot,
+                user_id=int(user_id),
+                message_id=sent_message_id,
+                verify_url=verify_url,
+            )
     return True
 
 
@@ -326,7 +246,8 @@ async def handle_verify(
     locale = get_locales(message.from_user.language_code)
     chat_id, user_id = str(message.chat.id), str(message.from_user.id)
     logger.info(
-        f"verify:start:{user_id}:{chat_id} --name [{message.from_user.full_name}] --lang {message.from_user.language_code}")
+        f"verify:start:{user_id}:{chat_id} --name [{message.from_user.full_name}] --lang {message.from_user.language_code}"
+    )
     # 解析命令
     try:
         command, event_id = parse_command(message.text)
@@ -344,15 +265,47 @@ async def handle_verify(
         user = await telegram_bot.get_chat(message.from_user.id)
     except Exception as exc:
         return logger.error(f"verify:failed-fetch-user-profile:{exc}")
-    # 预处理用户资料
-    await pre_process_user(
-        telegram_bot=telegram_bot,
-        chat_id=event.chat_id,
-        user_id=event.user_id,
-        message_id=event.message_id,
-        verify_url=event.verify_url,
-        preprocess_data=user
+    invalid = await judgment(
+        chat_id=int(chat_id),
+        target_string=f"{user.first_name} {user.last_name} {user.bio}"
     )
+    if invalid:
+        try:
+            await telegram_bot.send_message(
+                chat_id=user_id,
+                text=telegramify_markdown.convert(
+                    f"# Sorry, this group enabled join check.\n"
+                    f"`You are recognized as a Advertiser or a Robot by our risk control system.`\n\n"
+                    f"**What should I do?**\n"
+                    f"{invalid}",
+                ),
+                parse_mode="MarkdownV2",
+            )
+        except Exception as exc:
+            logger.error(f"pre-process-user:send-message-failed:{user_id}:{chat_id}:{exc}")
+    else:
+        if not event.message_id:
+            return logger.info(f"verify:message-not-found:{event_id}")
+        try:
+            await telegram_bot.edit_message_text(
+                chat_id=event.user_id,
+                message_id=int(event.message_id),
+                text=telegramify_markdown.convert(
+                    f"Well, `{user.last_name}`.\n\n"
+                    f"You are requesting to join the group `{message.chat.title}`.\n"
+                    "But you need to prove that you are not a **robot**.\n\n"
+                    f"*{locale.verify_join}*\n"
+                ),
+                parse_mode="MarkdownV2",
+            )
+        except Exception as exc:
+            logger.error(f"verify:failed-edit-message:{user_id}:{chat_id}:{exc}")
+        await send_button(
+            telegram_bot=telegram_bot,
+            user_id=event.user_id,
+            message_id=event.message_id,
+            verify_url=event.verify_url,
+        )
 
 
 async def handle_join_check(
@@ -494,7 +447,7 @@ async def handle_group_msg_no_admin(
     """
     if message.photo:
         try:
-            downloaded_file = await download(
+            downloaded_file = await download_file(
                 telegram_bot=telegram_bot,
                 file=message.photo[-1]
             )
@@ -702,63 +655,144 @@ class Runner(object):
             logger.exception(e)
 
 
+solve_semaphore = asyncio.Semaphore(SOLVE_SEMAPHORE_LIMIT)
+
+
+async def solve_join_request(
+        join_chat_id: str,
+        user_id: str,
+        user_chat_id: int,
+        language_code: str,
+        del_message_id: str = None,
+):
+    """
+    处理单个 Join Request 的完整生命周期
+    包括消息发送、消息删除以及拒绝入群请求。
+    """
+    # 标志初始状态
+    async with solve_semaphore:
+        # 步骤 0：拒绝入群请求
+        try:
+            await BOT.decline_chat_join_request(
+                chat_id=join_chat_id, user_id=user_id
+            )
+            status = "declined"
+            logger.info(f"decline:success:{user_id}:{join_chat_id}")
+        except Exception as exc:
+            if "HIDE_REQUESTER_MISSING" in str(exc):
+                status = "hide-requester-missing"
+                logger.info(f"decline:hide-requester-missing:{user_id}:{join_chat_id}")
+            else:
+                status = "failed-decline"
+                logger.error(
+                    f"decline:failed-decline:{user_id}:{join_chat_id} because {exc}"
+                )
+        # 步骤 1：发送提醒消息
+        try:
+            await BOT.send_message(
+                chat_id=user_chat_id,
+                text=telegramify_markdown.convert(get_locales(language_code).expired_join),
+                parse_mode="MarkdownV2",
+            )
+            logger.info(f"message:success:{user_id}:{join_chat_id}")
+        except Exception as exc:
+            if "initiate conversation" in str(exc):
+                logger.info(f"decline:refuse:{user_id}:{join_chat_id}")
+            elif "blocked" in str(exc):
+                logger.info(f"decline:user-blocked-bot:{user_id}:{join_chat_id}")
+            else:
+                logger.error(
+                    f"decline:failed-send-message:{user_id}:{join_chat_id} because {exc}"
+                )
+        # 步骤 2：删除过期验证消息
+        try:
+            if del_message_id:
+                await BOT.delete_message(
+                    chat_id=user_chat_id,
+                    message_id=del_message_id
+                )
+                logger.info(f"delete:success:{user_id}:{join_chat_id}")
+        except Exception as exc:
+            if "message to delete not found" in str(exc):
+                logger.info(f"delete:message-not-found:{user_id}:{join_chat_id}")
+            elif "message identifier is not specified" in str(exc):
+                logger.info(f"delete:message-not-specified:{user_id}:{join_chat_id}")
+            else:
+                logger.error(
+                    f"decline:failed-del-join-message:{user_id}:{join_chat_id} because {exc}"
+                )
+        return status, user_id, join_chat_id
+
+
 async def execution_ground():
     """
     监听死亡队列，处理过期的验证请求
     """
+
     logger.info("death-queue:execution-ground:start")
     while True:
+        await asyncio.sleep(FETCH_INTERVAL)
         try:
-            data = await globalJoinManager.read()
-            expired = []
-            for join_request in data.join_queue:
-                if int(join_request.expired_at) < int(round(time.time() * 1000)):
-                    expired.append(join_request)
-            if expired:
-                logger.info(f"decline:expired:processing --lens {len(expired)}")
-            for join_request in expired:
-                try:
-                    # https://core.telegram.org/bots/api#chatjoinrequest
-                    await BOT.send_message(
-                        chat_id=join_request.user_chat_id,
-                        text=telegramify_markdown.convert(get_locales(join_request.language_code).expired_join),
-                        parse_mode="MarkdownV2",
-                    )
-                except Exception as exc:
-                    if "initiate conversation" in str(exc):
-                        logger.info(
-                            f"decline:refuse:{join_request.user_id}:{join_request.chat_id}"
-                        )
-                    elif "blocked" in str(exc):
-                        logger.info(
-                            f"decline:user-blocked-bot:{join_request.user_id}:{join_request.chat_id}"
-                        )
-                    else:
-                        logger.error(
-                            f"decline:failed-send-message:{join_request.user_id}:{join_request.chat_id} chat-join-request because {exc}")
-                try:
-                    await BOT.delete_message(chat_id=join_request.user_id, message_id=join_request.message_id)
-                except Exception as exc:
-                    if "message to delete not found" in str(exc):
-                        logger.info(
-                            f"decline:delete-message-not-found:{join_request.user_id}:{join_request.chat_id}"
-                        )
-                    else:
-                        logger.error(
-                            f"decline:failed-del-join-message:{join_request.user_id}:{join_request.chat_id} chat-join-request because {exc}"
-                        )
-            for join_request in expired:
-                try:
-                    await BOT.decline_chat_join_request(chat_id=join_request.chat_id, user_id=join_request.user_id)
-                    logger.info(f"decline:success:{join_request.user_id}:{join_request.chat_id} chat-join-request")
-                except Exception as exc:
-                    if "HIDE_REQUESTER_MISSING" in str(exc):
-                        logger.info(f"decline:hide-requester-missing:{join_request.user_id}:{join_request.chat_id}")
-                    else:
-                        logger.error(
-                            f"decline:failed-decline:{join_request.user_id}:{join_request.chat_id} chat-join-request because {exc}")
-            data.join_queue = [join_request for join_request in data.join_queue if join_request not in expired]
-            await globalJoinManager.save(data)
+            current_time = int(round(time.time() * 1000))
+            wait_deal = db_service.fetch_pending_join_request(timer=current_time)
         except Exception as exc:
-            logger.exception(f"detect:unknown-failed:{exc}")
-        await asyncio.sleep(2)
+            logger.exception(f"death-queue:execution-ground:failed-fetch:{exc}")
+            continue
+
+        # 如果没有需要处理的请求，则继续等待
+        if not wait_deal:
+            continue
+
+        logger.info(f"decline:expired:processing --lens {len(wait_deal)}")
+
+        # 创建任务，每个任务绑定 join_request
+        task_map = {
+            join_request: solve_join_request(
+                join_chat_id=join_request.chat_id,
+                user_id=join_request.user_id,
+                user_chat_id=join_request.user_chat_id,
+                del_message_id=join_request.message_id,
+                language_code=join_request.language_code,
+            )
+            for join_request in wait_deal
+        }
+
+        gather_result = []
+        try:
+            # 并发运行任务，保留原始的 join_request 绑定
+            gather_result = await asyncio.gather(
+                *task_map.values(),
+                return_exceptions=True  # 捕获单个任务的异常
+            )
+        except Exception as exc:
+            # 此处一般不会到达，因为 `return_exceptions=True` 已经捕获每个任务的错误
+            logger.error(f"death-queue:execution-ground:failed-concurrent-processing:{exc}")
+
+        # 匹配 gather_result 返回的结果与 task_map 中的 join_request
+        for (join_request, result) in zip(task_map.keys(), gather_result):
+            try:
+                if isinstance(result, tuple) and len(result) == 3:
+                    # 正常处理返回的 (status, user_id, join_chat_id)
+                    join_request.status = result[0]  # 从 solve_join_request 返回的 status
+                elif isinstance(result, Exception):
+                    # 如果任务出现异常，将异常信息记录到 status
+                    join_request.status = f"failed: {type(result).__name__}: {str(result)}"
+                    logger.warning(
+                        f"decline:task-exception:{join_request.user_id}:{join_request.chat_id} because {result}")
+                else:
+                    # 不确定的失败情况
+                    join_request.status = "failed-unknown"
+                    logger.warning(f"decline:task-failed-unknown:{join_request.user_id}:{join_request.chat_id}")
+            except Exception as exc:
+                logger.error(f"decline:result-processing-error:{exc}")
+                join_request.status = "failed-mapping"
+
+            # 无论任务成功/失败，都需要将 join_request 标记为已处理
+            join_request.solved = True
+
+        # 统一批量更新数据库
+        try:
+            await db_service.solve_join_request(join_requests=wait_deal)
+            logger.info(f"decline:batch-update:success --lens {len(wait_deal)}")
+        except Exception as exc:
+            logger.error(f"decline:failed-solve-join-request:{exc}")
