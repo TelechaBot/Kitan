@@ -26,6 +26,7 @@ export const MESSAGES = {
     dmButton: "Start the check",
     start: "Hi, I'm Kitan. I keep spam bots out of groups. You have no checks waiting right now; when you ask to join a group that uses me, your check will appear here.",
     addToGroup: "Add me to a group",
+    muted: "Your message was removed because new members can't post links, forwards, mass mentions or bot buttons during their first day here. You can post again from {time}. If this was a mistake, a group admin can lift it.",
   },
   zh: {
     title: "加入「{chat}」",
@@ -47,6 +48,7 @@ export const MESSAGES = {
     dmButton: "开始验证",
     start: "你好，我是 Kitan，帮群组挡住广告机器人。你现在没有待完成的验证；申请加入使用我的群组后，验证会出现在这里。",
     addToGroup: "把我加到群组",
+    muted: "你的消息已被删除：新成员入群第一天不能发链接、转发、批量 @ 或 bot 按钮。你可以在 {time} 之后再发言。如果这是误判，群管理员可以帮你解除。",
   },
   "zh-hant": {
     title: "加入「{chat}」",
@@ -68,6 +70,7 @@ export const MESSAGES = {
     dmButton: "開始驗證",
     start: "你好，我是 Kitan，幫群組擋住廣告機器人。你現在沒有待完成的驗證；申請加入使用我的群組後，驗證會出現在這裡。",
     addToGroup: "把我加到群組",
+    muted: "你的訊息已被刪除：新成員入群第一天不能發連結、轉傳、大量 @ 或 bot 按鈕。你可以在 {time} 之後再發言。如果這是誤判，群管理員可以幫你解除。",
   },
   ja: {
     title: "「{chat}」に参加",
@@ -89,6 +92,7 @@ export const MESSAGES = {
     dmButton: "確認をはじめる",
     start: "こんにちは、Kitan です。スパムボットからグループを守っています。いま待機中の確認はありません。私を使うグループに参加をリクエストすると、ここに確認が届きます。",
     addToGroup: "グループに追加",
+    muted: "メッセージを削除しました。新しいメンバーは参加初日、リンク・転送・大量メンション・ボットのボタンを投稿できません。{time}から再び投稿できます。誤りの場合は、グループの管理者に解除を依頼してください。",
   },
   ru: {
     title: "Вступление в «{chat}»",
@@ -110,6 +114,7 @@ export const MESSAGES = {
     dmButton: "Пройти проверку",
     start: "Привет, я Kitan — защищаю группы от спам-ботов. Сейчас у вас нет ожидающих проверок; когда вы подадите заявку в группу, где я работаю, проверка появится здесь.",
     addToGroup: "Добавить в группу",
+    muted: "Ваше сообщение удалено: в первый день новые участники не могут публиковать ссылки, пересылки, массовые упоминания и кнопки ботов. Вы снова сможете писать после {time}. Если это ошибка, администратор группы может снять ограничение.",
   },
   es: {
     title: "Unirte a {chat}",
@@ -131,6 +136,7 @@ export const MESSAGES = {
     dmButton: "Empezar la verificación",
     start: "Hola, soy Kitan: protejo los grupos de los bots de spam. Ahora no tienes verificaciones pendientes; cuando pidas unirte a un grupo que me use, la verificación aparecerá aquí.",
     addToGroup: "Añadirme a un grupo",
+    muted: "Se eliminó tu mensaje porque durante su primer día los miembros nuevos no pueden publicar enlaces, reenvíos, menciones masivas ni botones de bots. Podrás volver a escribir a partir de {time}. Si es un error, un administrador del grupo puede quitar la restricción.",
   },
   ar: {
     title: "الانضمام إلى {chat}",
@@ -152,6 +158,7 @@ export const MESSAGES = {
     dmButton: "ابدأ التحقق",
     start: "مرحبًا، أنا Kitan، أحمي المجموعات من روبوتات الرسائل المزعجة. لا يوجد لديك تحقق معلّق الآن؛ عندما تطلب الانضمام إلى مجموعة تستخدمني سيظهر التحقق هنا.",
     addToGroup: "أضفني إلى مجموعة",
+    muted: "حُذفت رسالتك لأن الأعضاء الجدد لا يمكنهم في يومهم الأول نشر الروابط أو الرسائل المُعاد توجيهها أو الإشارات الجماعية أو أزرار الروبوتات. يمكنك الكتابة مجددًا بعد {time}. إذا كان هذا خطأ، يمكن لمشرف المجموعة رفع القيد.",
   },
   hi: {
     title: "{chat} से जुड़ें",
@@ -173,6 +180,7 @@ export const MESSAGES = {
     dmButton: "जाँच शुरू करें",
     start: "नमस्ते, मैं Kitan हूँ और ग्रुप्स को स्पैम बॉट से बचाता हूँ। अभी आपकी कोई जाँच बाकी नहीं है; जब आप मुझे इस्तेमाल करने वाले किसी ग्रुप से जुड़ने का अनुरोध करेंगे, जाँच यहीं दिखेगी।",
     addToGroup: "मुझे ग्रुप में जोड़ें",
+    muted: "आपका संदेश हटा दिया गया, क्योंकि नए सदस्य पहले दिन लिंक, फ़ॉरवर्ड, एक साथ कई मेंशन या बॉट बटन पोस्ट नहीं कर सकते। आप {time} के बाद फिर से लिख सकेंगे। अगर यह गलती है, तो ग्रुप एडमिन इसे हटा सकते हैं।",
   },
   bn: {
     title: "{chat}-এ যোগ দিন",
@@ -194,6 +202,7 @@ export const MESSAGES = {
     dmButton: "যাচাই শুরু করুন",
     start: "হ্যালো, আমি Kitan, গ্রুপগুলোকে স্প্যাম বট থেকে রক্ষা করি। এই মুহূর্তে আপনার কোনো যাচাই বাকি নেই; আমাকে ব্যবহার করা কোনো গ্রুপে যোগদানের অনুরোধ করলে যাচাই এখানে আসবে।",
     addToGroup: "আমাকে গ্রুপে যোগ করুন",
+    muted: "আপনার মেসেজটি সরানো হয়েছে, কারণ নতুন সদস্যরা প্রথম দিনে লিঙ্ক, ফরওয়ার্ড, একসঙ্গে অনেক মেনশন বা বটের বোতাম পোস্ট করতে পারেন না। আপনি {time} থেকে আবার লিখতে পারবেন। ভুল হলে গ্রুপের অ্যাডমিন বিধিনিষেধ তুলে দিতে পারেন।",
   },
 } as const;
 

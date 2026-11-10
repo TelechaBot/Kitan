@@ -17,6 +17,7 @@ import {
   messageText,
   spamReason,
 } from "./probation";
+import { pickLang, t } from "./i18n";
 import { callTelegram, log, messageOf } from "./telegram";
 import type { Env, Message } from "./types";
 
@@ -56,12 +57,24 @@ export async function onGroupMessage(env: Env, message: Message, now: number): P
   await insertOffense(env.DB, userId, chatId, verdict.reason, now);
   await telegram(env, "deleteMessage", { chat_id: chatId, message_id: message.message_id });
   if (verdict.action === "mute") {
+    const until = Math.floor(verdict.until / 1000);
     await telegram(env, "restrictChatMember", {
       chat_id: chatId,
       user_id: userId,
       permissions: MUTED,
       use_independent_chat_permissions: true,
-      until_date: Math.floor(verdict.until / 1000),
+      until_date: until,
+    });
+    // Tell only them why and until when; a real newcomer should not be left guessing.
+    // Telegram shows the time in their own time zone; the text inside is the fallback.
+    const fallback = `${new Date(verdict.until).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+    await telegram(env, "sendMessage", {
+      chat_id: chatId,
+      text: t(pickLang(message.from.language_code), "muted", {
+        time: `<tg-time unix="${until}" format="dt">${fallback}</tg-time>`,
+      }),
+      parse_mode: "HTML",
+      ephemeral_message_parameters: { receiver_user_id: message.from.id },
     });
   } else {
     // Ban the account wherever it is still new, removing its messages there too.

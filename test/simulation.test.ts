@@ -158,7 +158,11 @@ test("cost: a real newcomer shares a link on day one", async () => {
   await w.say(10, A, "the docs are at https://example.org/guide");
   expect(w.methods()).toContain("restrictChatMember");
   expect(w.methods()).not.toContain("banChatMember");
-  record("COST newcomer posting a link", "message deleted, muted for the rest of day one");
+  // Only they are told why, and until when, in their own time zone.
+  const note = w.callsTo("sendMessage").find((c) => c.params.ephemeral_message_parameters);
+  expect(note?.params).toMatchObject({ chat_id: String(A), parse_mode: "HTML", ephemeral_message_parameters: { receiver_user_id: 10 } });
+  expect(note?.params.text).toMatch(/^Your message was removed because .* from ⁨<tg-time unix="\d+" format="dt">/);
+  record("COST newcomer posting a link", "message deleted, muted for day one, told why privately");
 });
 
 test("gap: a spam account waits out probation before advertising", async () => {
