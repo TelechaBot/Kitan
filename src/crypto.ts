@@ -1,4 +1,4 @@
-import type { InitData, TelegramChat, TelegramUser } from "./types";
+import type { InitData, TelegramUser } from "./types";
 
 const encoder = new TextEncoder();
 
@@ -80,13 +80,8 @@ export async function verifyInitData(
     throw new Error("initData user is invalid");
   }
 
-  const rawChat = params.get("chat");
-  const chat = rawChat ? parseJson<TelegramChat>(rawChat, "chat") : undefined;
-  if (chat && typeof chat.id !== "number") {
-    throw new Error("initData chat is invalid");
-  }
-
-  return { user, chat, authDate };
+  const joinQueryId = params.get("chat_join_request_query_id") || undefined;
+  return { user, joinQueryId };
 }
 
 function parseJson<T>(value: string | null, field: string): T {

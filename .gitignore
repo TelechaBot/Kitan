@@ -2,9 +2,6 @@
 .idea/
 .env
 .env.*
-!**/.env.example
+.dev.vars
 node_modules/
-data/
-*.db
-*.db-wal
-*.db-shm
+.wrangler/

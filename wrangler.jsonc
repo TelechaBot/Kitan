@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kitan",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // Served only on a custom domain attached in the dashboard/API, kept out of this public repo.
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "triggers": { "crons": ["* * * * *"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kitan",
+      "database_id": "d395ce41-4899-4a9a-8b76-5e065212f34e",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
