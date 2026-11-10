@@ -31,9 +31,22 @@ declines the request after the hour, so they can ask to join again; a request
 nobody answers would stop them from asking again. You can still approve or
 decline it yourself during that hour.
 
+### Requests from before Kitan
+
 Kitan can only answer requests it received. Requests left from before Kitan
 was added, or from while it was offline, stay in the group's **Join requests**
-list until you clear them there.
+list, and those people cannot ask again until someone answers. Telegram only
+lets a person, not a bot, list them, so an admin can clear them in one go with
+their own account:
+
+```shell
+TG_API_ID=… TG_API_HASH=… bun scripts/clear-stale-requests.ts --before <when Kitan started>
+```
+
+Get the API id and hash at [my.telegram.org](https://my.telegram.org) under
+**API development tools**. The script lists, for each group you admin, how many
+requests are older than `--before`; add `--apply` to decline them. Declined
+people can ask to join again right away, and Kitan will check them.
 
 To tell people this, add a line like this to your group description:
 
