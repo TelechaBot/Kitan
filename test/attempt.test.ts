@@ -1,7 +1,16 @@
 // The join-attempt state machine as scenarios: each is a list of events fed to
 // the pure step function, with the status and effects after every event.
 import { describe, expect, test } from "bun:test";
-import { type Attempt, DM_TTL_MS, GUARD_TTL_MS, type Intake, type JoinEvent, intake, step } from "../src/attempt";
+import {
+  type Attempt,
+  DM_TTL_MS,
+  GUARD_TTL_MS,
+  type Intake,
+  type JoinEvent,
+  WAIT_TTL_MS,
+  intake,
+  step,
+} from "../src/attempt";
 
 const T0 = 1_000_000;
 
@@ -74,8 +83,8 @@ describe("journeys", () => {
     expect(play(attempt, [{ type: "verified", at: T0 + DM_TTL_MS + 1 }])).toEqual(["verified: refused (closed)"]);
   });
 
-  test("Telegram refuses the DM: nothing expires it, and starting the bot reopens it with a fresh limit", () => {
-    const later = T0 + 60 * 60 * 1000;
+  test("Telegram refuses the DM: starting the bot within the hour reopens it with a fresh limit", () => {
+    const later = T0 + WAIT_TTL_MS - 1;
     expect(
       play(attempt, [
         { type: "challenge_failed", error: "Forbidden", refused: true, at: T0 },
@@ -87,26 +96,38 @@ describe("journeys", () => {
     ).toEqual([
       "challenge_failed: unreachable",
       "verified: refused (closed)",
-      "tick: refused (closed)",
+      "tick: refused (not_due)",
       "resumed: pending",
       "verified: approved -> approve",
     ]);
   });
 
-  test("any other failure to send the check hands the request to the admins for good", () => {
+  test("an unreachable request nobody resumes is declined after the hour, so the person can ask again", () => {
+    expect(
+      play(attempt, [
+        { type: "challenge_failed", error: "Forbidden", refused: true, at: T0 },
+        { type: "tick", at: T0 + WAIT_TTL_MS },
+        { type: "resumed", at: T0 + WAIT_TTL_MS + 1 },
+      ]),
+    ).toEqual(["challenge_failed: unreachable", "tick: expired -> decline", "resumed: refused (closed)"]);
+  });
+
+  test("any other failure to send the check goes to the admins, then is declined if they do nothing", () => {
     expect(
       play(attempt, [
         { type: "challenge_failed", error: "Bad Request", refused: false, at: T0 },
         { type: "resumed", at: T0 + 1 },
+        { type: "tick", at: T0 + WAIT_TTL_MS },
       ]),
-    ).toEqual(["challenge_failed: failed -> queue", "resumed: refused (closed)"]);
+    ).toEqual(["challenge_failed: queued -> queue", "resumed: refused (not_due)", "tick: expired -> decline"]);
   });
 
-  test("a guard-bot launch Telegram refuses still goes to the admins", () => {
+  test("a queued guard-bot request is declined directly, since its query is spent", () => {
     const guard = admit({ delivery: { kind: "guard", queryId: "Q" } }).attempt;
-    expect(play(guard, [{ type: "challenge_failed", error: "Forbidden", refused: true, at: T0 }])).toEqual([
-      "challenge_failed: failed -> queue",
-    ]);
+    const queued = step(guard, { type: "challenge_failed", error: "Forbidden", refused: true, at: T0 });
+    expect(queued.ok && queued.next.status).toBe("queued");
+    const expired = queued.ok ? step(queued.next, { type: "tick", at: T0 + WAIT_TTL_MS }) : queued;
+    expect(expired.ok && expired.effects).toEqual([{ type: "answer", result: "decline", queryUsed: true }]);
   });
 
   test("two submissions race: the second sees the first's approval", () => {

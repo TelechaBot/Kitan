@@ -42,6 +42,7 @@ function decode(row: AttemptRow): Attempt {
       return { ...base, status: row.status, decidedAt };
     case "failed":
     case "unreachable":
+    case "queued":
       return { ...base, status: row.status, decidedAt, error: row.error ?? "" };
     case "declined":
       return { ...base, status: "declined", decidedAt, reason: row.error as DeclineReason };
@@ -60,7 +61,7 @@ function encode(a: NewAttempt) {
     expires_at: a.expiresAt,
     decided_at: a.status === "pending" ? null : a.decidedAt,
     error:
-      a.status === "failed" || a.status === "unreachable"
+      a.status === "failed" || a.status === "unreachable" || a.status === "queued"
         ? a.error.slice(0, 300)
         : a.status === "declined"
           ? a.reason
@@ -136,18 +137,22 @@ export async function findAttempt(db: D1Database, key: { queryId: string } | { t
   return row ? decode(row) : null;
 }
 
-// Requests this person made recently that the bot could not DM about.
-export async function unreachableFor(db: D1Database, userId: string, since: number): Promise<Attempt[]> {
+// This person's requests the bot could not DM about, still within their deadline.
+export async function unreachableFor(db: D1Database, userId: string): Promise<Attempt[]> {
   const { results } = await db
-    .prepare(`SELECT * FROM attempts WHERE user_id = ? AND status = 'unreachable' AND created_at > ? ORDER BY id`)
-    .bind(userId, since)
+    .prepare(`SELECT * FROM attempts WHERE user_id = ? AND status = 'unreachable' ORDER BY id`)
+    .bind(userId)
     .all<AttemptRow>();
   return results.map(decode);
 }
 
-export async function pendingDue(db: D1Database, now: number): Promise<Attempt[]> {
+// Waiting attempts (see isWaiting in attempt.ts) past their deadline.
+export async function waitingDue(db: D1Database, now: number): Promise<Attempt[]> {
   const { results } = await db
-    .prepare(`SELECT * FROM attempts WHERE status = 'pending' AND expires_at <= ? LIMIT 50`)
+    .prepare(
+      `SELECT * FROM attempts
+       WHERE status IN ('pending', 'unreachable', 'queued') AND expires_at <= ? LIMIT 50`,
+    )
     .bind(now)
     .all<AttemptRow>();
   return results.map(decode);

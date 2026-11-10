@@ -55,7 +55,24 @@ test("a person whose privacy settings refuse the DM, then presses Start", async 
   expect(w.callsTo("sendMessage").map((c) => c.params.chat_id)).toEqual([3, 3]);
   expect(await w.completeCheck(3, A)).toBe(200);
   expect(await w.completeCheck(3, B)).toBe(200);
-  record("person whose DMs are closed", "waits for admins, or presses Start and passes");
+  record("person whose DMs are closed", "presses Start within the hour and passes");
+});
+
+test("a person whose DMs are closed and who never presses Start is not locked out", async () => {
+  const w = new World();
+  w.failMethods.sendMessage = "Forbidden: bot can't initiate conversation with a user";
+  await w.requestJoin(14, A);
+  await w.expire(Date.now() + 30 * 60 * 1000);
+  expect(w.latestAttempt(14, A).status).toBe("unreachable");
+  await w.expire(Date.now() + 61 * 60 * 1000);
+  expect(w.latestAttempt(14, A).status).toBe("expired");
+  expect(w.callsTo("declineChatJoinRequest")).toHaveLength(1);
+
+  // Declined, so Telegram lets them ask again, and a new check starts.
+  delete w.failMethods.sendMessage;
+  await w.requestJoin(14, A);
+  expect(w.latestAttempt(14, A).status).toBe("pending");
+  record("person whose DMs are closed, never presses Start", "declined after an hour; can ask again");
 });
 
 test("pressing Start with nothing to resume explains the bot and offers to add it to a group", async () => {

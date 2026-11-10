@@ -18,12 +18,15 @@ interface Base {
   expiresAt: number;
 }
 
-// "unreachable": Telegram would not let the bot DM this person first. The
-// request stays with the admins until the person presses Start in the bot,
-// which resumes the check.
+// Waiting states have a deadline like pending ones, because a join request
+// nobody answers locks the person out: they cannot ask again until it is
+// declined. "unreachable": Telegram would not let the bot DM this person
+// first; pressing Start in the bot before the deadline resumes the check.
+// "queued": the check could not be sent; the admins may decide first.
 export type Attempt =
   | (Base & { status: "pending" })
   | (Base & { status: "unreachable"; decidedAt: number; error: string })
+  | (Base & { status: "queued"; decidedAt: number; error: string })
   | (Base & { status: "approved"; decidedAt: number })
   | (Base & { status: "expired"; decidedAt: number })
   | (Base & { status: "failed"; decidedAt: number; error: string })
@@ -41,18 +44,21 @@ export type JoinEvent =
   | { type: "approve_failed"; gone: boolean; error: string; at: number }
   | { type: "tick"; at: number };
 
-// The answer Telegram gets for the join request; "queue" hands it to the group's admins.
-export type JoinEffect = { type: "answer"; result: "approve" | "decline" | "queue" };
+// The answer Telegram gets for the join request; "queue" hands it to the group's
+// admins. `queryUsed`: the guard-bot query was already answered with "queue",
+// so the request must be answered directly.
+export type JoinEffect = { type: "answer"; result: "approve" | "decline" | "queue"; queryUsed?: true };
 
 export type Step = { ok: true; next: Attempt; effects: JoinEffect[] } | { ok: false; reason: Refusal };
 
-// Why an event does not apply: the user already passed, the attempt is not open
-// to them (expired, failed, declined, or unreachable until they start the
-// bot), or a pending attempt is not yet due to expire.
+// Why an event does not apply: the user already passed, the attempt is closed
+// to them, or a waiting attempt is not yet due to expire.
 export type Refusal = "already_verified" | "closed" | "not_due";
 
 export const GUARD_TTL_MS = 10 * 60 * 1000;
 export const DM_TTL_MS = 5 * 60 * 1000;
+// How long an unreachable or queued request waits before Kitan declines it so the person can ask again.
+export const WAIT_TTL_MS = 60 * 60 * 1000;
 
 export interface Intake {
   chatId: string;
@@ -92,13 +98,14 @@ export function step(a: Attempt, e: JoinEvent): Step {
         ? ok({ ...a, delivery: { ...a.delivery, messageId: e.messageId } })
         : ok(a);
 
-    case "challenge_failed":
-      // A real person may be behind it either way, so the admins get the request.
+    case "challenge_failed": {
+      // A real person may be behind it either way: wait for them or the admins, but not forever.
       if (a.status !== "pending") return refuse(a);
-      if (e.refused && a.delivery.kind === "dm") {
-        return ok({ ...a, status: "unreachable", decidedAt: e.at, error: e.error });
-      }
-      return ok({ ...a, status: "failed", decidedAt: e.at, error: e.error }, { type: "answer", result: "queue" });
+      const waiting = { ...a, decidedAt: e.at, error: e.error, expiresAt: e.at + WAIT_TTL_MS };
+      return e.refused && a.delivery.kind === "dm"
+        ? ok({ ...waiting, status: "unreachable" })
+        : ok({ ...waiting, status: "queued" }, { type: "answer", result: "queue" });
+    }
 
     case "resumed":
       // The person started the bot; give them a fresh time limit from now.
@@ -116,10 +123,20 @@ export function step(a: Attempt, e: JoinEvent): Step {
       // Gone: the request was withdrawn or answered elsewhere. Otherwise the user may retry.
       return e.gone ? ok({ ...a, status: "failed", decidedAt: e.at, error: e.error }) : ok(toPending(a));
 
-    case "tick":
-      if (a.status !== "pending" || e.at < a.expiresAt) return refuse(a);
-      return ok({ ...a, status: "expired", decidedAt: e.at }, { type: "answer", result: "decline" });
+    case "tick": {
+      if (!isWaiting(a) || e.at < a.expiresAt) return refuse(a);
+      const decline: JoinEffect =
+        a.status === "queued" && a.delivery.kind === "guard"
+          ? { type: "answer", result: "decline", queryUsed: true }
+          : { type: "answer", result: "decline" };
+      return ok({ ...a, status: "expired", decidedAt: e.at }, decline);
+    }
   }
+}
+
+// States that hold an open join request on Telegram and so must end by their deadline.
+export function isWaiting(a: Attempt): boolean {
+  return a.status === "pending" || a.status === "unreachable" || a.status === "queued";
 }
 
 // Whether the user can still open and submit the check; the reason when not.
@@ -139,6 +156,6 @@ function ok(next: Attempt, ...effects: JoinEffect[]): Step {
 }
 
 function refuse(a: Attempt): Step {
-  const reason: Refusal = a.status === "approved" ? "already_verified" : a.status === "pending" ? "not_due" : "closed";
+  const reason: Refusal = a.status === "approved" ? "already_verified" : isWaiting(a) ? "not_due" : "closed";
   return { ok: false, reason };
 }

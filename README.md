@@ -25,9 +25,15 @@ ask to join again.
 ### If someone gets no message
 
 Telegram does not let bots write first to some people, usually because of
-their privacy settings. Kitan leaves those requests for you to approve or
-decline by hand. If the person opens @SmartVerifyBot and presses **Start**
-within 48 hours, the check arrives straight away and Kitan handles the rest.
+their privacy settings. If the person opens @SmartVerifyBot and presses
+**Start** within an hour, the check arrives straight away. Otherwise Kitan
+declines the request after the hour, so they can ask to join again; a request
+nobody answers would stop them from asking again. You can still approve or
+decline it yourself during that hour.
+
+Kitan can only answer requests it received. Requests left from before Kitan
+was added, or from while it was offline, stay in the group's **Join requests**
+list until you clear them there.
 
 To tell people this, add a line like this to your group description:
 

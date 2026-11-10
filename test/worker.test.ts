@@ -103,14 +103,20 @@ test("a request withdrawn before approval fails cleanly", async () => {
   expect(w.latestAttempt(USER, CHAT).status).toBe("failed");
 });
 
-test("a failed Mini App launch hands the request to admins", async () => {
+test("a failed Mini App launch goes to the admins, and is declined directly after an hour", async () => {
   w.failMethods.sendChatJoinRequestWebApp = "Bad Request";
   await w.requestJoin(USER, CHAT, { queryId: "Q1" });
   expect(w.calls.at(-1)).toEqual({
     method: "answerChatJoinRequestQuery",
     params: { chat_join_request_query_id: "Q1", result: "queue" },
   });
-  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "failed", error: "sendChatJoinRequestWebApp: Bad Request" });
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "queued", error: "sendChatJoinRequestWebApp: Bad Request" });
+
+  w.calls = [];
+  await w.expire(Date.now() + 61 * 60 * 1000);
+  expect(w.calls).toEqual([
+    { method: "declineChatJoinRequest", params: { chat_id: String(CHAT), user_id: String(USER) } },
+  ]);
 });
 
 test("expiry declines both paths and removes the DM", async () => {

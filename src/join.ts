@@ -2,14 +2,11 @@
 // performs the effects. Performing an effect is the only place the guard-bot
 // and DM paths differ.
 import { type Attempt, type JoinEffect, type JoinEvent, type Refusal, intake, step } from "./attempt";
-import { countOffenses, insertAttempt, pendingDue, save, unreachableFor } from "./db";
+import { countOffenses, insertAttempt, save, unreachableFor, waitingDue } from "./db";
 import { type Lang, pickLang, t } from "./i18n";
 import { OFFENSE_WINDOW_MS, isBlocked } from "./probation";
 import { callTelegram, isRefused, log, messageOf } from "./telegram";
 import type { ChatJoinRequest, Env, Message } from "./types";
-
-// How long a person who could not be messaged can still resume by starting the bot.
-const RESUME_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: string, now: number): Promise<void> {
   const userId = String(request.from.id);
@@ -40,7 +37,7 @@ export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: 
 // recent request it could not DM about and send the check. Returns how many.
 export async function resumeFor(env: Env, userId: number, lang: Lang, origin: string, now: number): Promise<number> {
   let resumed = 0;
-  for (const attempt of await unreachableFor(env.DB, String(userId), now - RESUME_WINDOW_MS)) {
+  for (const attempt of await unreachableFor(env.DB, String(userId))) {
     const outcome = await advance(env, attempt, { type: "resumed", at: now });
     if (!outcome.ok) continue;
     await challenge(env, outcome.next, { dmChat: userId, lang }, origin, now);
@@ -68,7 +65,7 @@ export async function advance(env: Env, attempt: Attempt, event: JoinEvent): Pro
 }
 
 export async function expirePending(env: Env, now: number): Promise<void> {
-  for (const attempt of await pendingDue(env.DB, now)) {
+  for (const attempt of await waitingDue(env.DB, now)) {
     const result = await advance(env, attempt, { type: "tick", at: now }).catch((error) => {
       log("expire_failed", { ...describe(attempt), error: messageOf(error) });
       return null;
@@ -80,7 +77,7 @@ export async function expirePending(env: Env, now: number): Promise<void> {
 async function perform(env: Env, attempt: Attempt, effects: JoinEffect[]): Promise<void> {
   for (const effect of effects) {
     // An approve failure must reach the caller, which steps the attempt back.
-    const call = answer(env, attempt, effect.result);
+    const call = answer(env, attempt, effect);
     if (effect.result === "approve") await call;
     else await call.catch((error) => log("answer_failed", { ...describe(attempt), result: effect.result, error: messageOf(error) }));
   }
@@ -122,10 +119,11 @@ async function challenge(env: Env, attempt: Attempt, to: Recipient, origin: stri
 }
 
 // On the DM path "queue" leaves the request pending for the admins; the guard
-// path tells Telegram to hand it to them.
-async function answer(env: Env, attempt: Attempt, result: "approve" | "decline" | "queue"): Promise<void> {
+// path tells Telegram to hand it to them, after which the query is spent and
+// the request is answered like any other.
+async function answer(env: Env, attempt: Attempt, { result, queryUsed }: JoinEffect): Promise<void> {
   const delivery = attempt.delivery;
-  if (delivery.kind === "guard") {
+  if (delivery.kind === "guard" && !queryUsed) {
     await callTelegram(env, "answerChatJoinRequestQuery", { chat_join_request_query_id: delivery.queryId, result });
     return;
   }
@@ -135,7 +133,7 @@ async function answer(env: Env, attempt: Attempt, result: "approve" | "decline" 
       user_id: attempt.userId,
     });
   }
-  if (delivery.messageId) {
+  if (delivery.kind === "dm" && delivery.messageId) {
     await callTelegram(env, "deleteMessage", { chat_id: attempt.userId, message_id: delivery.messageId }).catch(() => {});
   }
 }
