@@ -1,0 +1,24 @@
+[Unit]
+Description=Kitan Telegram verification bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kitan
+Group=kitan
+WorkingDirectory=/opt/kitan
+EnvironmentFile=/etc/kitan.env
+ExecStart=/usr/local/bin/bun /opt/kitan/src/index.ts
+Restart=always
+RestartSec=2
+MemoryMax=256M
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/kitan
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
