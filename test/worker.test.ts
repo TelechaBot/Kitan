@@ -55,8 +55,8 @@ test("DM path: the button carries a token, approval cleans up the message", asyn
 
 test("the DM speaks the requester's language", async () => {
   await w.requestJoin(USER, CHAT, { lang: "zh-hans" });
-  expect(w.calls[0].params.text).toBe(`要加入「⁨chat${CHAT}⁩」，请在 5 分钟内完成人机验证。`);
-  expect(w.calls[0].params.reply_markup.inline_keyboard[0][0].text).toBe("开始验证");
+  expect(w.calls[0].params.text).toContain(`谢谢你申请加入「⁨chat${CHAT}⁩」`);
+  expect(w.calls[0].params.reply_markup.inline_keyboard[0][0].text).toBe("开始验证 ✨");
 });
 
 test("every language has every message", () => {

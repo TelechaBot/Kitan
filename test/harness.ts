@@ -63,7 +63,9 @@ export class World {
     const params = JSON.parse(String(init?.body ?? "{}"));
     this.calls.push({ method, params });
     if (this.failMethods[method]) return Response.json({ ok: false, description: this.failMethods[method] });
-    return Response.json({ ok: true, result: method === "sendMessage" ? { message_id: this.nextMessage++ } : true });
+    const result =
+      method === "sendMessage" ? { message_id: this.nextMessage++ } : method === "getMe" ? { id: 1, username: "test_bot" } : true;
+    return Response.json({ ok: true, result });
   }
 
   post(path: string, body: unknown, headers: Record<string, string> = {}): Promise<Response> {

@@ -106,7 +106,28 @@ async function onMessage(env: Env, message: Message, origin: string, now: number
   // Someone the bot could not message first has now opened the chat: send their checks.
   const lang = pickLang(message.from.language_code);
   if ((await resumeFor(env, message.from.id, lang, origin, now)) > 0) return;
-  await callTelegram(env, "sendMessage", { chat_id: message.chat.id, text: t(lang, "start") });
+  const addToGroup = `https://t.me/${await botUsername(env)}?startgroup&admin=${ADMIN_RIGHTS}`;
+  await callTelegram(env, "sendMessage", {
+    chat_id: message.chat.id,
+    text: t(lang, "start"),
+    reply_markup: { inline_keyboard: [[{ text: t(lang, "addToGroup"), url: addToGroup }]] },
+  });
+}
+
+// The admin rights Kitan needs: approve join requests, delete spam, ban spammers.
+const ADMIN_RIGHTS = "can_invite_users+can_delete_messages+can_restrict_members";
+
+let username: Promise<string> | null = null;
+
+// Looked up once per Worker instance, so self-hosted copies link to their own bot.
+function botUsername(env: Env): Promise<string> {
+  username ??= callTelegram<{ username: string }>(env, "getMe", {})
+    .then((me) => me.username)
+    .catch((error) => {
+      username = null;
+      throw error;
+    });
+  return username;
 }
 
 // ---------- Mini App API ----------

@@ -58,11 +58,14 @@ test("a person whose privacy settings refuse the DM, then presses Start", async 
   record("person whose DMs are closed", "waits for admins, or presses Start and passes");
 });
 
-test("pressing Start with nothing to resume just explains the bot", async () => {
+test("pressing Start with nothing to resume explains the bot and offers to add it to a group", async () => {
   const w = new World();
   await w.startBot(13);
-  expect(w.methods()).toEqual(["sendMessage"]);
-  expect(w.calls[0].params.reply_markup).toBeUndefined();
+  const reply = w.callsTo("sendMessage")[0].params;
+  expect(reply.text).toContain("You don't have any checks waiting");
+  expect(reply.reply_markup.inline_keyboard[0][0].url).toBe(
+    "https://t.me/test_bot?startgroup&admin=can_invite_users+can_delete_messages+can_restrict_members",
+  );
 });
 
 test("lols.bot is down: people are still checked, not blocked", async () => {

@@ -72,7 +72,8 @@ export function renderPage(siteKey: string): string {
   }
   .status svg { flex: none; width: 16px; height: 16px; margin-top: var(--space-1); color: var(--muted); }
   [data-state="success"] .status svg { color: var(--success); }
-  [data-state="error"] .status svg, [data-state="blocked"] .status svg { color: var(--danger); }
+  /* A retryable failure stays calm; red is for dead ends the user must leave the page to fix. */
+  [data-state="blocked"] .status svg { color: var(--danger); }
   .status span { text-wrap: pretty; }
   :lang(ja) { word-break: auto-phrase; }
   .meta { margin: 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
