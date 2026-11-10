@@ -35,6 +35,8 @@ export class World {
   turnstile: { success: boolean; hostname?: string } = { success: true, hostname: new URL(ORIGIN).hostname };
   failMethods: Record<string, string> = {};
   lolsBanned = new Set<number>();
+  admins: { id: number; is_bot?: boolean; status?: string; can_change_info?: boolean }[] = [];
+  refuseDMs = false; // Telegram refuses the bot's private messages; group messages still go through
   lolsDown = false;
   private nextUpdate = 1;
   private nextMessage = 1;
@@ -63,8 +65,21 @@ export class World {
     const params = JSON.parse(String(init?.body ?? "{}"));
     this.calls.push({ method, params });
     if (this.failMethods[method]) return Response.json({ ok: false, description: this.failMethods[method] });
+    if (this.refuseDMs && method === "sendMessage" && Number(params.chat_id) > 0) {
+      return Response.json({ ok: false, description: "Forbidden: bot can't initiate conversation with a user" });
+    }
     const result =
-      method === "sendMessage" ? { message_id: this.nextMessage++ } : method === "getMe" ? { id: 1, username: "test_bot" } : true;
+      method === "sendMessage"
+        ? { message_id: this.nextMessage++ }
+        : method === "getMe"
+          ? { id: 1, username: "test_bot" }
+          : method === "getChatAdministrators"
+            ? this.admins.map(({ status, can_change_info, ...user }) => ({
+                status: status ?? "administrator",
+                can_change_info: can_change_info ?? false,
+                user,
+              }))
+            : true;
     return Response.json({ ok: true, result });
   }
 
@@ -77,6 +92,10 @@ export class World {
       }),
       this.env,
     );
+  }
+
+  operator(path: string, body: unknown = {}): Promise<Response> {
+    return this.post(path, body, { "x-setup-key": SECRET });
   }
 
   hook(update: Record<string, unknown>): Promise<Response> {

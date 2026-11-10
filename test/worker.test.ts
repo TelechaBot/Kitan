@@ -129,6 +129,37 @@ test("expiry declines both paths and removes the DM", async () => {
   expect(w.db.query("SELECT DISTINCT status FROM attempts").all()).toEqual([{ status: "expired" }]);
 });
 
+test("the admin notice goes to the owner only: dry run sends nothing, DM first, never twice", async () => {
+  await w.requestJoin(USER, CHAT);
+  w.admins = [{ id: 900, status: "creator" }, { id: 901, is_bot: true }, { id: 902, can_change_info: true }, { id: 903 }];
+  w.calls = [];
+
+  const report = async (body: unknown = {}) => (await (await w.operator("/notify-admins", body)).json()) as any;
+  const dry = await report();
+  expect(dry.groups).toEqual([{ group: `chat${CHAT}`, admins: 1, already_notified: 0, to_notify: 1 }]);
+  expect(w.callsTo("sendMessage")).toHaveLength(0);
+
+  const first = await report({ send: true });
+  expect(first.groups[0]).toMatchObject({ dm: 1, ephemeral: 0, failed: 0 });
+  expect(w.callsTo("sendMessage")[0].params).toMatchObject({ chat_id: "900" });
+  expect(w.callsTo("sendMessage")[0].params.text).toContain("Guard bot mode");
+
+  w.calls = [];
+  expect((await report({ send: true })).groups[0]).toMatchObject({ already_notified: 1, dm: 0 });
+  expect(w.callsTo("sendMessage")).toHaveLength(0);
+});
+
+test("without a listed owner, the notice goes to admins who can change settings, in the group if DMs are closed", async () => {
+  await w.requestJoin(USER, CHAT);
+  w.admins = [{ id: 902, can_change_info: true }, { id: 903 }];
+  w.refuseDMs = true;
+  w.calls = [];
+  const sent = (await (await w.operator("/notify-admins", { send: true })).json()) as any;
+  expect(sent.groups[0]).toMatchObject({ admins: 1, ephemeral: 1 });
+  const ephemeral = w.callsTo("sendMessage").find((c) => c.params.ephemeral_message_parameters);
+  expect(ephemeral?.params).toMatchObject({ chat_id: String(CHAT), ephemeral_message_parameters: { receiver_user_id: 902 } });
+});
+
 test("a member banned after approval is labelled for measurement", async () => {
   await w.requestJoin(USER, CHAT, { queryId: "Q1" });
   await w.completeCheck(USER, CHAT);

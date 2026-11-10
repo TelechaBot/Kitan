@@ -4,6 +4,7 @@ import { chatsSeen, findAttempt, labelMember, markOpened, recordTry, recordTurns
 import { pickLang, t } from "./i18n";
 import { advance, expirePending, onJoinRequest, resumeFor } from "./join";
 import { onGroupMessage, pruneModeration } from "./moderation";
+import { notifyAdmins } from "./notice";
 import { renderPage } from "./page";
 import { callTelegram, isGone, log, messageOf } from "./telegram";
 import { verifyTurnstile } from "./turnstile";
@@ -50,6 +51,11 @@ export default {
         case "POST /status":
           requireKey(request, env);
           return await handleStatus(env);
+        case "POST /notify-admins": {
+          requireKey(request, env);
+          const { send } = (await request.json().catch(() => ({}))) as { send?: boolean };
+          return json(await notifyAdmins(env, send === true, Date.now()));
+        }
         default:
           return json({ error: "not found" }, 404);
       }
