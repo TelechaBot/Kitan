@@ -1,9 +1,13 @@
 import type { Env } from "./types";
 
-export class TelegramError extends Error {}
+class TelegramError extends Error {}
 
 export function log(event: string, fields: Record<string, unknown>): void {
   console.log(JSON.stringify({ event, ...fields }));
+}
+
+export function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export async function callTelegram<T = unknown>(

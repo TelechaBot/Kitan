@@ -65,7 +65,10 @@ You need a Cloudflare account, a domain on Cloudflare, and a bot token from
    bunx wrangler deploy
    curl -X POST https://<your-domain>/setup -H "x-setup-key: <WEBHOOK_SECRET>"
    ```
-   The reply shows the bot name and whether the bot can act as a guard bot.
+   The reply shows the bot name, whether the bot can act as a guard bot, and,
+   for each group the bot has seen, its guard bot and whether Kitan can delete
+   messages and ban users there. To see that report again later, send the same
+   request to `/status`.
 
 Do not run another program with the same bot token: Telegram sends updates to
 only one place.

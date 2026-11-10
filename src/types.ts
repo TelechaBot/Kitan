@@ -57,16 +57,3 @@ export interface Update {
   chat_member?: ChatMemberUpdated;
   message?: Message;
 }
-
-export interface Attempt {
-  id: number;
-  chat_id: string;
-  chat_title: string | null;
-  user_id: string;
-  delivery: "guard" | "dm";
-  query_id: string | null;
-  token: string | null;
-  message_id: number | null;
-  status: "pending" | "approved" | "expired" | "failed" | "declined";
-  expires_at: number;
-}
