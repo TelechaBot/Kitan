@@ -2,11 +2,14 @@
 // performs the effects. Performing an effect is the only place the guard-bot
 // and DM paths differ.
 import { type Attempt, type JoinEffect, type JoinEvent, type Refusal, intake, step } from "./attempt";
-import { countOffenses, insertAttempt, pendingDue, save } from "./db";
-import { pickLang, t } from "./i18n";
+import { countOffenses, insertAttempt, pendingDue, save, unreachableFor } from "./db";
+import { type Lang, pickLang, t } from "./i18n";
 import { OFFENSE_WINDOW_MS, isBlocked } from "./probation";
-import { callTelegram, log, messageOf } from "./telegram";
+import { callTelegram, isRefused, log, messageOf } from "./telegram";
 import type { ChatJoinRequest, Env, Message } from "./types";
+
+// How long a person who could not be messaged can still resume by starting the bot.
+const RESUME_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: string, now: number): Promise<void> {
   const userId = String(request.from.id);
@@ -25,11 +28,26 @@ export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: 
   const attempt = await insertAttempt(env.DB, first.attempt, lols, now);
   if (!attempt) return;
   if (attempt.status === "pending") {
-    await challenge(env, attempt, request, origin, now);
+    const recipient = { dmChat: request.user_chat_id, lang: pickLang(request.from.language_code) };
+    await challenge(env, attempt, recipient, origin, now);
   } else {
     log("join_declined", describe(attempt));
     await perform(env, attempt, first.effects);
   }
+}
+
+// The person pressed Start in the bot, so it may now message them: reopen every
+// recent request it could not DM about and send the check. Returns how many.
+export async function resumeFor(env: Env, userId: number, lang: Lang, origin: string, now: number): Promise<number> {
+  let resumed = 0;
+  for (const attempt of await unreachableFor(env.DB, String(userId), now - RESUME_WINDOW_MS)) {
+    const outcome = await advance(env, attempt, { type: "resumed", at: now });
+    if (!outcome.ok) continue;
+    await challenge(env, outcome.next, { dmChat: userId, lang }, origin, now);
+    log("join_resumed", describe(attempt));
+    resumed += 1;
+  }
+  return resumed;
 }
 
 export type Outcome = { ok: false; reason: Refusal } | { ok: true; next: Attempt; error?: unknown };
@@ -68,7 +86,13 @@ async function perform(env: Env, attempt: Attempt, effects: JoinEffect[]): Promi
   }
 }
 
-async function challenge(env: Env, attempt: Attempt, request: ChatJoinRequest, origin: string, now: number): Promise<void> {
+// Where the DM goes: the join request's user_chat_id, or the private chat the person opened.
+interface Recipient {
+  dmChat: number;
+  lang: Lang;
+}
+
+async function challenge(env: Env, attempt: Attempt, to: Recipient, origin: string, now: number): Promise<void> {
   try {
     let messageId: number | null = null;
     if (attempt.delivery.kind === "guard") {
@@ -77,12 +101,13 @@ async function challenge(env: Env, attempt: Attempt, request: ChatJoinRequest, o
         web_app_url: `${origin}/`,
       });
     } else {
-      const lang = pickLang(request.from.language_code);
       const sent = await callTelegram<Message>(env, "sendMessage", {
-        chat_id: request.user_chat_id,
-        text: t(lang, "dm", { chat: request.chat.title ?? "" }),
+        chat_id: to.dmChat,
+        text: t(to.lang, "dm", { chat: attempt.chatTitle ?? "" }),
         reply_markup: {
-          inline_keyboard: [[{ text: t(lang, "dmButton"), web_app: { url: `${origin}/?token=${attempt.delivery.token}` } }]],
+          inline_keyboard: [
+            [{ text: t(to.lang, "dmButton"), web_app: { url: `${origin}/?token=${attempt.delivery.token}` } }],
+          ],
         },
       });
       messageId = sent.message_id;
@@ -90,8 +115,9 @@ async function challenge(env: Env, attempt: Attempt, request: ChatJoinRequest, o
     await advance(env, attempt, { type: "challenged", messageId });
     log("join_challenge", describe(attempt));
   } catch (error) {
-    log("join_challenge_failed", { ...describe(attempt), error: messageOf(error) });
-    await advance(env, attempt, { type: "challenge_failed", error: messageOf(error), at: now });
+    const refused = isRefused(error);
+    log("join_challenge_failed", { ...describe(attempt), refused, error: messageOf(error) });
+    await advance(env, attempt, { type: "challenge_failed", error: messageOf(error), refused, at: now });
   }
 }
 

@@ -39,14 +39,30 @@ test("a person ignores the DM", async () => {
   record("person who ignores the DM", "declined after 5 minutes; may ask again");
 });
 
-test("a person whose privacy settings refuse the DM", async () => {
+test("a person whose privacy settings refuse the DM, then presses Start", async () => {
   const w = new World();
   w.failMethods.sendMessage = "Forbidden: bot can't initiate conversation with a user";
   await w.requestJoin(3, A);
+  await w.requestJoin(3, B);
   await w.expire(Date.now() + 6 * 60 * 1000);
-  expect(w.latestAttempt(3, A).status).toBe("failed");
+  expect(w.latestAttempt(3, A).status).toBe("unreachable");
   expect(w.methods()).not.toContain("declineChatJoinRequest");
-  record("person whose DMs are closed", "left pending for the group's admins");
+
+  // Starting the bot opens the private chat, so the DMs go through.
+  delete w.failMethods.sendMessage;
+  w.calls = [];
+  await w.startBot(3);
+  expect(w.callsTo("sendMessage").map((c) => c.params.chat_id)).toEqual([3, 3]);
+  expect(await w.completeCheck(3, A)).toBe(200);
+  expect(await w.completeCheck(3, B)).toBe(200);
+  record("person whose DMs are closed", "waits for admins, or presses Start and passes");
+});
+
+test("pressing Start with nothing to resume just explains the bot", async () => {
+  const w = new World();
+  await w.startBot(13);
+  expect(w.methods()).toEqual(["sendMessage"]);
+  expect(w.calls[0].params.reply_markup).toBeUndefined();
 });
 
 test("lols.bot is down: people are still checked, not blocked", async () => {

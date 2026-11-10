@@ -11,10 +11,27 @@ a short Cloudflare check before the bot lets them in.
    and **Ban users**. Without the last two, the bot can check people but cannot
    remove spam after they join.
 
+3. If your Telegram app lets you pick a **guard bot** for join requests in the
+   group settings, pick @SmartVerifyBot. Telegram then opens the check for
+   people as soon as they ask to join, so nobody depends on a private message.
+   Use only one bot to screen join requests: if another bot messages someone
+   first, Telegram stops Kitan from messaging them.
+
 When someone asks to join, the bot sends them a private message with a
 **Verify** button. They have 5 minutes to finish the check. If they pass, the
 bot approves the request. If they do nothing, the bot declines it, and they can
 ask to join again.
+
+### If someone gets no message
+
+Telegram does not let bots write first to some people, usually because of
+their privacy settings. Kitan leaves those requests for you to approve or
+decline by hand. If the person opens @SmartVerifyBot and presses **Start**
+within 48 hours, the check arrives straight away and Kitan handles the rest.
+
+To tell people this, add a line like this to your group description:
+
+> Asked to join but heard nothing? Open @SmartVerifyBot and press Start.
 
 The message and the check page use the person's Telegram language: English,
 Simplified Chinese, Traditional Chinese, Japanese, Russian, Spanish, Arabic,

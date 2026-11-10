@@ -41,7 +41,8 @@ function decode(row: AttemptRow): Attempt {
     case "expired":
       return { ...base, status: row.status, decidedAt };
     case "failed":
-      return { ...base, status: "failed", decidedAt, error: row.error ?? "" };
+    case "unreachable":
+      return { ...base, status: row.status, decidedAt, error: row.error ?? "" };
     case "declined":
       return { ...base, status: "declined", decidedAt, reason: row.error as DeclineReason };
   }
@@ -56,8 +57,14 @@ function decodeDelivery(row: AttemptRow): Delivery {
 function encode(a: NewAttempt) {
   return {
     status: a.status,
+    expires_at: a.expiresAt,
     decided_at: a.status === "pending" ? null : a.decidedAt,
-    error: a.status === "failed" ? a.error.slice(0, 300) : a.status === "declined" ? a.reason : null,
+    error:
+      a.status === "failed" || a.status === "unreachable"
+        ? a.error.slice(0, 300)
+        : a.status === "declined"
+          ? a.reason
+          : null,
     message_id: a.delivery.kind === "dm" ? a.delivery.messageId : null,
   };
 }
@@ -113,10 +120,10 @@ export async function save(db: D1Database, from: Attempt, next: Attempt): Promis
   const e = encode(next);
   const row = await db
     .prepare(
-      `UPDATE attempts SET status = ?, decided_at = ?, error = ?, message_id = ?
+      `UPDATE attempts SET status = ?, expires_at = ?, decided_at = ?, error = ?, message_id = ?
        WHERE id = ? AND status = ? RETURNING id`,
     )
-    .bind(e.status, e.decided_at, e.error, e.message_id, from.id, from.status)
+    .bind(e.status, e.expires_at, e.decided_at, e.error, e.message_id, from.id, from.status)
     .first();
   return row !== null;
 }
@@ -127,6 +134,15 @@ export async function findAttempt(db: D1Database, key: { queryId: string } | { t
       ? await db.prepare(`SELECT * FROM attempts WHERE query_id = ?`).bind(key.queryId).first<AttemptRow>()
       : await db.prepare(`SELECT * FROM attempts WHERE token = ?`).bind(key.token).first<AttemptRow>();
   return row ? decode(row) : null;
+}
+
+// Requests this person made recently that the bot could not DM about.
+export async function unreachableFor(db: D1Database, userId: string, since: number): Promise<Attempt[]> {
+  const { results } = await db
+    .prepare(`SELECT * FROM attempts WHERE user_id = ? AND status = 'unreachable' AND created_at > ? ORDER BY id`)
+    .bind(userId, since)
+    .all<AttemptRow>();
+  return results.map(decode);
 }
 
 export async function pendingDue(db: D1Database, now: number): Promise<Attempt[]> {

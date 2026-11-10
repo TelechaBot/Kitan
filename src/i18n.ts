@@ -19,7 +19,7 @@ export const MESSAGES = {
     retry: "Try again",
     dm: "To join {chat}, complete the human check within 5 minutes.",
     dmButton: "Verify",
-    start: "Kitan reviews join requests with a quick human check. Request to join a group that uses Kitan and follow the prompt.",
+    start: "Kitan checks people who ask to join a group. You have no checks waiting. When you ask to join a group that uses Kitan, your check will appear here. To use Kitan in your own group: https://github.com/TelechaBot/Kitan",
   },
   zh: {
     title: "加入「{chat}」",
@@ -39,7 +39,7 @@ export const MESSAGES = {
     retry: "重试",
     dm: "要加入「{chat}」，请在 5 分钟内完成人机验证。",
     dmButton: "开始验证",
-    start: "Kitan 用简单的人机验证审核入群申请。在使用 Kitan 的群组申请加入后，按提示完成验证即可。",
+    start: "Kitan 会对申请入群的人做一次简单验证。你目前没有待完成的验证。申请加入使用 Kitan 的群组后，验证会出现在这里。想在自己的群里使用 Kitan：https://github.com/TelechaBot/Kitan",
   },
   "zh-hant": {
     title: "加入「{chat}」",
@@ -59,7 +59,7 @@ export const MESSAGES = {
     retry: "重試",
     dm: "要加入「{chat}」，請在 5 分鐘內完成人機驗證。",
     dmButton: "開始驗證",
-    start: "Kitan 以簡單的人機驗證審核入群申請。在使用 Kitan 的群組申請加入後，依照提示完成驗證即可。",
+    start: "Kitan 會對申請入群的人做一次簡單驗證。你目前沒有待完成的驗證。申請加入使用 Kitan 的群組後，驗證會出現在這裡。想在自己的群組使用 Kitan：https://github.com/TelechaBot/Kitan",
   },
   ja: {
     title: "「{chat}」に参加",
@@ -79,7 +79,7 @@ export const MESSAGES = {
     retry: "再試行",
     dm: "「{chat}」に参加するには、5 分以内に確認を完了してください。",
     dmButton: "確認する",
-    start: "Kitan は簡単な確認で参加リクエストを審査します。Kitan を使うグループに参加をリクエストし、案内に従って確認を完了してください。",
+    start: "Kitan はグループへの参加リクエストを簡単な確認で審査します。現在、待機中の確認はありません。Kitan を使うグループに参加をリクエストすると、ここに確認が届きます。自分のグループで Kitan を使うには：https://github.com/TelechaBot/Kitan",
   },
   ru: {
     title: "Вступить в «{chat}»",
@@ -99,7 +99,7 @@ export const MESSAGES = {
     retry: "Повторить",
     dm: "Чтобы вступить в «{chat}», пройдите проверку в течение 5 минут.",
     dmButton: "Пройти проверку",
-    start: "Kitan проверяет заявки на вступление. Подайте заявку в группу, где работает Kitan, и следуйте подсказкам.",
+    start: "Kitan проверяет тех, кто подаёт заявку на вступление в группу. Сейчас у вас нет ожидающих проверок. Когда вы подадите заявку в группу с Kitan, проверка появится здесь. Как подключить Kitan к своей группе: https://github.com/TelechaBot/Kitan",
   },
   es: {
     title: "Unirte a {chat}",
@@ -119,7 +119,7 @@ export const MESSAGES = {
     retry: "Reintentar",
     dm: "Para unirte a {chat}, completa la verificación en menos de 5 minutos.",
     dmButton: "Verificar",
-    start: "Kitan revisa las solicitudes de ingreso con una verificación rápida. Solicita unirte a un grupo que use Kitan y sigue las indicaciones.",
+    start: "Kitan verifica a quienes piden unirse a un grupo. Ahora no tienes verificaciones pendientes. Cuando pidas unirte a un grupo que use Kitan, la verificación aparecerá aquí. Para usar Kitan en tu grupo: https://github.com/TelechaBot/Kitan",
   },
   ar: {
     title: "الانضمام إلى {chat}",
@@ -139,7 +139,7 @@ export const MESSAGES = {
     retry: "إعادة المحاولة",
     dm: "للانضمام إلى {chat}، أكمل التحقق خلال 5 دقائق.",
     dmButton: "تحقق",
-    start: "يراجع Kitan طلبات الانضمام بتحقق سريع. قدّم طلب انضمام إلى مجموعة تستخدم Kitan واتبع التعليمات.",
+    start: "يتحقق Kitan من الأشخاص الذين يطلبون الانضمام إلى مجموعة. ليس لديك أي تحقق معلّق الآن. عندما تطلب الانضمام إلى مجموعة تستخدم Kitan، سيظهر التحقق هنا. لاستخدام Kitan في مجموعتك: https://github.com/TelechaBot/Kitan",
   },
   hi: {
     title: "{chat} से जुड़ें",
@@ -159,7 +159,7 @@ export const MESSAGES = {
     retry: "फिर से कोशिश करें",
     dm: "{chat} से जुड़ने के लिए 5 मिनट के भीतर जाँच पूरी करें।",
     dmButton: "जाँच करें",
-    start: "Kitan एक छोटी जाँच से जुड़ने के अनुरोधों की समीक्षा करता है। Kitan इस्तेमाल करने वाले ग्रुप में जुड़ने का अनुरोध करें और निर्देशों का पालन करें।",
+    start: "Kitan ग्रुप से जुड़ने का अनुरोध करने वालों की जाँच करता है। अभी आपकी कोई जाँच बाकी नहीं है। जब आप Kitan इस्तेमाल करने वाले किसी ग्रुप से जुड़ने का अनुरोध करेंगे, जाँच यहीं दिखेगी। अपने ग्रुप में Kitan इस्तेमाल करने के लिए: https://github.com/TelechaBot/Kitan",
   },
   bn: {
     title: "{chat}-এ যোগ দিন",
@@ -179,7 +179,7 @@ export const MESSAGES = {
     retry: "আবার চেষ্টা করুন",
     dm: "{chat}-এ যোগ দিতে ৫ মিনিটের মধ্যে যাচাই সম্পূর্ণ করুন।",
     dmButton: "যাচাই করুন",
-    start: "Kitan একটি দ্রুত যাচাইয়ের মাধ্যমে যোগদানের অনুরোধ পর্যালোচনা করে। Kitan ব্যবহার করা কোনো গ্রুপে যোগদানের অনুরোধ করুন এবং নির্দেশনা অনুসরণ করুন।",
+    start: "Kitan গ্রুপে যোগ দিতে চাওয়া ব্যক্তিদের যাচাই করে। এই মুহূর্তে আপনার কোনো যাচাই বাকি নেই। Kitan ব্যবহার করা কোনো গ্রুপে যোগদানের অনুরোধ করলে যাচাই এখানে আসবে। নিজের গ্রুপে Kitan ব্যবহার করতে: https://github.com/TelechaBot/Kitan",
   },
 } as const;
 

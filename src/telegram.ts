@@ -32,6 +32,16 @@ export async function callTelegram<T = unknown>(
   return body.result as T;
 }
 
+// Telegram forbids the bot to start a conversation with this person: their
+// privacy settings, another admin wrote to them first, or they blocked the bot.
+// Once they press Start in the bot, messages go through.
+export function isRefused(error: unknown): boolean {
+  return (
+    error instanceof TelegramError &&
+    /Forbidden: (bot can't initiate conversation|bot was blocked by the user)/.test(error.message)
+  );
+}
+
 // The join request or query no longer exists: answered elsewhere, withdrawn, or too old.
 export function isGone(error: unknown): boolean {
   return (

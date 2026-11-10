@@ -2,6 +2,7 @@
 // for D1), with Telegram, Turnstile and lols.bot faked at the network edge.
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { hmacSha256, toHex } from "../src/crypto";
 import worker from "../src/index";
 import { expirePending } from "../src/join";
@@ -39,8 +40,8 @@ export class World {
   private nextMessage = 1;
 
   constructor() {
-    const dir = new URL("../migrations/", import.meta.url);
-    for (const file of readdirSync(dir).sort()) this.db.exec(readFileSync(new URL(file, dir), "utf8"));
+    const dir = join(import.meta.dir, "../migrations");
+    for (const file of readdirSync(dir).sort()) this.db.exec(readFileSync(join(dir, file), "utf8"));
     this.env = {
       DB: d1(this.db),
       TELEGRAM_BOT_TOKEN: TOKEN,
@@ -96,6 +97,13 @@ export class World {
   say(userId: number, chatId: number, text: string, extra: Record<string, unknown> = {}): Promise<Response> {
     return this.hook({
       message: { message_id: this.nextMessage++, chat: { id: chatId, type: "supergroup" }, from: { id: userId }, text, ...extra },
+    });
+  }
+
+  // The person opens the bot and presses Start.
+  startBot(userId: number): Promise<Response> {
+    return this.hook({
+      message: { message_id: this.nextMessage++, chat: { id: userId, type: "private" }, from: { id: userId }, text: "/start" },
     });
   }
 

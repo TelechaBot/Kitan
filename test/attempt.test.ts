@@ -74,14 +74,39 @@ describe("journeys", () => {
     expect(play(attempt, [{ type: "verified", at: T0 + DM_TTL_MS + 1 }])).toEqual(["verified: refused (closed)"]);
   });
 
-  test("Telegram refuses the DM: the request goes to the admins and nothing can reopen it", () => {
+  test("Telegram refuses the DM: nothing expires it, and starting the bot reopens it with a fresh limit", () => {
+    const later = T0 + 60 * 60 * 1000;
     expect(
       play(attempt, [
-        { type: "challenge_failed", error: "Forbidden", at: T0 },
+        { type: "challenge_failed", error: "Forbidden", refused: true, at: T0 },
         { type: "verified", at: T0 + 1 },
         { type: "tick", at: T0 + DM_TTL_MS },
+        { type: "resumed", at: later },
+        { type: "verified", at: later + DM_TTL_MS - 1 },
       ]),
-    ).toEqual(["challenge_failed: failed -> queue", "verified: refused (closed)", "tick: refused (closed)"]);
+    ).toEqual([
+      "challenge_failed: unreachable",
+      "verified: refused (closed)",
+      "tick: refused (closed)",
+      "resumed: pending",
+      "verified: approved -> approve",
+    ]);
+  });
+
+  test("any other failure to send the check hands the request to the admins for good", () => {
+    expect(
+      play(attempt, [
+        { type: "challenge_failed", error: "Bad Request", refused: false, at: T0 },
+        { type: "resumed", at: T0 + 1 },
+      ]),
+    ).toEqual(["challenge_failed: failed -> queue", "resumed: refused (closed)"]);
+  });
+
+  test("a guard-bot launch Telegram refuses still goes to the admins", () => {
+    const guard = admit({ delivery: { kind: "guard", queryId: "Q" } }).attempt;
+    expect(play(guard, [{ type: "challenge_failed", error: "Forbidden", refused: true, at: T0 }])).toEqual([
+      "challenge_failed: failed -> queue",
+    ]);
   });
 
   test("two submissions race: the second sees the first's approval", () => {

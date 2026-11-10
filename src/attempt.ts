@@ -18,8 +18,12 @@ interface Base {
   expiresAt: number;
 }
 
+// "unreachable": Telegram would not let the bot DM this person first. The
+// request stays with the admins until the person presses Start in the bot,
+// which resumes the check.
 export type Attempt =
   | (Base & { status: "pending" })
+  | (Base & { status: "unreachable"; decidedAt: number; error: string })
   | (Base & { status: "approved"; decidedAt: number })
   | (Base & { status: "expired"; decidedAt: number })
   | (Base & { status: "failed"; decidedAt: number; error: string })
@@ -30,7 +34,9 @@ export type NewAttempt = Attempt extends infer A ? (A extends Attempt ? Omit<A, 
 
 export type JoinEvent =
   | { type: "challenged"; messageId: number | null }
-  | { type: "challenge_failed"; error: string; at: number }
+  // `refused`: Telegram forbids the bot to start this conversation (see telegram.ts).
+  | { type: "challenge_failed"; error: string; refused: boolean; at: number }
+  | { type: "resumed"; at: number }
   | { type: "verified"; at: number }
   | { type: "approve_failed"; gone: boolean; error: string; at: number }
   | { type: "tick"; at: number };
@@ -40,8 +46,9 @@ export type JoinEffect = { type: "answer"; result: "approve" | "decline" | "queu
 
 export type Step = { ok: true; next: Attempt; effects: JoinEffect[] } | { ok: false; reason: Refusal };
 
-// Why an event does not apply: the user already passed, the attempt is over
-// (expired, failed or declined), or a pending attempt is not yet due to expire.
+// Why an event does not apply: the user already passed, the attempt is not open
+// to them (expired, failed, declined, or unreachable until they start the
+// bot), or a pending attempt is not yet due to expire.
 export type Refusal = "already_verified" | "closed" | "not_due";
 
 export const GUARD_TTL_MS = 10 * 60 * 1000;
@@ -86,12 +93,17 @@ export function step(a: Attempt, e: JoinEvent): Step {
         : ok(a);
 
     case "challenge_failed":
-      // Telegram refused the Mini App or the DM; a real person may be behind it.
+      // A real person may be behind it either way, so the admins get the request.
       if (a.status !== "pending") return refuse(a);
-      return ok(
-        { ...a, status: "failed", decidedAt: e.at, error: e.error },
-        { type: "answer", result: "queue" },
-      );
+      if (e.refused && a.delivery.kind === "dm") {
+        return ok({ ...a, status: "unreachable", decidedAt: e.at, error: e.error });
+      }
+      return ok({ ...a, status: "failed", decidedAt: e.at, error: e.error }, { type: "answer", result: "queue" });
+
+    case "resumed":
+      // The person started the bot; give them a fresh time limit from now.
+      if (a.status !== "unreachable") return refuse(a);
+      return ok({ ...toPending(a), expiresAt: e.at + DM_TTL_MS });
 
     case "verified": {
       const refusal = openForUser(a, e.at);

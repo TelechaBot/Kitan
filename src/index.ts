@@ -2,7 +2,7 @@ import { type Attempt, type Refusal, openForUser } from "./attempt";
 import { constantTimeEqual, verifyInitData } from "./crypto";
 import { chatsSeen, findAttempt, labelMember, markOpened, recordTry, recordTurnstileError } from "./db";
 import { pickLang, t } from "./i18n";
-import { advance, expirePending, onJoinRequest } from "./join";
+import { advance, expirePending, onJoinRequest, resumeFor } from "./join";
 import { onGroupMessage, pruneModeration } from "./moderation";
 import { renderPage } from "./page";
 import { callTelegram, isGone, log, messageOf } from "./telegram";
@@ -88,7 +88,7 @@ async function handleWebhook(request: Request, env: Env, origin: string): Promis
         await labelMember(env.DB, String(chat.id), String(new_chat_member.user.id), outcome, now);
       }
     } else if (update.message) {
-      await onMessage(env, update.message, now);
+      await onMessage(env, update.message, origin, now);
     }
   } catch (error) {
     // Acknowledge anyway: a Telegram retry cannot fix a failed handler and would duplicate work.
@@ -97,15 +97,16 @@ async function handleWebhook(request: Request, env: Env, origin: string): Promis
   return json({ ok: true });
 }
 
-async function onMessage(env: Env, message: Message, now: number): Promise<void> {
+async function onMessage(env: Env, message: Message, origin: string, now: number): Promise<void> {
   if (message.chat.type === "group" || message.chat.type === "supergroup") {
     await onGroupMessage(env, message, now);
-  } else if (message.chat.type === "private" && message.text?.startsWith("/start")) {
-    await callTelegram(env, "sendMessage", {
-      chat_id: message.chat.id,
-      text: t(pickLang(message.from?.language_code), "start"),
-    });
+    return;
   }
+  if (message.chat.type !== "private" || !message.from || !message.text?.startsWith("/start")) return;
+  // Someone the bot could not message first has now opened the chat: send their checks.
+  const lang = pickLang(message.from.language_code);
+  if ((await resumeFor(env, message.from.id, lang, origin, now)) > 0) return;
+  await callTelegram(env, "sendMessage", { chat_id: message.chat.id, text: t(lang, "start") });
 }
 
 // ---------- Mini App API ----------
