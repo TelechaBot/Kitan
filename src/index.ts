@@ -1,7 +1,8 @@
 import { constantTimeEqual, verifyInitData } from "./crypto";
 import { pickLang, t } from "./i18n";
 import { renderPage } from "./page";
-import { callTelegram, isGone } from "./telegram";
+import { isBlocked, lolsBanned, onGroupMessage, pruneModeration } from "./moderation";
+import { callTelegram, isGone, log } from "./telegram";
 import { verifyTurnstile } from "./turnstile";
 import type {
   Attempt,
@@ -67,7 +68,9 @@ export default {
   },
 
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-    await expirePending(env, Date.now());
+    const now = Date.now();
+    await expirePending(env, now);
+    await pruneModeration(env, now);
   },
 } satisfies ExportedHandler<Env>;
 
@@ -103,16 +106,40 @@ async function onJoinRequest(
   const chatId = String(request.chat.id);
   const userId = String(request.from.id);
 
+  // Known spam accounts are declined before any challenge: our own offense record, then lols.bot.
+  const [blocked, lols] = await Promise.all([isBlocked(env, userId, now), lolsBanned(userId)]);
+  const declineReason = blocked ? "kitan_blocklist" : lols ? "lols_banned" : null;
+
   if (request.query_id) {
     // Guard bot path: Telegram shows the Mini App itself; we must answer within 10 seconds.
     const inserted = await env.DB.prepare(
-      `INSERT OR IGNORE INTO attempts (chat_id, chat_title, user_id, delivery, query_id, status, created_at, expires_at)
-       VALUES (?, ?, ?, 'guard', ?, 'pending', ?, ?)`,
+      `INSERT OR IGNORE INTO attempts
+         (chat_id, chat_title, user_id, delivery, query_id, status, created_at, expires_at, lols, error, decided_at)
+       VALUES (?, ?, ?, 'guard', ?, ?, ?, ?, ?, ?, ?)`,
     )
-      .bind(chatId, request.chat.title ?? null, userId, request.query_id, now, now + GUARD_TTL_MS)
+      .bind(
+        chatId,
+        request.chat.title ?? null,
+        userId,
+        request.query_id,
+        declineReason ? "declined" : "pending",
+        now,
+        now + GUARD_TTL_MS,
+        lols === null ? null : Number(lols),
+        declineReason,
+        declineReason ? now : null,
+      )
       .run();
     if (!inserted.meta.changes) {
       return; // duplicate delivery
+    }
+    if (declineReason) {
+      await callTelegram(env, "answerChatJoinRequestQuery", {
+        chat_join_request_query_id: request.query_id,
+        result: "decline",
+      }).catch((error) => log("decline_failed", { error: messageOf(error) }));
+      log("join_declined", { chat_id: chatId, user_id: userId, reason: declineReason });
+      return;
     }
     try {
       await callTelegram(env, "sendChatJoinRequestWebApp", {
@@ -133,6 +160,20 @@ async function onJoinRequest(
   }
 
   // DM path: the bot is not the chat's guard bot, so it messages the requester.
+  if (declineReason) {
+    await env.DB.prepare(
+      `INSERT INTO attempts
+         (chat_id, chat_title, user_id, delivery, status, created_at, expires_at, lols, error, decided_at)
+       VALUES (?, ?, ?, 'dm', 'declined', ?, ?, ?, ?, ?)`,
+    )
+      .bind(chatId, request.chat.title ?? null, userId, now, now, lols === null ? null : Number(lols), declineReason, now)
+      .run();
+    await callTelegram(env, "declineChatJoinRequest", { chat_id: chatId, user_id: userId }).catch((error) =>
+      log("decline_failed", { error: messageOf(error) }),
+    );
+    log("join_declined", { chat_id: chatId, user_id: userId, reason: declineReason });
+    return;
+  }
   const existing = await env.DB.prepare(
     `SELECT id FROM attempts
      WHERE chat_id = ? AND user_id = ? AND delivery = 'dm' AND status = 'pending' AND expires_at > ?`,
@@ -144,10 +185,10 @@ async function onJoinRequest(
   }
   const token = crypto.randomUUID().replace(/-/g, "");
   await env.DB.prepare(
-    `INSERT INTO attempts (chat_id, chat_title, user_id, delivery, token, status, created_at, expires_at)
-     VALUES (?, ?, ?, 'dm', ?, 'pending', ?, ?)`,
+    `INSERT INTO attempts (chat_id, chat_title, user_id, delivery, token, status, created_at, expires_at, lols)
+     VALUES (?, ?, ?, 'dm', ?, 'pending', ?, ?, ?)`,
   )
-    .bind(chatId, request.chat.title ?? null, userId, token, now, now + DM_TTL_MS)
+    .bind(chatId, request.chat.title ?? null, userId, token, now, now + DM_TTL_MS, lols === null ? null : 0)
     .run();
   try {
     const lang = pickLang(request.from.language_code);
@@ -165,11 +206,10 @@ async function onJoinRequest(
       .run();
     log("join_challenge", { chat_id: chatId, user_id: userId, delivery: "dm" });
   } catch (error) {
+    // Telegram refuses the DM for some users (privacy settings, or another admin wrote first).
+    // Leave the request for the group's admins instead of declining a possibly real person.
     log("join_challenge_failed", { chat_id: chatId, user_id: userId, error: messageOf(error) });
     await setStatus(env, token, "token", "failed", now, messageOf(error));
-    await callTelegram(env, "declineChatJoinRequest", { chat_id: chatId, user_id: userId }).catch(
-      () => {},
-    );
   }
 }
 
@@ -189,6 +229,10 @@ async function onChatMember(env: Env, update: ChatMemberUpdated, now: number): P
 }
 
 async function onMessage(env: Env, message: Message): Promise<void> {
+  if (message.chat.type === "group" || message.chat.type === "supergroup") {
+    await onGroupMessage(env, message, Date.now());
+    return;
+  }
   if (message.chat.type !== "private" || !message.text?.startsWith("/start")) {
     return;
   }
@@ -372,10 +416,37 @@ async function handleSetup(request: Request, env: Env, origin: string): Promise<
     callTelegram<Record<string, unknown>>(env, "getMe", {}),
     callTelegram<Record<string, unknown>>(env, "getWebhookInfo", {}),
   ]);
+  // Which groups already route join requests to this bot as their guard bot.
+  const { results: chats } = await env.DB.prepare(
+    `SELECT DISTINCT chat_id, chat_title FROM attempts ORDER BY chat_id LIMIT 20`,
+  ).all<{ chat_id: string; chat_title: string | null }>();
+  // One group at a time: a Worker holds at most six open connections.
+  const guards = [];
+  for (const chat of chats) {
+    guards.push(
+      await (async () => {
+      const [info, rights] = await Promise.all([
+        callTelegram<{ guard_bot?: { username?: string } }>(env, "getChat", { chat_id: chat.chat_id }).catch(
+          (error) => ({ error: messageOf(error) }),
+        ),
+        callTelegram<Record<string, unknown>>(env, "getChatMember", { chat_id: chat.chat_id, user_id: me.id }).catch(
+          () => ({}) as Record<string, unknown>,
+        ),
+      ]);
+      return {
+        chat: chat.chat_title ?? chat.chat_id,
+        guard_bot: "error" in info ? info.error : (info.guard_bot?.username ?? null),
+        can_delete: rights.can_delete_messages === true,
+        can_ban: rights.can_restrict_members === true,
+      };
+      })(),
+    );
+  }
   return json({
     bot: me.username,
     supports_join_request_queries: me.supports_join_request_queries ?? false,
     webhook: { url: webhook.url, pending: webhook.pending_update_count, last_error: webhook.last_error_message },
+    guards,
   });
 }
 
@@ -399,10 +470,6 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" },
   });
-}
-
-function log(event: string, fields: Record<string, unknown>): void {
-  console.log(JSON.stringify({ event, ...fields }));
 }
 
 function messageOf(error: unknown): string {

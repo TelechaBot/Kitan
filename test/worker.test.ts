@@ -26,6 +26,7 @@ let env: Env;
 let calls: { method: string; params: Record<string, any> }[];
 let turnstile: { success: boolean; hostname?: string };
 let failMethods: Record<string, string>;
+let lols: "clean" | "banned" | "down";
 
 beforeEach(() => {
   db = new Database(":memory:");
@@ -43,10 +44,15 @@ beforeEach(() => {
   calls = [];
   turnstile = { success: true, hostname: "kitan.example.workers.dev" };
   failMethods = {};
+  lols = "clean";
   globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes("turnstile")) {
       return Response.json(turnstile);
+    }
+    if (url.includes("lols.bot")) {
+      if (lols === "down") throw new Error("timeout");
+      return Response.json({ ok: true, banned: lols === "banned" });
     }
     const method = url.split("/").pop()!;
     const params = JSON.parse(String(init?.body ?? "{}"));
@@ -225,4 +231,85 @@ test("chat_member kicked labels the approved attempt", async () => {
     chat_member: { chat: { id: -100 }, new_chat_member: { status: "kicked", user: { id: 42 } } },
   });
   expect(row().banned_at).toBeGreaterThan(0);
+});
+
+// ---------- screening and probation ----------
+
+async function approveIn(chatId: number, queryId: string) {
+  await hook(joinRequest({ query_id: queryId, chat: { id: chatId, title: `chat${chatId}` } }));
+  const data = await initData({ chat_join_request_query_id: queryId });
+  expect((await post("/api/verify", { initData: data, turnstileToken: "t" })).status).toBe(200);
+}
+
+const say = (chatId: number, text: string, extra: Record<string, unknown> = {}) =>
+  hook({
+    update_id: Math.floor(Math.random() * 1e9),
+    message: { message_id: 500, chat: { id: chatId, type: "supergroup" }, from: { id: 42 }, text, ...extra },
+  });
+
+const methods = () => calls.map((c) => c.method);
+
+test("lols-listed accounts are declined before any challenge, on both paths", async () => {
+  lols = "banned";
+  await hook(joinRequest({ query_id: "Q1" }));
+  await hook({ ...joinRequest(), update_id: 2 });
+  expect(methods()).toEqual(["answerChatJoinRequestQuery", "declineChatJoinRequest"]);
+  expect(calls[0].params.result).toBe("decline");
+  expect(db.query("SELECT DISTINCT status, error FROM attempts").all()).toEqual([
+    { status: "declined", error: "lols_banned" },
+  ]);
+});
+
+test("a lols outage does not block real people", async () => {
+  lols = "down";
+  await hook(joinRequest({ query_id: "Q1" }));
+  expect(methods()).toEqual(["sendChatJoinRequestWebApp"]);
+});
+
+test("a refused DM leaves the request for admins instead of declining it", async () => {
+  failMethods.sendMessage = "Forbidden: bot can't initiate conversation with a user";
+  await hook(joinRequest());
+  expect(methods()).toEqual(["sendMessage"]);
+  expect(row().status).toBe("failed");
+});
+
+test("ordinary messages and non-probation members are left alone", async () => {
+  await say(-100, "https://example.com from someone Kitan never approved");
+  expect(calls).toHaveLength(0);
+  await approveIn(-100, "Q1");
+  calls = [];
+  await say(-100, "hello everyone, glad to be here");
+  expect(calls).toHaveLength(0);
+  expect(row().messages).toBe(1);
+});
+
+test("first spam in probation: delete and mute; second in another group: ban everywhere and block", async () => {
+  await approveIn(-100, "Q1");
+  await approveIn(-200, "Q2");
+  calls = [];
+  await say(-100, "cheap followers t.me/spamchannel");
+  expect(methods()).toEqual(["deleteMessage", "restrictChatMember"]);
+
+  calls = [];
+  await say(-200, "", { forward_origin: { type: "channel" } });
+  expect(methods().sort()).toEqual(["banChatMember", "banChatMember", "deleteMessage"]);
+  expect(calls.filter((c) => c.method === "banChatMember").map((c) => c.params.chat_id).sort()).toEqual([
+    "-100",
+    "-200",
+  ]);
+
+  calls = [];
+  await hook(joinRequest({ query_id: "Q3", chat: { id: -300, title: "other" } }));
+  expect(methods()).toEqual(["answerChatJoinRequestQuery"]);
+  expect(calls[0].params.result).toBe("decline");
+});
+
+test("the same text posted in two groups burns the account at once", async () => {
+  await approveIn(-100, "Q1");
+  await approveIn(-200, "Q2");
+  calls = [];
+  await say(-100, "Join our amazing investment group today");
+  expect(calls).toHaveLength(0);
+  await say(-200, "join our  AMAZING investment group today");
+  expect(methods().sort()).toEqual(["banChatMember", "banChatMember", "deleteMessage"]);
 });

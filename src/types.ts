@@ -8,6 +8,7 @@ export interface Env {
 
 export interface TelegramUser {
   id: number;
+  is_bot?: boolean;
   language_code?: string;
 }
 
@@ -40,6 +41,14 @@ export interface Message {
   chat: TelegramChat;
   from?: TelegramUser;
   text?: string;
+  caption?: string;
+  entities?: { type: string }[];
+  caption_entities?: { type: string }[];
+  forward_origin?: unknown;
+  external_reply?: unknown;
+  story?: unknown;
+  via_bot?: unknown;
+  reply_markup?: unknown;
 }
 
 export interface Update {
@@ -58,6 +67,6 @@ export interface Attempt {
   query_id: string | null;
   token: string | null;
   message_id: number | null;
-  status: "pending" | "approved" | "expired" | "failed";
+  status: "pending" | "approved" | "expired" | "failed" | "declined";
   expires_at: number;
 }
