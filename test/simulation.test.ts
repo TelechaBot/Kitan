@@ -62,7 +62,7 @@ test("pressing Start with nothing to resume explains the bot and offers to add i
   const w = new World();
   await w.startBot(13);
   const reply = w.callsTo("sendMessage")[0].params;
-  expect(reply.text).toContain("You don't have any checks waiting");
+  expect(reply.text).toContain("You have no checks waiting");
   expect(reply.reply_markup.inline_keyboard[0][0].url).toBe(
     "https://t.me/test_bot?startgroup&admin=can_invite_users+can_delete_messages+can_restrict_members",
   );
