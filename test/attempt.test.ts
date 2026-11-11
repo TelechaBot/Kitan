@@ -22,6 +22,7 @@ function admit(overrides: Partial<Intake> = {}) {
     delivery: { kind: "dm", token: "tok", messageId: null },
     blocked: false,
     lols: false,
+    misses: 0,
     at: T0,
     ...overrides,
   });
@@ -56,6 +57,34 @@ describe("intake", () => {
 
   test("an unreachable lols does not decline anyone", () => {
     expect(admit({ lols: null }).attempt.status).toBe("pending");
+  });
+});
+
+describe("backoff for people who let a check lapse", () => {
+  const MIN = 60 * 1000;
+
+  test("each lapse triples the time for the next check, up to the cap", () => {
+    const limits = [0, 1, 2, 3, 4, 5].map((misses) => (admit({ misses }).attempt.expiresAt - T0) / MIN);
+    expect(limits).toEqual([5, 15, 45, 135, 360, 360]);
+    const guard = [0, 1, 2].map(
+      (misses) => (admit({ misses, delivery: { kind: "guard", queryId: "Q" } }).attempt.expiresAt - T0) / MIN,
+    );
+    expect(guard).toEqual([10, 30, 90]);
+  });
+
+  test("a returning person whose DM is refused waits longer for Start, but never past a day", () => {
+    const waits = [0, 1, 2, 5].map((misses) => {
+      const result = step(admit({ misses }).attempt, { type: "challenge_failed", error: "Forbidden", refused: true, at: T0 });
+      return result.ok ? (result.next.expiresAt - T0) / MIN : null;
+    });
+    expect(waits).toEqual([60, 180, 540, 1440]);
+  });
+
+  test("pressing Start keeps the returning person's longer limit", () => {
+    const { attempt } = admit({ misses: 1 });
+    const unreachable = step(attempt, { type: "challenge_failed", error: "Forbidden", refused: true, at: T0 });
+    const resumed = unreachable.ok ? step(unreachable.next, { type: "resumed", at: T0 + MIN }) : unreachable;
+    expect(resumed.ok && resumed.next.expiresAt - (T0 + MIN)).toBe(15 * MIN);
   });
 });
 

@@ -18,6 +18,7 @@ interface AttemptRow {
   expires_at: number;
   decided_at: number | null;
   error: string | null;
+  misses: number;
 }
 
 // ---------- codec (pure) ----------
@@ -32,6 +33,7 @@ function decode(row: AttemptRow): Attempt {
     delivery,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
+    misses: row.misses,
   };
   const decidedAt = row.decided_at ?? row.created_at;
   switch (row.status) {
@@ -94,8 +96,8 @@ export async function insertAttempt(
   const row = await db
     .prepare(
       `INSERT OR IGNORE INTO attempts
-         (chat_id, chat_title, user_id, delivery, query_id, token, status, created_at, expires_at, lols, error, decided_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (chat_id, chat_title, user_id, delivery, query_id, token, status, created_at, expires_at, lols, error, decided_at, misses)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING *`,
     )
     .bind(
@@ -111,9 +113,19 @@ export async function insertAttempt(
       lols === null ? null : Number(lols),
       e.error,
       e.decided_at,
+      a.misses,
     )
     .first<AttemptRow>();
   return row ? decode(row) : null;
+}
+
+// Checks this person let lapse in this group since `since`.
+export async function countMisses(db: D1Database, chatId: string, userId: string, since: number): Promise<number> {
+  const row = await db
+    .prepare(`SELECT count(*) AS n FROM attempts WHERE chat_id = ? AND user_id = ? AND status = 'expired' AND created_at > ?`)
+    .bind(chatId, userId, since)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 // Writes `next` if the row still has `from.status`; false when another worker moved it first.

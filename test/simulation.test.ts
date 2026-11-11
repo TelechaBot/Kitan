@@ -30,13 +30,19 @@ test("a person passes the check and chats normally", async () => {
   record("person", "approved; never moderated");
 });
 
-test("a person ignores the DM", async () => {
+test("a person misses the DM, asks again, and gets more time", async () => {
   const w = new World();
   await w.requestJoin(2, A);
   await w.expire(Date.now() + 6 * 60 * 1000);
   expect(w.latestAttempt(2, A).status).toBe("expired");
   expect(w.methods()).toContain("declineChatJoinRequest");
-  record("person who ignores the DM", "declined after 5 minutes; may ask again");
+
+  await w.requestJoin(2, A);
+  const second = w.latestAttempt(2, A);
+  expect(second.misses).toBe(1);
+  expect(second.expires_at - second.created_at).toBe(15 * 60 * 1000);
+  expect(await w.completeCheck(2, A)).toBe(200);
+  record("person who misses the DM", "declined after 5 min; asks again with 15 min and passes");
 });
 
 test("a person whose privacy settings refuse the DM, then presses Start", async () => {

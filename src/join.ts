@@ -1,8 +1,8 @@
 // Runs join attempts: loads state, applies the pure step, saves it, then
 // performs the effects. Performing an effect is the only place the guard-bot
 // and DM paths differ.
-import { type Attempt, type JoinEffect, type JoinEvent, type Refusal, intake, step } from "./attempt";
-import { countOffenses, insertAttempt, save, unreachableFor, waitingDue } from "./db";
+import { type Attempt, type JoinEffect, type JoinEvent, MISS_WINDOW_MS, type Refusal, intake, step } from "./attempt";
+import { countMisses, countOffenses, insertAttempt, save, unreachableFor, waitingDue } from "./db";
 import { type Lang, pickLang, t } from "./i18n";
 import { OFFENSE_WINDOW_MS, isBlocked } from "./probation";
 import { callTelegram, isRefused, log, messageOf } from "./telegram";
@@ -10,9 +10,14 @@ import type { ChatJoinRequest, Env, Message } from "./types";
 
 export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: string, now: number): Promise<void> {
   const userId = String(request.from.id);
-  const [offenses, lols] = await Promise.all([countOffenses(env.DB, userId, now - OFFENSE_WINDOW_MS), lolsBanned(userId)]);
+  const chatId = String(request.chat.id);
+  const [offenses, lols, misses] = await Promise.all([
+    countOffenses(env.DB, userId, now - OFFENSE_WINDOW_MS),
+    lolsBanned(userId),
+    countMisses(env.DB, chatId, userId, now - MISS_WINDOW_MS),
+  ]);
   const first = intake({
-    chatId: String(request.chat.id),
+    chatId,
     chatTitle: request.chat.title ?? null,
     userId,
     delivery: request.query_id
@@ -20,6 +25,7 @@ export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: 
       : { kind: "dm", token: crypto.randomUUID().replace(/-/g, ""), messageId: null },
     blocked: isBlocked(offenses),
     lols,
+    misses,
     at: now,
   });
   const attempt = await insertAttempt(env.DB, first.attempt, lols, now);

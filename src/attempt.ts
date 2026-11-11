@@ -16,6 +16,7 @@ interface Base {
   delivery: Delivery;
   createdAt: number;
   expiresAt: number;
+  misses: number; // recent checks this person let lapse in this group (see patience)
 }
 
 // Waiting states have a deadline like pending ones, because a join request
@@ -55,10 +56,21 @@ export type Step = { ok: true; next: Attempt; effects: JoinEffect[] } | { ok: fa
 // to them, or a waiting attempt is not yet due to expire.
 export type Refusal = "already_verified" | "closed" | "not_due";
 
+// Time limits for a first try. Each check the person let lapse in this group
+// recently triples the next one, up to a cap: people who slipped up come back
+// and get more time, while bulk accounts, which almost never ask twice, keep
+// the short one. Nothing waits past the cap, so no request is left forever.
 export const GUARD_TTL_MS = 10 * 60 * 1000;
 export const DM_TTL_MS = 5 * 60 * 1000;
+export const CHECK_CAP_MS = 6 * 60 * 60 * 1000;
 // How long an unreachable or queued request waits before Kitan declines it so the person can ask again.
 export const WAIT_TTL_MS = 60 * 60 * 1000;
+export const WAIT_CAP_MS = 24 * 60 * 60 * 1000;
+export const MISS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function patience(baseMs: number, capMs: number, misses: number): number {
+  return Math.min(baseMs * 3 ** misses, capMs);
+}
 
 export interface Intake {
   chatId: string;
@@ -67,6 +79,7 @@ export interface Intake {
   delivery: Delivery;
   blocked: boolean;
   lols: boolean | null;
+  misses: number;
   at: number;
 }
 
@@ -79,7 +92,9 @@ export function intake(input: Intake): { attempt: NewAttempt; effects: JoinEffec
     userId: input.userId,
     delivery: input.delivery,
     createdAt: input.at,
-    expiresAt: input.at + (input.delivery.kind === "guard" ? GUARD_TTL_MS : DM_TTL_MS),
+    expiresAt:
+      input.at + patience(input.delivery.kind === "guard" ? GUARD_TTL_MS : DM_TTL_MS, CHECK_CAP_MS, input.misses),
+    misses: input.misses,
   };
   const reason: DeclineReason | null = input.blocked ? "kitan_blocklist" : input.lols ? "lols_banned" : null;
   return reason
@@ -101,7 +116,12 @@ export function step(a: Attempt, e: JoinEvent): Step {
     case "challenge_failed": {
       // A real person may be behind it either way: wait for them or the admins, but not forever.
       if (a.status !== "pending") return refuse(a);
-      const waiting = { ...a, decidedAt: e.at, error: e.error, expiresAt: e.at + WAIT_TTL_MS };
+      const waiting = {
+        ...a,
+        decidedAt: e.at,
+        error: e.error,
+        expiresAt: e.at + patience(WAIT_TTL_MS, WAIT_CAP_MS, a.misses),
+      };
       return e.refused && a.delivery.kind === "dm"
         ? ok({ ...waiting, status: "unreachable" })
         : ok({ ...waiting, status: "queued" }, { type: "answer", result: "queue" });
@@ -110,7 +130,7 @@ export function step(a: Attempt, e: JoinEvent): Step {
     case "resumed":
       // The person started the bot; give them a fresh time limit from now.
       if (a.status !== "unreachable") return refuse(a);
-      return ok({ ...toPending(a), expiresAt: e.at + DM_TTL_MS });
+      return ok({ ...toPending(a), expiresAt: e.at + patience(DM_TTL_MS, CHECK_CAP_MS, a.misses) });
 
     case "verified": {
       const refusal = openForUser(a, e.at);
@@ -147,8 +167,8 @@ export function openForUser(a: Attempt, at: number): Refusal | null {
 }
 
 function toPending(a: Attempt): Attempt {
-  const { id, chatId, chatTitle, userId, delivery, createdAt, expiresAt } = a;
-  return { id, chatId, chatTitle, userId, delivery, createdAt, expiresAt, status: "pending" };
+  const { id, chatId, chatTitle, userId, delivery, createdAt, expiresAt, misses } = a;
+  return { id, chatId, chatTitle, userId, delivery, createdAt, expiresAt, misses, status: "pending" };
 }
 
 function ok(next: Attempt, ...effects: JoinEffect[]): Step {

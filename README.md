@@ -20,7 +20,10 @@ a short Cloudflare check before the bot lets them in.
 When someone asks to join, the bot sends them a private message with a
 **Verify** button. They have 5 minutes to finish the check. If they pass, the
 bot approves the request. If they do nothing, the bot declines it, and they can
-ask to join again.
+ask to join again. Each time they come back within a week they get three times
+as long (15 minutes, then 45, up to 6 hours), so someone who missed the message
+is not hurried, while bulk accounts, which rarely ask twice, keep the short
+limit.
 
 ### If someone gets no message
 
@@ -28,8 +31,9 @@ Telegram does not let bots write first to some people, usually because of
 their privacy settings. If the person opens @SmartVerifyBot and presses
 **Start** within an hour, the check arrives straight away. Otherwise Kitan
 declines the request after the hour, so they can ask to join again; a request
-nobody answers would stop them from asking again. You can still approve or
-decline it yourself during that hour.
+nobody answers would stop them from asking again. A person who comes back gets
+longer each time (3 hours, then 9, up to a day). You can still approve or
+decline the request yourself while it waits.
 
 ### Requests from before Kitan
 
