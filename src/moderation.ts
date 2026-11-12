@@ -11,6 +11,7 @@ import {
   chatsJoinedSince,
   countOffenses,
   countingSince,
+  creditReply,
   earlierCopies,
   insertOffense,
   labelMember,
@@ -46,10 +47,11 @@ import {
   messageText,
   needsReview,
   sameness,
+  diversionTargets,
   spamReason,
 } from "./probation";
 import { callTelegram, log, messageOf } from "./telegram";
-import { type Trajectory, accountYears, features, step } from "./trajectory";
+import { type Trajectory, accountYears, features, social, step } from "./trajectory";
 import type { ChatMemberUpdated, Env, Message, PhotoSize, TelegramChat, TelegramUser } from "./types";
 
 // A profile read from Telegram is reused for a week; spam accounts do change their bio.
@@ -129,6 +131,7 @@ async function screenProfile(env: Env, update: ChatMemberUpdated, now: number) {
   await footprint(env, chatId, String(user.id), "verdict", {
     on: "profile",
     lexicon: profileWords([dossier.name, user.username, profile?.bio, profile?.personal_chat].filter(Boolean).join(" ")),
+    targets: targetsOf(dossier),
     decision,
     text_model: textModel,
     dossier,
@@ -232,7 +235,8 @@ export async function onGroupMessage(env: Env, message: Message, ctx: Context): 
   // Every person's activity updates their sketch, so a regular whose behaviour turns can be noticed.
   const standing = await readStanding(env.DB, chatId, userId);
   const trajectory = step(standing.trajectory, activity(message, ctx, !standing.known));
-  await writeStanding(env.DB, chatId, userId, trajectory, !standing.known && !ctx.edited, ctx.now);
+  const answered = repliesTo(message);
+  if (answered && !ctx.edited) ctx.background(creditReply(env.DB, String(answered.id), ctx.now));
 
   const mayBeLeftAlone = trajectory.messages > ACTIVE_AFTER || standing.joinedAt === null;
   const anomaly = mayBeLeftAlone ? await anomalyScore(env, trajectory, from.id, ctx.now) : null;
@@ -241,6 +245,7 @@ export async function onGroupMessage(env: Env, message: Message, ctx: Context): 
     await countingSince(env.DB),
     ctx.now,
   );
+  await writeStanding(env.DB, chatId, userId, trajectory, !standing.known && !ctx.edited, ctx.now, review.review);
   if (!review.review) return;
 
   await footprint(env, chatId, userId, ctx.edited ? "edit" : "message", {
@@ -250,6 +255,8 @@ export async function onGroupMessage(env: Env, message: Message, ctx: Context): 
     minutes_since_join: standing.joinedAt === null ? null : Math.round((ctx.now - standing.joinedAt) / 60_000),
     name: displayName(from),
     username: from.username,
+    social: social(trajectory),
+    replies_to: answered ? String(answered.id) : undefined,
     // Everything the rules read, so the rules can be replayed exactly.
     facts: messageFacts(message),
   }, ctx.now);
@@ -272,7 +279,18 @@ function activity(message: Message, ctx: Context, newChat: boolean) {
     forward: Boolean(message.forward_origin),
     media: messageKind(message) !== "text",
     chars: text.length,
+    reply: repliesTo(message) !== null,
+    sticker: Boolean(message.sticker),
   };
+}
+
+// The other person this message answers, if it answers one: not themselves, not a bot, and
+// not a forum topic's opening notice, which every message in a topic replies to.
+function repliesTo(message: Message): TelegramUser | null {
+  const to = message.reply_to_message;
+  if (!to?.from || to.forum_topic_created !== undefined) return null;
+  if (to.from.is_bot || to.from.id === message.from?.id) return null;
+  return to.from;
 }
 
 async function anomalyScore(env: Env, trajectory: Trajectory, userId: number, now: number): Promise<number | null> {
@@ -372,10 +390,24 @@ async function shadow(
     decision,
     text_model: textModel,
     image_model: imageModel ? { ...imageModel, px: picture?.width } : null,
+    targets: targetsOf(dossier, message),
+    social: social(trajectory),
     // Everything Kitan knew; the models saw forModels(dossier). Kept whole so a replay can
     // try other views.
     dossier,
   }, Date.now());
+}
+
+// Where this sender points people, from the message and everything on their profile.
+function targetsOf(d: Dossier, message?: Message) {
+  return diversionTargets({
+    message: message ? messageText(message) : undefined,
+    name: d.name,
+    bio: d.bio,
+    channel: d.personalChat,
+    contact: message?.contact ? [message.contact.first_name, message.contact.last_name].filter(Boolean).join(" ") || "card" : undefined,
+    buttons: message?.reply_markup?.inline_keyboard?.flat().flatMap((b) => (b.url ? [b.url] : [])),
+  }).map((t) => ({ ...t, value: t.value.slice(0, 80) }));
 }
 
 // A photo at the size the image model reads, or the preview Telegram makes of a video,

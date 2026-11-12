@@ -106,6 +106,63 @@ export function messageText(message: Message): string {
   return message.text ?? message.caption ?? "";
 }
 
+// Where an account is trying to send people. An ad only pays if people move: to a
+// group, a channel, a bot, a private chat, WeChat or QQ, a phone, or "my profile". So an
+// account with no target anywhere (message, name, bio, profile channel, contact card,
+// buttons) is not advertising, whatever a model says; that is the false-positive guard.
+export type TargetKind = "invite" | "link" | "handle" | "wechat" | "qq" | "phone" | "pointer" | "channel" | "contact" | "button";
+export interface Target {
+  kind: TargetKind;
+  in: "message" | "name" | "bio" | "channel" | "card" | "button";
+  value: string;
+}
+
+const TARGETS: [TargetKind, RegExp][] = [
+  ["invite", /(?:t\.me|telegram\.me)\/(?:\+|joinchat\/)[\w-]+/gi],
+  ["link", /(?:https?:\/\/|t\.me\/|telegram\.me\/|tg:\/\/|wa\.me\/)[^\s，。]+/gi],
+  ["handle", /@[a-z][a-z0-9_]{3,31}/gi],
+  ["wechat", /(?:微信|威信|薇信|v信|vx|wx|weixin|加v|\+v)[:：\s]*[a-z][\w-]{5,19}/gi],
+  ["qq", /(?:qq|扣扣|企鹅)[:：\s]*\d{5,11}/gi],
+  ["phone", /\+\d[\d -]{8,16}\d|(?<!\d)1[3-9]\d{9}(?!\d)/g],
+  // "Look at my profile", "DM me", "join the public group": the ad is one step away.
+  // 主业 is how one account wrote 主页 to dodge filters ("看我主业").
+  ["pointer", /[看点戳进来]我?的?(?:主[页业]|简介|头像|签名|资料|置顶)|主页(?:有|看|联系)|私(?:聊|我|信我|戳)|滴滴我|dd我|加我|公群|拉你进|进群(?:了解|咨询|领|看)/gi],
+];
+
+// Spam writes "t。me", "t . me" and hides zero-width characters to slip past filters.
+function plain(text: string): string {
+  return text.normalize("NFKC").replace(/[​-‏⁠﻿]/g, "").replace(/\s*[。．·]\s*/g, ".").replace(/t\s*\.\s*me/gi, "t.me");
+}
+
+export function diversionTargets(where: {
+  message?: string;
+  name?: string;
+  bio?: string;
+  channel?: string;
+  contact?: string;
+  buttons?: string[];
+}): Target[] {
+  const found: Target[] = [];
+  for (const place of ["message", "name", "bio"] as const) {
+    const text = where[place];
+    if (!text) continue;
+    const seen = new Set<string>();
+    for (const [kind, pattern] of TARGETS) {
+      for (const match of plain(text).matchAll(pattern)) {
+        const value = match[0];
+        // An invite link is also a link; count it once, as the stronger kind.
+        if ([...seen].some((s) => s.includes(value) || value.includes(s))) continue;
+        seen.add(value);
+        found.push({ kind, in: place, value });
+      }
+    }
+  }
+  if (where.channel) found.push({ kind: "channel", in: "channel", value: where.channel });
+  if (where.contact) found.push({ kind: "contact", in: "card", value: where.contact });
+  for (const url of where.buttons ?? []) found.push({ kind: "button", in: "button", value: url });
+  return found;
+}
+
 // What makes two messages the same for the duplicate and repeat rules: the text, or for a
 // contact card the account or number it shares (a live account posted 140 cards in 4 hours).
 export function sameness(message: Message): string {

@@ -4,7 +4,7 @@
 // racing on one attempt cannot both apply.
 import type { Attempt, DeclineReason, Delivery, NewAttempt } from "./attempt";
 import type { Forest } from "./iforest";
-import { type Trajectory, empty } from "./trajectory";
+import { type Trajectory, empty, step } from "./trajectory";
 
 interface AttemptRow {
   id: number;
@@ -322,12 +322,47 @@ export async function readStanding(
     joinedAt: row?.joined_at ?? null,
     // Kitan groups they joined or spoke in, counting this one even before the first write.
     groups: Math.max(1, (row?.groups ?? 0) + (row?.known ? 0 : 1)),
-    trajectory: row?.body ? (JSON.parse(row.body) as Trajectory) : empty(),
+    trajectory: sketchCache(db).get(userId)?.t ?? (row?.body ? (JSON.parse(row.body) as Trajectory) : empty()),
   };
 }
 
-// Stores the updated sketch, and the first time someone speaks in a group, remembers them
-// there. One round trip; a row is written only for the sketch and that first time.
+// Sketches of people who are not under review are written at most every SKETCH_WRITE_MS
+// per Worker instance, and served from memory in between. D1's free tier writes 100,000
+// rows a day, and one busy group sent ~1,700 messages an hour. A recycled instance loses
+// at most that much of someone's sketch, which only blurs it.
+const SKETCH_WRITE_MS = 15 * 60 * 1000;
+const SKETCHES_KEPT = 5000;
+const sketches = new WeakMap<D1Database, Map<string, { t: Trajectory; written: number }>>();
+
+function sketchCache(db: D1Database) {
+  let cache = sketches.get(db);
+  if (!cache) sketches.set(db, (cache = new Map()));
+  return cache;
+}
+
+// Remembers the sketch and says whether it is due to be written now.
+function keepSketch(db: D1Database, userId: string, t: Trajectory, now: number, urgent: boolean): boolean {
+  const cache = sketchCache(db);
+  const entry = cache.get(userId);
+  // First seen by this instance: the stored copy is as fresh as it gets.
+  const due = urgent || (entry !== undefined && now - entry.written >= SKETCH_WRITE_MS);
+  cache.delete(userId); // re-inserted last, so the oldest entry is first to go
+  cache.set(userId, { t, written: due ? now : (entry?.written ?? now) });
+  if (cache.size > SKETCHES_KEPT) cache.delete(cache.keys().next().value!);
+  return due;
+}
+
+function sketchWrite(db: D1Database, userId: string, t: Trajectory, now: number) {
+  return db
+    .prepare(
+      `INSERT INTO trajectories (user_id, messages, updated_at, body) VALUES (?, ?, ?, ?)
+       ON CONFLICT (user_id) DO UPDATE SET messages = excluded.messages, updated_at = excluded.updated_at, body = excluded.body`,
+    )
+    .bind(userId, t.messages, now, JSON.stringify(t));
+}
+
+// Stores the updated sketch (at once when `urgent`, otherwise see SKETCH_WRITE_MS), and the
+// first time someone speaks in a group, remembers them there.
 export async function writeStanding(
   db: D1Database,
   chatId: string,
@@ -335,19 +370,23 @@ export async function writeStanding(
   trajectory: Trajectory,
   firstInChat: boolean,
   now: number,
+  urgent: boolean,
 ): Promise<void> {
-  const sketch = db
-    .prepare(
-      `INSERT INTO trajectories (user_id, messages, updated_at, body) VALUES (?, ?, ?, ?)
-       ON CONFLICT (user_id) DO UPDATE SET messages = excluded.messages, updated_at = excluded.updated_at, body = excluded.body`,
-    )
-    .bind(userId, trajectory.messages, now, JSON.stringify(trajectory));
-  const speaker = db.prepare(`INSERT OR IGNORE INTO speakers (chat_id, user_id) VALUES (?, ?)`).bind(chatId, userId);
-  await db.batch(firstInChat ? [sketch, speaker] : [sketch]);
+  const writes = [];
+  if (keepSketch(db, userId, trajectory, now, urgent)) writes.push(sketchWrite(db, userId, trajectory, now));
+  if (firstInChat) writes.push(db.prepare(`INSERT OR IGNORE INTO speakers (chat_id, user_id) VALUES (?, ?)`).bind(chatId, userId));
+  if (writes.length) await db.batch(writes);
+}
+
+// Someone answered one of their messages: a sign of a member, not a billboard.
+export async function creditReply(db: D1Database, userId: string, now: number): Promise<void> {
+  const t = step(await readTrajectory(db, userId), { kind: "replied", at: now });
+  if (keepSketch(db, userId, t, now, false)) await sketchWrite(db, userId, t, now).run();
 }
 
 // A member joined, by any route. Rejoining makes them new again.
 export async function recordJoin(db: D1Database, chatId: string, userId: string, trajectory: Trajectory, now: number) {
+  keepSketch(db, userId, trajectory, now, true);
   await db.batch([
     db
       .prepare(
@@ -365,6 +404,8 @@ export async function recordJoin(db: D1Database, chatId: string, userId: string,
 }
 
 export async function readTrajectory(db: D1Database, userId: string): Promise<Trajectory> {
+  const cached = sketchCache(db).get(userId);
+  if (cached) return cached.t;
   const row = await db.prepare(`SELECT body FROM trajectories WHERE user_id = ?`).bind(userId).first<{ body: string }>();
   return row ? (JSON.parse(row.body) as Trajectory) : empty();
 }

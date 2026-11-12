@@ -96,7 +96,13 @@ so Kitan makes each spam attempt cost an account:
 Language and image models also read the name, username, bio and profile
 channel of each member under review, with each new message (and the preview of
 a photo or video), but only to record what they would have done: they do not
-act until their false positives on real newcomers are measured (see `bench/`). If Kitan removes
+act until their false positives on real newcomers are measured (see `bench/`).
+Two signals are recorded beside them as guards against mistakes. An ad only
+works if people go somewhere, so Kitan notes where a member points people: an
+invite link, a link, an @handle, a WeChat or QQ id, a phone number, a contact
+card, a button, or "see my profile". And ad accounts talk at a group, not with
+it, so Kitan counts how often a member answers someone, is answered, and sends
+stickers. If Kitan removes
 someone by mistake, unban them in the group settings.
 
 Use only one bot to screen a group's join requests. A person another bot lets
@@ -152,7 +158,8 @@ banned, Kitan records the time.
 
 For each account, Kitan keeps a summary of its activity across Kitan groups:
 counts and averages of when and how often it posts and what share of its
-messages carry links, mentions, forwards or media, but no message text. It
+messages carry links, mentions, forwards or media, and how many of its messages
+answered someone, were answered, or were stickers, but no message text. It
 also notes which groups it has spoken or joined in, and when it joined. For
 each group, Kitan keeps its title, public handle and when it was last seen.
 

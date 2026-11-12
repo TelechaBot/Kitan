@@ -78,6 +78,8 @@ export interface Message {
   voice?: Media;
   audio?: Media;
   contact?: { phone_number: string; first_name?: string; last_name?: string; user_id?: number };
+  // In forum groups every message in a topic replies to the topic's opening notice.
+  reply_to_message?: { message_id: number; from?: TelegramUser; forum_topic_created?: unknown };
   edit_date?: number;
 }
 

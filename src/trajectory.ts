@@ -26,12 +26,34 @@ export interface Trajectory {
   hours: number[]; // messages per UTC hour of day
   recent: Mix; // fast moving average (≈ last 3 messages)
   usual: Mix; // slow moving average (≈ last 30 messages)
+  // Social life. Ad accounts talk at a group, not with it: they rarely answer anyone,
+  // nobody answers them, and they do not send stickers. Sketches from before these
+  // fields existed lack them; read them with social().
+  replies?: number; // their messages that reply to another person
+  repliedBy?: number; // other people's messages that reply to them
+  stickers?: number;
 }
 
 export type Activity =
   | { kind: "join"; at: number }
   | { kind: "edit"; at: number }
-  | { kind: "message"; at: number; newChat: boolean; link: boolean; mention: boolean; forward: boolean; media: boolean; chars: number };
+  | { kind: "replied"; at: number } // someone else replied to one of their messages
+  | {
+      kind: "message";
+      at: number;
+      newChat: boolean;
+      link: boolean;
+      mention: boolean;
+      forward: boolean;
+      media: boolean;
+      chars: number;
+      reply?: boolean; // answers another person's message
+      sticker?: boolean;
+    };
+
+export function social(t: Trajectory): { replies: number; repliedBy: number; stickers: number } {
+  return { replies: t.replies ?? 0, repliedBy: t.repliedBy ?? 0, stickers: t.stickers ?? 0 };
+}
 
 const RECENT = 0.3;
 const USUAL = 0.03;
@@ -54,12 +76,16 @@ export function empty(): Trajectory {
     hours: Array(24).fill(0),
     recent: blank(),
     usual: blank(),
+    replies: 0,
+    repliedBy: 0,
+    stickers: 0,
   };
 }
 
 export function step(t: Trajectory, a: Activity): Trajectory {
   if (a.kind === "join") return { ...t, joins: t.joins + 1, lastJoinAt: a.at };
   if (a.kind === "edit") return { ...t, edits: t.edits + 1 };
+  if (a.kind === "replied") return { ...t, repliedBy: social(t).repliedBy + 1 };
 
   const mix: Mix = {
     link: Number(a.link),
@@ -107,6 +133,8 @@ export function step(t: Trajectory, a: Activity): Trajectory {
     hours,
     recent: blend(t.recent, RECENT),
     usual: blend(t.usual, USUAL),
+    replies: social(t).replies + Number(a.reply ?? false),
+    stickers: social(t).stickers + Number(a.sticker ?? false),
   };
 }
 
@@ -115,6 +143,7 @@ export const FEATURES = [
   "gap_mean", "gap_spread", "burst_share", "hour_entropy", "edit_share", "log_first_reply",
   "link", "mention", "forward", "media", "length",
   "shift_link", "shift_mention", "shift_forward", "shift_media", "shift_length",
+  "reply_share", "replied_share", "sticker_share",
 ] as const;
 
 // Telegram ids grow over time: roughly 1e9 in 2020 and 8.8e9 by mid-2026.
@@ -151,5 +180,8 @@ export function features(t: Trajectory, userId: number, now: number): number[] {
     t.recent.forward - t.usual.forward,
     t.recent.media - t.usual.media,
     t.recent.length - t.usual.length,
+    t.messages ? social(t).replies / t.messages : 0,
+    t.messages ? Math.min(1, social(t).repliedBy / t.messages) : 0,
+    t.messages ? social(t).stickers / t.messages : 0,
   ];
 }

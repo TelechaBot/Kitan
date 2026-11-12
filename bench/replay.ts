@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Dossier, PROMPTS, decideText, forModels, judgeText } from "../src/classify";
+import { diversionTargets } from "../src/probation";
 import { accountYears } from "../src/trajectory";
 import type { Env } from "../src/types";
 
@@ -108,6 +109,20 @@ const VIEWS: Record<string, (d: Dossier) => Dossier> = {
   dossier: (d) => d,
 };
 
+// The deterministic guard: does the sender point anywhere (production's targetsOf)?
+function hasTarget(d: Dossier): boolean {
+  const card = d.kind === "contact" || d.text.startsWith("[contact card");
+  return (
+    diversionTargets({
+      message: card ? undefined : d.text,
+      name: d.name,
+      bio: d.bio,
+      channel: d.personalChat,
+      contact: card ? d.text : undefined,
+    }).length > 0
+  );
+}
+
 // At most this many distinct messages per account: one flooder must not stand for many people.
 const PER_ACCOUNT = 4;
 
@@ -181,7 +196,7 @@ async function replay() {
   const labels = new Map<string, { account: "spam" | "ham"; note?: string }>(read("labels.jsonl").map((l: any) => [l.user_id, l]));
   const all = accounts();
   const thresholds = { "decide≥0.5": 0.5, "decide≥0.8": 0.8, "decide≥0.95": 0.95 } as const;
-  type Row = { userId: string; label: "spam" | "ham"; view: string; text: string; p: number | null; judged: boolean | null };
+  type Row = { userId: string; label: "spam" | "ham"; view: string; text: string; p: number | null; judged: boolean | null; target: boolean };
   const rows: Row[] = [];
   const cache = join(dir, "replay-cache.jsonl");
   const cached = new Map<string, { p: number | null; judged: boolean | null }>(read("replay-cache.jsonl").map((r: any) => [r.key, r]));
@@ -208,7 +223,7 @@ async function replay() {
             cached.set(key, hit);
             writeFileSync(cache, [...cached].map(([k, v]) => JSON.stringify({ key: k, ...v })).join("\n") + "\n");
           }
-          rows.push({ userId, label: label.account, view, text: d.text.slice(0, 40), ...hit });
+          rows.push({ userId, label: label.account, view, text: d.text.slice(0, 40), ...hit, target: hasTarget(d) });
         });
       }
     }
@@ -222,6 +237,10 @@ async function replay() {
     const detectors: Record<string, (r: Row) => boolean | null> = {
       ...Object.fromEntries(Object.entries(thresholds).map(([name, t]) => [name, (r: Row) => (r.p === null ? null : r.p >= t)])),
       verdict: (r: Row) => r.judged,
+      // The guard alone, and each model only where the sender points somewhere.
+      "target only": (r: Row) => r.target,
+      "decide≥0.8 + target": (r: Row) => (r.p === null ? null : r.p >= 0.8 && r.target),
+      "verdict + target": (r: Row) => (r.judged === null ? null : r.judged && r.target),
     };
     for (const [name, flag] of Object.entries(detectors)) {
       const byAccount = new Map<string, { label: string; flagged: boolean }>();

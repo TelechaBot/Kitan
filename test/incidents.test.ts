@@ -94,6 +94,26 @@ test("a copy of what someone just sent is not judged by the models again", async
   expect(w.events(39, "message")).toHaveLength(2);
 });
 
+test("being answered, answering and stickers are counted as social life", async () => {
+  await w.join(40, GROUP, KITAN);
+  const asked = await w.say(40, GROUP, "这个怎么配置？");
+  await w.say(41, GROUP, "看置顶", { reply_to_message: { message_id: asked, from: { id: 40 } } });
+  await w.say(40, GROUP, "谢谢！", { reply_to_message: { message_id: asked + 1, from: { id: 41 } } });
+  await w.say(40, GROUP, "", { sticker: { file_id: "s1", emoji: "🙏" } });
+  expect(w.events(40, "message").at(-1)?.detail.social).toEqual({ replies: 1, repliedBy: 1, stickers: 1 });
+  // Replying to oneself or to a bot is not company.
+  await w.say(40, GROUP, "补充一下", { reply_to_message: { message_id: asked, from: { id: 40 } } });
+  expect(w.events(40, "message").at(-1)?.detail.social.replies).toBe(1);
+});
+
+test("the targets an account points people to are recorded with each verdict", async () => {
+  w.bios.set(43, "最新项目 公群：https://t.me/+abc");
+  await w.join(43, GROUP, { id: 900, username: "an_admin" });
+  await w.say(43, GROUP, "看我主页");
+  const verdict = w.events(43, "verdict").find((v) => v.detail.on === "message")!.detail;
+  expect(verdict.targets.map((t: { kind: string; in: string }) => `${t.kind}@${t.in}`)).toEqual(["pointer@message", "invite@bio", "pointer@bio"]);
+});
+
 test("a person repeating a short question a few times is left alone", async () => {
   await w.join(35, GROUP, KITAN);
   for (let i = 0; i < 3; i++) await w.say(35, GROUP, "有人吗？");

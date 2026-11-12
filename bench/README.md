@@ -89,6 +89,30 @@ all 4. Since the written verdict is the stronger detector and 90% of reviewed
 messages were a sender repeating themselves (468 messages, 47 distinct), production
 now runs both models on every distinct message and skips repeats.
 
+### Guards: where they point people, and whether they talk with anyone
+
+An ad account has to move people somewhere, so `diversionTargets` lists every place
+a sender points: invite links, links, @handles, WeChat or QQ ids, phone numbers,
+contact cards, buttons, profile channels, and pointers such as "看我主页" or "私我".
+Over all their recorded messages, 26 of the 29 spam accounts point somewhere and 1
+of the 12 ham does (a personal channel). The three without a target asked to be
+contacted ("欢迎各大老板盘口对接"), wrote a pun for 主页 (since added), or only had
+"钱解决一切" in the bio. Requiring a target removed the written verdict's one false
+positive and cost four catches:
+
+| detector (model sees the profile and the message) | spam caught | ham flagged |
+|---|---|---|
+| written verdict | 28/29 | 1/12 |
+| target only | 24/29 | 1/12 |
+| written verdict and a target | 24/29 | 0/12 |
+| decision ≥ 0.8 and a target | 23/29 | 0/12 |
+
+(First four distinct messages per account; contact cards from before message kinds
+were recorded count as empty, which is most of the gap to 26.)
+
+Social signals (answers given, answers received, stickers) are recorded from
+2026-11-12 on and will be scored once there is history to score.
+
 The one ham the written verdict flags is a member asking for help with a cloud service
 they had recommended to a friend, named in the message; with 12 ham accounts, a 0/12 rate still allows a true
 rate of up to ~25%, so these numbers are a direction, not a licence to act.
