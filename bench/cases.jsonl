@@ -1,11 +1,11 @@
-{"id":"s1-greet-1","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"晴晴 ❤️","approved_by":"bot:@NeutronVerifyBot","index":1,"text":"大家好，我是来学习的，顺便摸个鱼"}
-{"id":"s1-greet-2","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"晴晴 ❤️","approved_by":"bot:@NeutronVerifyBot","index":2,"text":"大家好呀，刚加进来打个招呼"}
-{"id":"s1-greet-3","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"晴晴 ❤️","approved_by":"bot:@NeutronVerifyBot","index":3,"text":"打工人报到，今天也是不想上班的一天"}
-{"id":"s2-opener","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"mugabula twaha","approved_by":"bot:@NeutronVerifyBot","index":1,"text":"新人一枚，不太会说话，只会哈哈哈"}
-{"id":"s2-pitch","account":"spam","message":"ad","kind":"covert","source":"incident-2026-11-12","name":"mugabula twaha","approved_by":"bot:@NeutronVerifyBot","index":2,"text":"现在全国夜场都要倒闭了 我们女生赚钱越来越难了"}
+{"id":"s1-greet-1","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"晴晴 ❤️","approved_by":"bot:@SmartVerifyBot","index":1,"text":"大家好，我是来学习的，顺便摸个鱼"}
+{"id":"s1-greet-2","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"晴晴 ❤️","approved_by":"bot:@SmartVerifyBot","index":2,"text":"大家好呀，刚加进来打个招呼"}
+{"id":"s1-greet-3","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"晴晴 ❤️","approved_by":"bot:@SmartVerifyBot","index":3,"text":"打工人报到，今天也是不想上班的一天"}
+{"id":"s2-opener","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"mugabula twaha","approved_by":"bot:@SmartVerifyBot","index":1,"text":"新人一枚，不太会说话，只会哈哈哈"}
+{"id":"s2-pitch","account":"spam","message":"ad","kind":"covert","source":"incident-2026-11-12","name":"mugabula twaha","approved_by":"bot:@SmartVerifyBot","index":2,"text":"现在全国夜场都要倒闭了 我们女生赚钱越来越难了"}
 {"id":"s3-bot","account":"spam","message":"ad","kind":"diversion","source":"incident-2026-11-12","name":"🌹 神财P图王","index":1,"text":"@BSGJUU_bot"}
 {"id":"s3-bot-edit","account":"spam","message":"ad","kind":"diversion","source":"incident-2026-11-12","name":"🌹 神财P图王","index":2,"edited":true,"text":"@BSGJUUU_bot"}
-{"id":"s4-bait","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"景初","approved_by":"bot:@NeutronVerifyBot","index":1,"text":"大家做什么都可以，可千万别干正事啊"}
+{"id":"s4-bait","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"景初","approved_by":"bot:@SmartVerifyBot","index":1,"text":"大家做什么都可以，可千万别干正事啊"}
 {"id":"s5-name","account":"spam","message":"ad","kind":"profile","source":"incident-2026-11-12","name":"迅游群发器代发广告1","index":1,"text":"(a photo, caption empty)"}
 {"id":"h01","account":"ham","message":"benign","kind":"greeting","source":"synthetic","name":"林小北","index":1,"text":"大家好，刚进群，请多指教"}
 {"id":"h02","account":"ham","message":"benign","kind":"greeting","source":"synthetic","name":"Alex","index":1,"text":"hi all, found this group from the GitHub README"}

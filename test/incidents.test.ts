@@ -6,7 +6,8 @@ import { beforeEach, expect, test } from "bun:test";
 import { World } from "./harness";
 
 const GROUP = -1001;
-const NEUTRON = { id: 777, is_bot: true, username: "NeutronVerifyBot" };
+// "Neutron Verify" in the screenshots is Kitan itself: these accounts passed the check.
+const KITAN = { id: 123, is_bot: true, username: "test_bot" };
 let w: World;
 
 beforeEach(() => {
@@ -14,7 +15,7 @@ beforeEach(() => {
 });
 
 test("greetings, deleted and re-posted, then gone: recorded, not actionable by rules", async () => {
-  await w.join(21, GROUP, NEUTRON, { first_name: "晴晴 ❤️" });
+  await w.join(21, GROUP, KITAN, { first_name: "晴晴 ❤️" });
   for (const text of ["大家好，我是来学习的，顺便摸个鱼", "大家好呀，刚加进来打个招呼", "打工人报到，今天也是不想上班的一天"]) {
     await w.say(21, GROUP, text, {}, { first_name: "晴晴 ❤️" });
   }
@@ -26,18 +27,18 @@ test("greetings, deleted and re-posted, then gone: recorded, not actionable by r
   expect(w.events(21, "message").map((e) => e.detail.index)).toEqual([1, 2, 3]);
 });
 
-test("admitted by another verification bot, then a covert adult-services pitch", async () => {
-  await w.join(22, GROUP, NEUTRON, { first_name: "mugabula", last_name: "twaha" });
+test("passed Kitan's check, then a covert adult-services pitch", async () => {
+  await w.join(22, GROUP, KITAN, { first_name: "mugabula", last_name: "twaha" });
   await w.say(22, GROUP, "新人一枚，不太会说话，只会哈哈哈");
   await w.say(22, GROUP, "现在全国夜场都要倒闭了 我们女生赚钱越来越难了");
   expect(w.callsTo("deleteMessage")).toHaveLength(0); // rules miss it: no link, button or mention
-  expect(w.events(22, "join")[0].detail.approved_by).toBe("bot:@NeutronVerifyBot");
+  expect(w.events(22, "join")[0].detail.approved_by).toBe("bot:@test_bot");
   const pitch = w.events(22, "verdict").find((v) => v.detail.index === 2);
   expect(pitch?.detail.text_model).toMatchObject({ model: "@cf/qwen/qwen3-30b-a3b-fp8" });
 });
 
 test("a bot-username drop, posted and then edited: caught on the post and on the edit", async () => {
-  await w.join(23, GROUP, NEUTRON, { first_name: "🌹 神财P图王" });
+  await w.join(23, GROUP, KITAN, { first_name: "🌹 神财P图王" });
   const id = await w.say(23, GROUP, "@BSGJUU_bot", {}, { first_name: "🌹 神财P图王" });
   expect(w.callsTo("deleteMessage")).toHaveLength(1);
   await w.edit(23, GROUP, id, "@BSGJUUU_bot", { first_name: "🌹 神财P图王" });
@@ -47,7 +48,7 @@ test("a bot-username drop, posted and then edited: caught on the post and on the
 });
 
 test("an ad in the display name with a picture: the name and the image reach the detectors", async () => {
-  await w.join(24, GROUP, NEUTRON, { first_name: "迅游群发器代发广告1" });
+  await w.join(24, GROUP, KITAN, { first_name: "迅游群发器代发广告1" });
   await w.say(24, GROUP, "", { photo: [{ file_id: "p1", width: 320, height: 320 }, { file_id: "p2", width: 1280, height: 1280 }] }, {
     first_name: "迅游群发器代发广告1",
   });
@@ -59,9 +60,9 @@ test("an ad in the display name with a picture: the name and the image reach the
 
 test("the profile is read at join: bio and who admitted them", async () => {
   w.bios.set(25, "日入过万 私我进群");
-  await w.join(25, GROUP, NEUTRON, { first_name: "景初" });
+  await w.join(25, GROUP, KITAN, { first_name: "景初" });
   const profile = w.events(25, "profile")[0].detail;
-  expect(profile).toMatchObject({ bio: "日入过万 私我进群", approved_by: "bot:@NeutronVerifyBot" });
+  expect(profile).toMatchObject({ bio: "日入过万 私我进群", approved_by: "bot:@test_bot" });
   expect(w.events(25, "verdict")[0].detail.lexicon).toEqual(expect.arrayContaining(["私我进群"]));
 });
 
