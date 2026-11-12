@@ -36,16 +36,21 @@ export function needsReview(s: Standing, countingSince: number, now: number): Re
   if (regular) return anomalous ? { review: true, why: "anomalous" } : { review: false, why: "regular" };
   return { review: true, why: "quiet" };
 }
-export const DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
+export const DUPLICATE_WINDOW_MS = 15 * 60 * 1000;
+// The same text this many times within DUPLICATE_WINDOW_MS in one group is a flood:
+// a live account posted "最新项目" every 1–3 minutes for hours. People do repeat
+// "有人吗?" once or twice; four times in a quarter hour they do not.
+export const REPEAT_AT = 4;
 const BLOCK_AFTER_OFFENSES = 2;
-const MIN_DUPLICATE_LENGTH = 10;
+// Shorter texts ("hi", "666") are too common to count as the same message across groups.
+export const MIN_DUPLICATE_LENGTH = 10;
 
 const LINK = /(https?:\/\/|t\.me\/|telegram\.me\/|tg:\/\/|wa\.me\/)/i;
 const MENTION = /@[a-zA-Z0-9_]{3,}/g;
 const BOT_MENTION = /@[a-zA-Z0-9_]{2,}bot\b/i;
 const BOT_MENTION_ALL = /@[a-zA-Z0-9_]{2,}bot\b/gi;
 
-export type SpamReason = "link" | "mentions" | "forward" | "inline_bot" | "bot_promo" | "cross_group_duplicate";
+export type SpamReason = "link" | "mentions" | "forward" | "inline_bot" | "bot_promo" | "cross_group_duplicate" | "repeated";
 
 export type Verdict =
   | { action: "allow" }
@@ -55,12 +60,13 @@ export type Verdict =
 export interface Judgement {
   reason: SpamReason | null; // from spamReason(), before the duplicate check
   duplicateElsewhere: boolean; // same text from this user in another group within DUPLICATE_WINDOW_MS
+  repeatedHere: boolean; // this text REPEAT_AT times in this group within DUPLICATE_WINDOW_MS
   priorOffenses: number; // this user's offenses within OFFENSE_WINDOW_MS, any group
   now: number;
 }
 
 export function judge(j: Judgement): Verdict {
-  const reason = j.reason ?? (j.duplicateElsewhere ? "cross_group_duplicate" : null);
+  const reason = j.reason ?? (j.duplicateElsewhere ? "cross_group_duplicate" : j.repeatedHere ? "repeated" : null);
   if (!reason) return { action: "allow" };
   if (reason === "cross_group_duplicate" || j.priorOffenses + 1 >= BLOCK_AFTER_OFFENSES) {
     return { action: "burn", reason };
@@ -100,15 +106,38 @@ export function messageText(message: Message): string {
   return message.text ?? message.caption ?? "";
 }
 
-// A fingerprint that survives case, spacing and invisible characters; null for text too short to compare.
-export async function contentHash(text: string): Promise<string | null> {
+// What makes two messages the same for the duplicate and repeat rules: the text, or for a
+// contact card the account or number it shares (a live account posted 140 cards in 4 hours).
+export function sameness(message: Message): string {
+  const text = messageText(message);
+  if (text) return text;
+  const c = message.contact;
+  return c ? `contact:${c.user_id ?? c.phone_number.replace(/\D/g, "")}` : "";
+}
+
+// What a message carries. "service" covers join, leave, pin and title notices, which
+// Telegram sends as messages from the member; they are not something the member said.
+const CONTENT = [
+  "text", "photo", "video", "animation", "sticker", "document", "voice", "video_note", "audio",
+  "poll", "contact", "location", "venue", "dice", "game", "story", "paid_media", "giveaway", "checklist",
+] as const;
+export type Kind = (typeof CONTENT)[number] | "service";
+
+export function messageKind(message: Message): Kind {
+  const fields = message as unknown as Record<string, unknown>;
+  return CONTENT.find((k) => fields[k] !== undefined) ?? "service";
+}
+
+// A fingerprint that survives case, spacing and invisible characters; null for empty text.
+export async function contentHash(text: string): Promise<{ hash: string; length: number } | null> {
   const normalized = text
     .normalize("NFKC")
     .toLowerCase()
     .replace(/[​-‏⁠﻿]/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (normalized.length < MIN_DUPLICATE_LENGTH) return null;
+  if (!normalized) return null;
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(normalized));
-  return [...new Uint8Array(digest).slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hash = [...new Uint8Array(digest).slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return { hash, length: [...normalized].length };
 }

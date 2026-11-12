@@ -4,15 +4,21 @@
 // deterministic rules act at once while keyword and model judgements run in the
 // background and are only recorded (shadow mode). Reviewed people leave footprints in
 // `events`; people left alone are not recorded.
-import { decideText, judgeImage, judgeText } from "./classify";
+import { type Dossier, decideText, forModels, judgeImage, judgeText } from "./classify";
 import {
+  type Profile,
+  chatTitle,
   chatsJoinedSince,
   countOffenses,
   countingSince,
+  earlierCopies,
   insertOffense,
   labelMember,
-  latestProfile,
+  latestJoin,
   loadForest,
+  noteChat,
+  readProfile,
+  writeProfile,
   modelAge,
   prune,
   readStanding,
@@ -20,7 +26,6 @@ import {
   recordEvent,
   recordJoin,
   saveForest,
-  seenElsewhere,
   trainingSketches,
   writeStanding,
 } from "./db";
@@ -30,27 +35,30 @@ import { chatWords, profileWords } from "./lexicon";
 import {
   ACTIVE_AFTER,
   DUPLICATE_WINDOW_MS,
+  MIN_DUPLICATE_LENGTH,
   OFFENSE_WINDOW_MS,
+  REPEAT_AT,
   type Review,
   contentHash,
   hasLinkButton,
   judge,
+  messageKind,
   messageText,
   needsReview,
+  sameness,
   spamReason,
 } from "./probation";
 import { callTelegram, log, messageOf } from "./telegram";
-import { type Trajectory, features, step } from "./trajectory";
-import type { ChatMemberUpdated, Env, Message, TelegramUser } from "./types";
+import { type Trajectory, accountYears, features, step } from "./trajectory";
+import type { ChatMemberUpdated, Env, Message, PhotoSize, TelegramChat, TelegramUser } from "./types";
+
+// A profile read from Telegram is reused for a week; spam accounts do change their bio.
+const PROFILE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const FOOTPRINT_MS = 14 * 24 * 60 * 60 * 1000;
 const EXCERPT = 500;
 // Telegram's mid photo size: same verdicts as 1280 px in bench/, at a quarter of the cost.
 const IMAGE_PX = 320;
-// The written verdict costs ~3x the yes/no decision, so it runs where the decision leans
-// towards an ad, where a rule fired, and on a random share kept for comparison.
-const VERDICT_FROM_P = 0.2;
-const VERDICT_SAMPLE = 0.1;
 // Isolation forest: 50 trees of 128 rows trains in ~5 ms, within a free-plan cron's CPU.
 const FOREST = { trees: 50, sample: 128, rows: 1000, everyMs: 24 * 60 * 60 * 1000 };
 
@@ -81,6 +89,7 @@ export async function onMemberUpdate(env: Env, update: ChatMemberUpdated, ctx: C
   const userId = String(user.id);
   const before = update.old_chat_member.status;
   const after = update.new_chat_member.status;
+  ctx.background(rememberChat(env, update.chat, ctx.now));
 
   if ((after === "member" || after === "restricted") && (before === "left" || before === "kicked")) {
     if (user.is_bot) return;
@@ -90,12 +99,13 @@ export async function onMemberUpdate(env: Env, update: ChatMemberUpdated, ctx: C
     await footprint(env, chatId, userId, "join", {
       ...person(user),
       approved_by: approvedBy,
+      by_kitan: update.from.id === botId(env),
       via_join_request: update.via_join_request ?? false,
       invite_link: update.invite_link?.name,
       invite_link_creator: update.invite_link?.creator ? who(update.invite_link.creator) : undefined,
       groups_joined: trajectory.joins,
     }, ctx.now);
-    ctx.background(screenProfile(env, chatId, user, approvedBy, ctx.now));
+    ctx.background(screenProfile(env, update, ctx.now));
     return;
   }
   if (after === "left" || after === "kicked") {
@@ -105,41 +115,98 @@ export async function onMemberUpdate(env: Env, update: ChatMemberUpdated, ctx: C
 }
 
 // Bio, profile channel and photo: where "say nothing, the profile is the ad" accounts advertise.
-async function screenProfile(env: Env, chatId: string, user: TelegramUser, approvedBy: string | undefined, now: number) {
+async function screenProfile(env: Env, update: ChatMemberUpdated, now: number) {
+  const user = update.new_chat_member.user;
+  const chatId = String(update.chat.id);
+  const profile = await profileOf(env, user, now, true);
+  const dossier: Dossier = {
+    ...(await dossierOf(env, chatId, user, { profile, joinedAt: now }, now)),
+    edited: false,
+    kind: "none",
+    text: "(they have just joined and not posted yet)",
+  };
+  const [decision, textModel] = await Promise.all([decideText(env, forModels(dossier)), judgeText(env, forModels(dossier))]);
+  await footprint(env, chatId, String(user.id), "verdict", {
+    on: "profile",
+    lexicon: profileWords([dossier.name, user.username, profile?.bio, profile?.personal_chat].filter(Boolean).join(" ")),
+    decision,
+    text_model: textModel,
+    dossier,
+  }, Date.now());
+}
+
+// The person's profile, from Telegram when Kitan has none, it is a week old, or `fresh` asks;
+// each read from Telegram is also a footprint, so bio changes can be traced.
+async function profileOf(env: Env, user: TelegramUser, now: number, fresh: boolean): Promise<Profile | null> {
+  const userId = String(user.id);
+  const stored = await readProfile(env.DB, userId);
+  if (stored && !fresh && now - stored.checked_at < PROFILE_MS) return stored;
   const info = await callTelegram<{ bio?: string; personal_chat?: { title?: string; username?: string }; photo?: unknown }>(
     env,
     "getChat",
     { chat_id: user.id },
   ).catch((error) => ({ error: messageOf(error) }) as { error: string });
-  const profile = "error" in info
-    ? { error: info.error, approved_by: approvedBy }
-    : {
-        bio: info.bio,
-        personal_chat: info.personal_chat ? `${info.personal_chat.title ?? ""} @${info.personal_chat.username ?? ""}` : undefined,
-        has_photo: Boolean(info.photo),
-        approved_by: approvedBy,
-      };
-  await footprint(env, chatId, String(user.id), "profile", profile, now);
-  const name = displayName(user);
-  const about = ["bio" in profile ? profile.bio : "", "personal_chat" in profile ? profile.personal_chat : ""].filter(Boolean);
-  const decision = await decideText(env, {
-    name,
-    minutesSinceJoin: 0,
-    index: 0,
-    edited: false,
-    text: about.length ? `(profile) ${about.join(" / ")}` : "(profile is empty)",
-  });
-  await footprint(env, chatId, String(user.id), "verdict", {
-    on: "profile",
-    lexicon: profileWords([name, user.username, ...about].filter(Boolean).join(" ")),
-    decision,
-  }, Date.now());
+  if ("error" in info) {
+    await footprint(env, "", userId, "profile", { error: info.error }, now);
+    return stored;
+  }
+  const profile: Profile = {
+    name: displayName(user),
+    username: user.username ?? null,
+    bio: info.bio ?? null,
+    personal_chat: info.personal_chat ? `${info.personal_chat.title ?? ""} @${info.personal_chat.username ?? ""}` : null,
+    has_photo: Boolean(info.photo),
+    premium: user.is_premium ?? false,
+    lang: user.language_code ?? null,
+    checked_at: now,
+  };
+  await writeProfile(env.DB, userId, profile);
+  await footprint(env, "", userId, "profile", { ...profile }, now);
+  return profile;
+}
+
+// What the models are told about the sender, apart from the message itself.
+async function dossierOf(
+  env: Env,
+  chatId: string,
+  user: TelegramUser,
+  seen: { profile: Profile | null; joinedAt: number | null; messages?: number; groups?: number },
+  now: number,
+): Promise<Omit<Dossier, "edited" | "text" | "kind">> {
+  const { profile, joinedAt } = seen;
+  const [group, join] = await Promise.all([chatTitle(env.DB, chatId), latestJoin(env.DB, chatId, String(user.id))]);
+  const admittedBy = !join
+    ? undefined
+    : join.by_kitan
+      ? "Kitan's check (a captcha)"
+      : join.invite_link
+        ? `invite link "${join.invite_link}"${join.invite_link_creator ? ` made by ${join.invite_link_creator}` : ""}`
+        : (join.approved_by ?? "themselves (open group)");
+  return {
+    group: group ?? undefined,
+    name: displayName(user),
+    username: user.username,
+    bio: profile?.bio ?? undefined,
+    personalChat: profile?.personal_chat ?? undefined,
+    accountYears: Math.round(accountYears(user.id, now) * 10) / 10,
+    admittedBy,
+    minutesSinceJoin: joinedAt === null ? null : Math.round((now - joinedAt) / 60_000),
+    messages: seen.messages,
+    groups: seen.groups,
+  };
+}
+
+async function rememberChat(env: Env, chat: TelegramChat, now: number) {
+  await noteChat(env.DB, String(chat.id), { title: chat.title ?? null, username: chat.username ?? null, type: chat.type ?? null }, now);
 }
 
 // ---------- messages ----------
 
 export async function onGroupMessage(env: Env, message: Message, ctx: Context): Promise<void> {
   const chatId = String(message.chat.id);
+  ctx.background(rememberChat(env, message.chat, ctx.now));
+  const kind = messageKind(message);
+  if (kind === "service") return;
 
   // Posted on behalf of a chat: the group itself (anonymous admins), its linked channel, or another channel.
   if (message.sender_chat) {
@@ -187,8 +254,9 @@ export async function onGroupMessage(env: Env, message: Message, ctx: Context): 
     facts: messageFacts(message),
   }, ctx.now);
 
-  const enforced = await enforceRules(env, message, from, ctx);
-  ctx.background(shadow(env, message, from, standing.joinedAt, trajectory, review, ctx, enforced));
+  const { enforced, seenBefore } = await enforceRules(env, message, from, ctx);
+  // A copy of what they just sent gets the same answer; floods would otherwise cost the most.
+  if (!seenBefore) ctx.background(shadow(env, message, from, { ...standing, trajectory }, review, ctx, enforced));
 }
 
 function activity(message: Message, ctx: Context, newChat: boolean) {
@@ -202,7 +270,7 @@ function activity(message: Message, ctx: Context, newChat: boolean) {
     link: hasLinkButton(message) || entities.some((e) => e.type === "url" || e.type === "text_link") || /https?:\/\/|t\.me\//i.test(text),
     mention: entities.some((e) => e.type === "mention" || e.type === "text_mention") || /@[a-z0-9_]{3,}/i.test(text),
     forward: Boolean(message.forward_origin),
-    media: Boolean(message.photo?.length),
+    media: messageKind(message) !== "text",
     chars: text.length,
   };
 }
@@ -212,20 +280,30 @@ async function anomalyScore(env: Env, trajectory: Trajectory, userId: number, no
   return forest ? Math.round(score(forest, features(trajectory, userId, now)) * 1000) / 1000 : null;
 }
 
-// Deterministic rules for people under review; returns what was done, for the footprint.
-async function enforceRules(env: Env, message: Message, from: TelegramUser, ctx: Context) {
+// Deterministic rules for people under review. Returns what was done, for the footprint, and
+// whether they sent the same thing here within DUPLICATE_WINDOW_MS.
+async function enforceRules(
+  env: Env,
+  message: Message,
+  from: TelegramUser,
+  ctx: Context,
+): Promise<{ enforced: { rule: string; action: string } | null; seenBefore: boolean }> {
   const chatId = String(message.chat.id);
   const userId = String(from.id);
   const reason = spamReason(message);
-  const hash = reason ? null : await contentHash(messageText(message));
-  const duplicateElsewhere = hash
-    ? await seenElsewhere(env.DB, userId, chatId, hash, ctx.now - DUPLICATE_WINDOW_MS, ctx.now)
-    : false;
-  if (!reason && !duplicateElsewhere) return null;
+  // An edit changes a message already counted; only new messages count as copies.
+  const content = reason || ctx.edited ? null : await contentHash(sameness(message));
+  const copies = content
+    ? await earlierCopies(env.DB, userId, chatId, content.hash, ctx.now - DUPLICATE_WINDOW_MS, ctx.now)
+    : { here: 0, elsewhere: 0 };
+  const duplicateElsewhere = copies.elsewhere > 0 && (content?.length ?? 0) >= MIN_DUPLICATE_LENGTH;
+  const repeatedHere = copies.here + 1 >= REPEAT_AT;
+  const seenBefore = copies.here > 0;
+  if (!reason && !duplicateElsewhere && !repeatedHere) return { enforced: null, seenBefore };
 
   const priorOffenses = await countOffenses(env.DB, userId, ctx.now - OFFENSE_WINDOW_MS);
-  const verdict = judge({ reason, duplicateElsewhere, priorOffenses, now: ctx.now });
-  if (verdict.action === "allow") return null;
+  const verdict = judge({ reason, duplicateElsewhere, repeatedHere, priorOffenses, now: ctx.now });
+  if (verdict.action === "allow") return { enforced: null, seenBefore };
 
   await insertOffense(env.DB, userId, chatId, verdict.reason, ctx.now);
   await act(env, "deleteMessage", { chat_id: chatId, message_id: message.message_id });
@@ -256,7 +334,7 @@ async function enforceRules(env: Env, message: Message, from: TelegramUser, ctx:
   const done = { rule: verdict.reason, action: verdict.action };
   await footprint(env, chatId, userId, "action", done, ctx.now);
   log(verdict.action === "mute" ? "spam_muted" : "spam_blocked", { chat_id: chatId, user_id: userId, reason: verdict.reason });
-  return done;
+  return { enforced: done, seenBefore };
 }
 
 // Every detector's opinion on this message, recorded for the benchmark; none of it acts.
@@ -264,8 +342,7 @@ async function shadow(
   env: Env,
   message: Message,
   from: TelegramUser,
-  joinedAt: number | null,
-  trajectory: Trajectory,
+  { joinedAt, groups, trajectory }: { joinedAt: number | null; groups: number; trajectory: Trajectory },
   review: Review,
   ctx: Context,
   enforced: { rule: string; action: string } | null,
@@ -273,38 +350,39 @@ async function shadow(
   const chatId = String(message.chat.id);
   const userId = String(from.id);
   const text = messageText(message);
-  const profile = await latestProfile(env.DB, chatId, userId);
-  const subject = {
-    name: displayName(from),
-    username: from.username,
-    bio: profile?.bio,
-    personalChat: profile?.personal_chat,
-    approvedBy: profile?.approved_by,
-    minutesSinceJoin: joinedAt === null ? 0 : Math.round((ctx.now - joinedAt) / 60_000),
-    index: trajectory.messages,
+  const profile = await profileOf(env, from, ctx.now, false);
+  const dossier: Dossier = {
+    ...(await dossierOf(env, chatId, from, { profile, joinedAt, messages: trajectory.messages, groups }, ctx.now)),
+    kind: messageKind(message),
     edited: ctx.edited,
-    text,
+    text: text || (message.contact ? `[contact card: ${[message.contact.first_name, message.contact.last_name].filter(Boolean).join(" ")}]` : ""),
   };
-  const photo = message.photo?.length ? largestUnder(message.photo, IMAGE_PX) : undefined;
-  const hasText = Boolean(text || subject.name);
+  const picture = pictureOf(message);
   const [decision, imageModel] = await Promise.all([
-    hasText ? decideText(env, subject) : null,
-    photo ? judgeImage(env, photo.file_id, subject) : null,
+    decideText(env, forModels(dossier)),
+    picture ? judgeImage(env, picture.file_id, forModels(dossier)) : null,
   ]);
-  const sampled = Math.random() < VERDICT_SAMPLE;
-  const worthWriting = hasText && (decision === null || decision.p >= VERDICT_FROM_P || enforced !== null || sampled);
-  const textModel = worthWriting ? await judgeText(env, subject) : null;
+  const textModel = await judgeText(env, forModels(dossier));
   await footprint(env, chatId, userId, "verdict", {
     on: ctx.edited ? "edit" : "message",
     review: review.why,
     rules: spamReason(message),
     enforced,
-    lexicon: { text: chatWords(text), name: profileWords(subject.name) },
+    lexicon: { text: chatWords(text), name: profileWords(dossier.name) },
     decision,
     text_model: textModel,
-    text_model_sampled: worthWriting && sampled && (decision?.p ?? 1) < VERDICT_FROM_P && enforced === null,
-    image_model: imageModel ? { ...imageModel, px: photo?.width } : null,
+    image_model: imageModel ? { ...imageModel, px: picture?.width } : null,
+    // Everything Kitan knew; the models saw forModels(dossier). Kept whole so a replay can
+    // try other views.
+    dossier,
   }, Date.now());
+}
+
+// A photo at the size the image model reads, or the preview Telegram makes of a video,
+// GIF or file: spam often comes as a short video with the ad written on it.
+function pictureOf(message: Message): PhotoSize | undefined {
+  if (message.photo?.length) return largestUnder(message.photo, IMAGE_PX);
+  return (message.video ?? message.animation ?? message.document ?? message.video_note)?.thumbnail;
 }
 
 // ---------- helpers ----------
@@ -366,8 +444,18 @@ function largestUnder<T extends { width: number }>(sizes: T[], maxWidth: number)
 }
 
 // Exactly the parts of a message the rules read; stored so replay can run them again.
-function messageFacts(message: Message): Partial<Message> {
+function messageFacts(message: Message): Partial<Message> & { kind: string; media?: Record<string, unknown> } {
+  const media = message.video ?? message.animation ?? message.document ?? message.sticker ?? message.video_note ?? message.voice ?? message.audio;
   return {
+    kind: messageKind(message),
+    media: media && {
+      duration: media.duration,
+      mime_type: media.mime_type,
+      thumbnail: media.thumbnail?.file_id,
+      file_name: message.document?.file_name,
+      emoji: message.sticker?.emoji,
+      set_name: message.sticker?.set_name,
+    },
     text: message.text?.slice(0, EXCERPT),
     caption: message.caption?.slice(0, EXCERPT),
     entities: message.entities?.map((e) => ({ type: e.type })),
@@ -378,6 +466,13 @@ function messageFacts(message: Message): Partial<Message> {
     via_bot: message.via_bot ? { username: message.via_bot.username } : undefined,
     reply_markup: message.reply_markup,
     photo: message.photo?.map((p) => ({ file_id: p.file_id, width: p.width, height: p.height })),
+    // Whose card it is, not their phone number.
+    contact: message.contact && {
+      phone_number: "",
+      first_name: message.contact.first_name,
+      last_name: message.contact.last_name,
+      user_id: message.contact.user_id,
+    },
   };
 }
 

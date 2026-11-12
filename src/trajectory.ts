@@ -118,7 +118,7 @@ export const FEATURES = [
 ] as const;
 
 // Telegram ids grow over time: roughly 1e9 in 2020 and 8.8e9 by mid-2026.
-function accountYears(userId: number, now: number): number {
+export function accountYears(userId: number, now: number): number {
   const registered = 2020 + ((userId - 1.2e9) / (8.8e9 - 1.2e9)) * 6.4;
   return Math.max(0, new Date(now).getUTCFullYear() + new Date(now).getUTCMonth() / 12 - registered);
 }

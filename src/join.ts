@@ -2,7 +2,7 @@
 // performs the effects. Performing an effect is the only place the guard-bot
 // and DM paths differ.
 import { type Attempt, type JoinEffect, type JoinEvent, MISS_WINDOW_MS, type Refusal, intake, step } from "./attempt";
-import { countMisses, countOffenses, insertAttempt, recordEvent, save, unreachableFor, waitingDue } from "./db";
+import { countMisses, countOffenses, insertAttempt, noteChat, recordEvent, save, unreachableFor, waitingDue } from "./db";
 import { type Lang, pickLang, t } from "./i18n";
 import { OFFENSE_WINDOW_MS, isBlocked } from "./probation";
 import { callTelegram, isRefused, log, messageOf } from "./telegram";
@@ -11,6 +11,8 @@ import type { ChatJoinRequest, Env, Message } from "./types";
 export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: string, now: number): Promise<void> {
   const userId = String(request.from.id);
   const chatId = String(request.chat.id);
+  const { title, username, type } = request.chat;
+  await noteChat(env.DB, chatId, { title: title ?? null, username: username ?? null, type: type ?? null }, now);
   await recordEvent(env.DB, {
     chatId,
     userId,

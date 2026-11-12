@@ -22,40 +22,68 @@ export interface ModelVerdict {
   ms: number;
 }
 
-export interface Subject {
+// Everything Kitan knows about a message's sender, as the models see it. Fields left out
+// are not shown, so a replay can ask what each one is worth (bench/replay.ts).
+export interface Dossier {
+  group?: string; // the group's title
   name: string;
   username?: string;
   bio?: string;
-  personalChat?: string;
-  approvedBy?: string;
-  minutesSinceJoin: number;
-  index: number; // their message count across Kitan groups, this one included
+  personalChat?: string; // the channel pinned to their profile
+  accountYears?: number; // estimated from the user id
+  admittedBy?: string; // "Kitan's check", another bot, an admin, an invite link, or themselves
+  minutesSinceJoin?: number | null; // null: Kitan never saw them join this group
+  messages?: number; // across Kitan groups, this one included
+  groups?: number; // Kitan groups they have spoken in
+  kind?: string; // text, photo, video, sticker, …
   edited: boolean;
   text: string;
 }
 
-const INSTRUCTIONS = `You review messages from people who joined a Telegram group less than a day ago.
+// What production shows the models: the profile and the message. On 41 hand-labelled
+// production accounts (bench/replay.ts, 2026-11-12) this caught 26 of 29 spam accounts
+// with no false positive at P ≥ 0.8; adding the group, how they came in, account age,
+// time since joining and message count lowered that to 18, whichever field was left out.
+export function forModels(d: Dossier): Dossier {
+  return { name: d.name, username: d.username, bio: d.bio, personalChat: d.personalChat, kind: d.kind, edited: d.edited, text: d.text };
+}
+
+export function describe(d: Dossier): string {
+  const joined =
+    d.minutesSinceJoin === undefined
+      ? ""
+      : d.minutesSinceJoin === null
+        ? "joined: before Kitan started watching"
+        : `joined: ${d.minutesSinceJoin < 120 ? `${d.minutesSinceJoin} minutes` : `${Math.round(d.minutesSinceJoin / 60)} hours`} ago`;
+  return [
+    d.group ? `group: ${d.group}` : "",
+    `display name: ${d.name}`,
+    d.username ? `username: @${d.username}` : "",
+    d.bio ? `bio: ${d.bio}` : "",
+    d.personalChat ? `channel on their profile: ${d.personalChat}` : "",
+    d.accountYears !== undefined ? `account age: about ${d.accountYears < 1 ? `${Math.max(1, Math.round(d.accountYears * 12))} months` : `${d.accountYears.toFixed(1)} years`}` : "",
+    d.admittedBy ? `admitted by: ${d.admittedBy}` : "",
+    joined,
+    d.messages !== undefined ? `messages so far: ${d.messages} in ${d.groups ?? 1} group(s)` : "",
+    `message${d.kind && d.kind !== "text" ? ` (${d.kind})` : ""}${d.edited ? " (an edit)" : ""}: ${d.text || "(no text)"}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+const INSTRUCTIONS = `You review messages in Telegram groups from new or rarely seen members.
 Decide whether the sender is advertising or drawing members elsewhere. That includes:
 direct ads; covert ads written as chat or personal stories (e.g. "女生赚钱越来越难了");
 diversion to a bot, channel, private chat, WeChat/QQ or another group; adult services;
-investment, crypto or job scams. Spam accounts often first post a harmless greeting
-and later edit it, or put the ad in their display name, username or bio.
-An ordinary greeting or question with nothing else is NOT an ad.
+investment, crypto or job scams. Spam accounts often post something harmless and keep
+the ad in their display name, username or bio, so judge the sender as a whole.
+An ordinary greeting or question from someone with an ordinary profile is NOT an ad.
 Reply with JSON only: {"ad": true|false, "confidence": 0..1, "kind": "none|direct|covert|diversion|adult|scam|other", "reason": "<one short sentence>"}`;
 
-export async function judgeText(env: Env, s: Subject): Promise<ModelVerdict | null> {
-  const facts = [
-    `display name: ${s.name}`,
-    s.username ? `username: @${s.username}` : "",
-    s.bio ? `bio: ${s.bio}` : "",
-    s.personalChat ? `channel on their profile: ${s.personalChat}` : "",
-    s.approvedBy ? `admitted by: ${s.approvedBy}` : "",
-    `joined ${s.minutesSinceJoin} minutes ago; this is their message #${s.index}${s.edited ? " (an edit)" : ""}`,
-    `message: ${s.text || "(no text)"}`,
-  ].filter(Boolean);
+export async function judgeText(env: Env, d: Dossier): Promise<ModelVerdict | null> {
   return run(env, TEXT_MODEL, [
     { role: "system", content: INSTRUCTIONS },
-    { role: "user", content: `${facts.join("\n")}\n/no_think` },
+    { role: "user", content: `${describe(d)}\n/no_think` },
   ]);
 }
 
@@ -63,11 +91,17 @@ export async function judgeText(env: Env, s: Subject): Promise<ModelVerdict | nu
 // answers one token, yes or no, and the probability it gave "yes" is the score, which
 // Kitan thresholds itself. About a quarter of judgeText's cost, and the score is a real
 // probability rather than a self-reported confidence.
+// Longer wording did worse: naming covert-ad cues lowered recall on production accounts from
+// 26 to 20 of 29 and still missed the seed set's covert pitch (bench/README.md).
 const DECISION =
-  "Is this message, posted by someone who joined a Chinese Telegram group minutes ago, an advertisement " +
-  "or an attempt to draw members elsewhere (including covert ads written as personal stories, adult " +
-  "services, scams, or pointing people to a bot, channel or private chat)? Ordinary conversation, " +
-  "complaints, greetings and questions are not. Answer with exactly one word: yes or no.";
+  "Is the sender of this message in a Telegram group advertising or drawing members elsewhere " +
+  "(including covert ads written as personal stories, adult services, scams, or pointing people to a " +
+  "bot, channel or private chat), in the message or in their name, username or bio? Ordinary " +
+  "conversation, complaints, greetings and questions from an ordinary profile are not. " +
+  "Answer with exactly one word: yes or no.";
+
+// Part of the bench's cache key, so a changed prompt is asked again.
+export const PROMPTS = { decision: DECISION, verdict: INSTRUCTIONS };
 
 export interface Decision {
   model: string;
@@ -75,9 +109,9 @@ export interface Decision {
   ms: number;
 }
 
-export async function decideText(env: Env, s: Subject): Promise<Decision | null> {
+export async function decideText(env: Env, d: Dossier): Promise<Decision | null> {
   const started = Date.now();
-  const text = [s.text || "(no text)", s.name ? `(display name: ${s.name})` : ""].filter(Boolean).join("\n");
+  const text = describe(d);
   try {
     const out = (await env.AI.run(TEXT_MODEL as Parameters<Ai["run"]>[0], {
       messages: [
@@ -112,7 +146,7 @@ export function yesProbability(tokens: { token: string; top_logprobs?: { token: 
 }
 
 // Reads the text in a photo and judges it with the same rubric.
-export async function judgeImage(env: Env, fileId: string, s: Subject): Promise<ModelVerdict | null> {
+export async function judgeImage(env: Env, fileId: string, d: Dossier): Promise<ModelVerdict | null> {
   const image = await downloadPhoto(env, fileId).catch((error) => {
     log("photo_download_failed", { error: messageOf(error) });
     return null;
@@ -128,7 +162,7 @@ export async function judgeImage(env: Env, fileId: string, s: Subject): Promise<
     {
       role: "user",
       content: [
-        { type: "text", text: `display name: ${s.name}\ncaption: ${s.text || "(none)"}` },
+        { type: "text", text: describe(d) },
         { type: "image_url", image_url: { url: image } },
       ],
     },

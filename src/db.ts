@@ -212,9 +212,91 @@ export async function labelMember(
 
 export async function chatsSeen(db: D1Database): Promise<{ chat_id: string; chat_title: string | null }[]> {
   const { results } = await db
-    .prepare(`SELECT chat_id, max(chat_title) AS chat_title FROM attempts GROUP BY chat_id ORDER BY chat_id LIMIT 50`)
+    .prepare(`SELECT chat_id, title AS chat_title FROM chats ORDER BY chat_id LIMIT 100`)
     .all<{ chat_id: string; chat_title: string | null }>();
   return results;
+}
+
+// ---------- chats ----------
+
+export interface ChatInfo {
+  title: string | null;
+  username: string | null;
+  type: string | null;
+}
+
+// Last written per chat in this Worker instance, so most updates cost no write.
+const chatCache = new WeakMap<D1Database, Map<string, { key: string; until: number }>>();
+
+// Remembers a group's title and handle; written when they change, or hourly to mark it seen.
+export async function noteChat(db: D1Database, chatId: string, info: ChatInfo, now: number): Promise<void> {
+  const cache = chatCache.get(db) ?? new Map();
+  chatCache.set(db, cache);
+  const key = JSON.stringify(info);
+  const cached = cache.get(chatId);
+  if (cached && cached.key === key && cached.until > now) return;
+  cache.set(chatId, { key, until: now + 60 * 60 * 1000 });
+  await db
+    .prepare(
+      `INSERT INTO chats (chat_id, title, username, type, first_seen, last_seen) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+       ON CONFLICT (chat_id) DO UPDATE SET title = coalesce(excluded.title, title),
+         username = coalesce(excluded.username, username), type = coalesce(excluded.type, type), last_seen = excluded.last_seen`,
+    )
+    .bind(chatId, info.title, info.username, info.type, now)
+    .run();
+}
+
+export async function chatTitle(db: D1Database, chatId: string): Promise<string | null> {
+  const row = await db.prepare(`SELECT title FROM chats WHERE chat_id = ?`).bind(chatId).first<{ title: string | null }>();
+  return row?.title ?? null;
+}
+
+// ---------- profiles ----------
+
+export interface Profile {
+  name: string | null;
+  username: string | null;
+  bio: string | null;
+  personal_chat: string | null;
+  has_photo: boolean | null;
+  premium: boolean | null;
+  lang: string | null;
+  checked_at: number;
+}
+
+export async function readProfile(db: D1Database, userId: string): Promise<Profile | null> {
+  const row = await db.prepare(`SELECT * FROM profiles WHERE user_id = ?`).bind(userId).first<Record<string, unknown>>();
+  if (!row) return null;
+  return {
+    name: row.name as string | null,
+    username: row.username as string | null,
+    bio: row.bio as string | null,
+    personal_chat: row.personal_chat as string | null,
+    has_photo: row.has_photo === null ? null : Boolean(row.has_photo),
+    premium: row.premium === null ? null : Boolean(row.premium),
+    lang: row.lang as string | null,
+    checked_at: row.checked_at as number,
+  };
+}
+
+export async function writeProfile(db: D1Database, userId: string, p: Profile): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO profiles (user_id, name, username, bio, personal_chat, has_photo, premium, lang, checked_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      userId,
+      p.name,
+      p.username,
+      p.bio,
+      p.personal_chat,
+      p.has_photo === null ? null : Number(p.has_photo),
+      p.premium === null ? null : Number(p.premium),
+      p.lang,
+      p.checked_at,
+    )
+    .run();
 }
 
 // ---------- probation ----------
@@ -225,18 +307,21 @@ export async function readStanding(
   db: D1Database,
   chatId: string,
   userId: string,
-): Promise<{ known: boolean; joinedAt: number | null; trajectory: Trajectory }> {
+): Promise<{ known: boolean; joinedAt: number | null; groups: number; trajectory: Trajectory }> {
   const row = await db
     .prepare(
       `SELECT (SELECT 1 FROM speakers WHERE chat_id = ?1 AND user_id = ?2) AS known,
               (SELECT joined_at FROM speakers WHERE chat_id = ?1 AND user_id = ?2) AS joined_at,
+              (SELECT count(*) FROM speakers WHERE user_id = ?2) AS groups,
               (SELECT body FROM trajectories WHERE user_id = ?2) AS body`,
     )
     .bind(chatId, userId)
-    .first<{ known: number | null; joined_at: number | null; body: string | null }>();
+    .first<{ known: number | null; joined_at: number | null; groups: number; body: string | null }>();
   return {
     known: Boolean(row?.known),
     joinedAt: row?.joined_at ?? null,
+    // Kitan groups they joined or spoke in, counting this one even before the first write.
+    groups: Math.max(1, (row?.groups ?? 0) + (row?.known ? 0 : 1)),
     trajectory: row?.body ? (JSON.parse(row.body) as Trajectory) : empty(),
   };
 }
@@ -344,14 +429,14 @@ export async function chatsJoinedSince(db: D1Database, userId: string, since: nu
 
 // ---------- footprints ----------
 
-// The profile recorded when this person last joined this chat.
-export async function latestProfile(
+// How this person last joined this chat, while the footprint lasts.
+export async function latestJoin(
   db: D1Database,
   chatId: string,
   userId: string,
-): Promise<{ bio?: string; personal_chat?: string; approved_by?: string } | null> {
+): Promise<{ approved_by?: string; by_kitan?: boolean; invite_link?: string; invite_link_creator?: string } | null> {
   const row = await db
-    .prepare(`SELECT detail FROM events WHERE chat_id = ? AND user_id = ? AND kind = 'profile' ORDER BY at DESC LIMIT 1`)
+    .prepare(`SELECT detail FROM events WHERE chat_id = ? AND user_id = ? AND kind = 'join' ORDER BY at DESC LIMIT 1`)
     .bind(chatId, userId)
     .first<{ detail: string }>();
   return row ? JSON.parse(row.detail) : null;
@@ -389,24 +474,25 @@ export async function insertOffense(
     .run();
 }
 
-// Records the hash and reports whether the same user sent it in another chat since `since`.
-export async function seenElsewhere(
+// Records the hash and counts this user's earlier copies of it since `since`, here and elsewhere.
+export async function earlierCopies(
   db: D1Database,
   userId: string,
   chatId: string,
   hash: string,
   since: number,
   now: number,
-): Promise<boolean> {
-  const elsewhere = await db
-    .prepare(`SELECT 1 FROM recent_messages WHERE user_id = ? AND hash = ? AND chat_id != ? AND at > ? LIMIT 1`)
-    .bind(userId, hash, chatId, since)
-    .first();
-  await db
-    .prepare(`INSERT INTO recent_messages (user_id, chat_id, hash, at) VALUES (?, ?, ?, ?)`)
-    .bind(userId, chatId, hash, now)
-    .run();
-  return elsewhere !== null;
+): Promise<{ here: number; elsewhere: number }> {
+  const [copies] = await db.batch<{ here: number; elsewhere: number }>([
+    db
+      .prepare(
+        `SELECT coalesce(sum(chat_id = ?3), 0) AS here, coalesce(sum(chat_id != ?3), 0) AS elsewhere
+         FROM recent_messages WHERE user_id = ?1 AND hash = ?2 AND at > ?4`,
+      )
+      .bind(userId, hash, chatId, since),
+    db.prepare(`INSERT INTO recent_messages (user_id, chat_id, hash, at) VALUES (?, ?, ?, ?)`).bind(userId, chatId, hash, now),
+  ]);
+  return copies.results[0] ?? { here: 0, elsewhere: 0 };
 }
 
 export async function prune(

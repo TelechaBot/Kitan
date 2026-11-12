@@ -59,6 +59,49 @@ test("a bot-username drop, posted and then edited: caught on the post and on the
   expect(w.events(23, "action").map((a) => a.detail.rule)).toEqual(["bot_promo", "bot_promo"]);
 });
 
+test("the same short line every few minutes in one group: muted on the fourth, banned on the next flood", async () => {
+  // 2026-11-12: "搞钱", in through an admin's invite link, posted "最新项目" 65 times in 3 hours.
+  w.bios.set(34, "最新项目 小白可做 秒下款 公群：https://t.me/+abc");
+  await w.join(34, GROUP, { id: 900, username: "an_admin" }, { first_name: "搞钱" });
+  for (let i = 0; i < 3; i++) await w.say(34, GROUP, "最新项目");
+  expect(w.callsTo("deleteMessage")).toHaveLength(0);
+  await w.say(34, GROUP, "最新项目");
+  expect(w.callsTo("deleteMessage")).toHaveLength(1);
+  expect(w.callsTo("restrictChatMember")).toHaveLength(1);
+  await w.say(34, GROUP, "最新项目"); // a muted account cannot post; in case it still does
+  expect(w.callsTo("banChatMember").map((c) => c.params)).toEqual([{ chat_id: String(GROUP), user_id: "34", revoke_messages: true }]);
+  expect(w.events(34, "action").map((a) => a.detail.rule)).toEqual(["repeated", "repeated"]);
+});
+
+test("the same contact card again and again is a flood too", async () => {
+  // 2026-11-12: "Clara", in through an admin's invite link, posted 140 contact cards in 4 hours.
+  await w.join(38, GROUP, { id: 900, username: "an_admin" }, { first_name: "Clara" });
+  for (let i = 0; i < 4; i++) {
+    await w.say(38, GROUP, "", { contact: { phone_number: "+1 555 0100", first_name: "客服", user_id: 4242 } });
+  }
+  expect(w.callsTo("restrictChatMember")).toHaveLength(1);
+  const verdict = w.events(38, "verdict").find((v) => v.detail.on === "message")!.detail;
+  expect(verdict.dossier).toMatchObject({ kind: "contact", text: "[contact card: 客服]" });
+  expect(JSON.stringify(w.events(38))).not.toContain("555");
+});
+
+test("a copy of what someone just sent is not judged by the models again", async () => {
+  await w.join(39, GROUP, KITAN);
+  await w.say(39, GROUP, "有人在吗");
+  const asked = w.aiCalls.length;
+  await w.say(39, GROUP, "有人在吗");
+  expect(w.aiCalls).toHaveLength(asked);
+  expect(w.events(39, "message")).toHaveLength(2);
+});
+
+test("a person repeating a short question a few times is left alone", async () => {
+  await w.join(35, GROUP, KITAN);
+  for (let i = 0; i < 3; i++) await w.say(35, GROUP, "有人吗？");
+  await w.say(35, GROUP, "666");
+  await w.say(35, GROUP, "666");
+  expect(w.callsTo("deleteMessage")).toHaveLength(0);
+});
+
 test("an ad in the display name with a picture: the name and the image reach the detectors", async () => {
   await w.join(24, GROUP, KITAN, { first_name: "迅游群发器代发广告1" });
   await w.say(24, GROUP, "", { photo: [{ file_id: "p1", width: 320, height: 320 }, { file_id: "p2", width: 1280, height: 1280 }] }, {
@@ -153,9 +196,43 @@ test("the hourly job trains the forest on active accounts once a day", async () 
 test("the profile is read at join: bio and who admitted them", async () => {
   w.bios.set(25, "日入过万 私我进群");
   await w.join(25, GROUP, KITAN, { first_name: "景初" });
-  const profile = w.events(25, "profile")[0].detail;
-  expect(profile).toMatchObject({ bio: "日入过万 私我进群", approved_by: "bot:@test_bot" });
-  expect(w.events(25, "verdict")[0].detail.lexicon).toEqual(expect.arrayContaining(["私我进群"]));
+  expect(w.events(25, "profile")[0].detail).toMatchObject({ bio: "日入过万 私我进群", name: "景初" });
+  const verdict = w.events(25, "verdict")[0].detail;
+  expect(verdict.lexicon).toEqual(expect.arrayContaining(["私我进群"]));
+  expect(verdict.dossier).toMatchObject({ bio: "日入过万 私我进群", admittedBy: "Kitan's check (a captcha)", minutesSinceJoin: 0 });
+});
+
+test("every model sees the sender's file: group title, bio, how they came in, what they sent", async () => {
+  w.bios.set(36, "拿货联系 @x 公群 https://t.me/+abc");
+  await w.hook({
+    chat_member: {
+      chat: { id: GROUP, type: "supergroup", title: "数码交流群" },
+      from: { id: 36 },
+      old_chat_member: { status: "left", user: { id: 36, first_name: "Jay" } },
+      new_chat_member: { status: "member", user: { id: 36, first_name: "Jay" } },
+      invite_link: { name: "Leah baby", creator: { id: 900, username: "an_admin" } },
+    },
+  });
+  await w.say(36, GROUP, "", { video: { file_id: "v", duration: 9, thumbnail: { file_id: "thumb", width: 320, height: 180 } } }, { first_name: "Jay" });
+  const verdict = w.events(36, "verdict").find((v) => v.detail.on === "message")!.detail;
+  expect(verdict.dossier).toMatchObject({
+    group: "数码交流群",
+    bio: "拿货联系 @x 公群 https://t.me/+abc",
+    admittedBy: 'invite link "Leah baby" made by user:@an_admin',
+    kind: "video",
+    messages: 1,
+  });
+  expect(w.callsTo("getFile").map((c) => c.params.file_id)).toEqual(["thumb"]);
+  expect(w.aiCalls.find((c) => c.prompt.includes("message (video)"))?.prompt).toContain("bio: 拿货联系");
+  expect(w.events(36, "message")[0].detail.facts).toMatchObject({ kind: "video", media: { duration: 9 } });
+  expect(w.callsTo("getChat")).toHaveLength(1); // read at join, reused at the message
+});
+
+test("join, leave and pin notices are not counted as anything a member said", async () => {
+  await w.join(37, GROUP, KITAN);
+  await w.hook({ message: { message_id: 950, chat: { id: GROUP, type: "supergroup" }, from: { id: 37 }, new_chat_members: [{ id: 37 }] } });
+  expect(w.events(37, "message")).toHaveLength(0);
+  expect(w.db.query("SELECT messages FROM trajectories WHERE user_id = '37'").get()).toEqual({ messages: 0 });
 });
 
 test("link-button ads from a bot and a channel identity are removed; an active member's never are", async () => {

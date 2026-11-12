@@ -31,7 +31,7 @@ function d1(db: Database): D1Database {
   const batch = async (statements: Statement[]) => {
     const results: unknown[] = [];
     db.transaction(() => {
-      for (const s of statements) results.push(s.run());
+      for (const s of statements) results.push(s.all());
     })();
     return Promise.all(results);
   };
@@ -173,7 +173,7 @@ export class World {
   ): Promise<number> {
     const message_id = this.nextMessage++;
     await this.hook({
-      message: { message_id, chat: { id: chatId, type: "supergroup" }, from: { id: userId, ...from }, text, ...extra },
+      message: { message_id, chat: { id: chatId, type: "supergroup" }, from: { id: userId, ...from }, ...(text ? { text } : {}), ...extra },
     });
     return message_id;
   }

@@ -78,7 +78,8 @@ so Kitan makes each spam attempt cost an account:
   again, since spam accounts often post a greeting and edit it into an ad. A
   message with a link, four or more @mentions, a forward, an inline-bot
   button, or little more than a bot's @handle is deleted, and the sender is
-  muted for 24 hours.
+  muted for 24 hours. So is the fourth copy of the same text or contact card
+  within 15 minutes in one group.
 - **Active members are left alone**, whatever they post, unless their activity
   stops looking like the people in Kitan's groups: a model retrained daily on
   active members' activity (how often and when they post, how much of it is
@@ -92,9 +93,10 @@ so Kitan makes each spam attempt cost an account:
   A bot or a channel posting one is banned from the group; a member is banned
   on the second time.
 
-Language and image models also read new members' names, bios and messages, but
-only to record what they would have done: they do not act until their false
-positives on real newcomers are measured (see `bench/`). If Kitan removes
+Language and image models also read the name, username, bio and profile
+channel of each member under review, with each new message (and the preview of
+a photo or video), but only to record what they would have done: they do not
+act until their false positives on real newcomers are measured (see `bench/`). If Kitan removes
 someone by mistake, unban them in the group settings.
 
 Use only one bot to screen a group's join requests. A person another bot lets
@@ -150,14 +152,19 @@ banned, Kitan records the time.
 
 For each account, Kitan keeps a summary of its activity across Kitan groups:
 counts and averages of when and how often it posts and what share of its
-messages carry links, mentions, forwards or photos, but no message text. It
-also notes which groups it has spoken or joined in, and when it joined.
+messages carry links, mentions, forwards or media, but no message text. It
+also notes which groups it has spoken or joined in, and when it joined. For
+each group, Kitan keeps its title, public handle and when it was last seen.
 
-For members under review, Kitan keeps a record for 14 days so an incident can be
-traced afterwards: how they joined and who let them in, their name, username
-and bio, the first 500 characters of each message and edit, and what each check
-concluded and did. It also keeps a hash of each message for 10 minutes and each
-offence for 30 days. Messages from active members are not stored.
+For members under review, Kitan keeps their profile: name, username, bio,
+profile channel, whether they have a photo or Premium, and their language,
+read from Telegram when they join or are first reviewed and again after a week.
+It also keeps a record for 14 days so an incident can be traced afterwards: how
+they joined and who let them in, the first 500 characters of each message and
+edit, what kind of message it was, the name on a shared contact card (not its
+phone number), and what each check concluded and did. It also keeps a hash of
+each message for 15 minutes and each offence for 30 days. Messages from active
+members are not stored.
 
 To check the shared spam list, Kitan sends the requester's Telegram user ID to
 lols.bot. The names, bios, messages and photos of members under review are sent

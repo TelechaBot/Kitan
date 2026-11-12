@@ -9,7 +9,7 @@
 //   account: does this message come from a spam account? (label field "account": spam | ham)
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ModelVerdict, decideText, judgeText } from "../src/classify";
+import { type Dossier, type ModelVerdict, decideText, forModels, judgeText } from "../src/classify";
 import { chatWords, profileWords } from "../src/lexicon";
 import { spamReason } from "../src/probation";
 import type { Env, Message } from "../src/types";
@@ -22,6 +22,8 @@ interface Case {
   source: string;
   name: string;
   approved_by?: string;
+  bio?: string;
+  personal_chat?: string;
   index: number;
   edited?: boolean;
   text: string;
@@ -78,14 +80,8 @@ let failures = 0;
 for (const c of cases) {
   const message = { message_id: 1, chat: { id: -1 }, text: c.text } as Message;
   const words = [...chatWords(c.text), ...profileWords(c.name)];
-  const subject = {
-    name: c.name,
-    approvedBy: c.approved_by,
-    minutesSinceJoin: 5,
-    index: c.index,
-    edited: c.edited ?? false,
-    text: c.text,
-  };
+  // What production shows the models.
+  const subject: Dossier = forModels({ name: c.name, bio: c.bio, personalChat: c.personal_chat, kind: "text", edited: c.edited ?? false, text: c.text });
   const answers: ModelVerdict[] = [];
   const decisions: number[] = [];
   for (let i = 0; i < repeat; i++) {

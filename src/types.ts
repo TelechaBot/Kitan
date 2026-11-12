@@ -21,6 +21,7 @@ export interface TelegramChat {
   id: number;
   type?: string;
   title?: string;
+  username?: string;
 }
 
 export interface InitData {
@@ -67,8 +68,30 @@ export interface Message {
   story?: unknown;
   via_bot?: { username?: string };
   reply_markup?: { inline_keyboard?: InlineButton[][] };
-  photo?: { file_id: string; width: number; height: number }[];
+  photo?: PhotoSize[];
+  // Other content; each media kind may carry a small preview image.
+  video?: Media;
+  animation?: Media;
+  document?: Media & { file_name?: string };
+  sticker?: Media & { emoji?: string; set_name?: string };
+  video_note?: Media;
+  voice?: Media;
+  audio?: Media;
+  contact?: { phone_number: string; first_name?: string; last_name?: string; user_id?: number };
   edit_date?: number;
+}
+
+export interface PhotoSize {
+  file_id: string;
+  width: number;
+  height: number;
+}
+
+export interface Media {
+  file_id: string;
+  duration?: number;
+  mime_type?: string;
+  thumbnail?: PhotoSize;
 }
 
 export interface Update {

@@ -27,3 +27,12 @@
 {"id":"h18","account":"ham","message":"benign","kind":"greeting","source":"synthetic","name":"tomo","index":1,"text":"こんにちは、日本からです。よろしくお願いします"}
 {"id":"h19","account":"ham","message":"benign","kind":"question","source":"synthetic","name":"阿明","index":1,"text":"MultiTTS 的引擎在哪里下载？"}
 {"id":"h20","account":"ham","message":"benign","kind":"chat","source":"synthetic","name":"咸鱼","index":1,"text":"大家都是做什么工作的呀"}
+{"id":"h21","account":"ham","message":"benign","kind":"bio_link","source":"synthetic","name":"Lin","bio":"独立开发者 | 博客 https://lin.example.dev | GitHub @lin","index":1,"text":"这个 bot 开源吗？想自己部署一个"}
+{"id":"h22","account":"ham","message":"benign","kind":"bio_link","source":"synthetic","name":"阿林","bio":"Rust / Go 后端，偶尔写写博客","personal_chat":"林的笔记 @lin_notes","index":1,"text":"请问 MultiTTS 支持 Linux 吗"}
+{"id":"h23","account":"ham","message":"benign","kind":"bio_plain","source":"synthetic","name":"小周","bio":"在读研究生，研究方向 NLP","index":2,"text":"有人用过 qwen3 做文本分类吗，效果怎么样"}
+{"id":"h24","account":"ham","message":"benign","kind":"bio_plain","source":"synthetic","name":"老K","bio":"Emby 服主，公益服不收费","index":1,"text":"大家的 Emby 一般用什么客户端？"}
+{"id":"h25","account":"ham","message":"benign","kind":"bio_plain","source":"synthetic","name":"猫猫","bio":"🐱 猫奴 | 上海","index":1,"text":"潜水好久了终于加进来了"}
+{"id":"h26","account":"ham","message":"benign","kind":"bio_plain","source":"synthetic","name":"ETH信徒","bio":"加密货币爱好者，长期持有 ETH","index":3,"text":"SOL 最近怎么跌这么多，还能拿吗"}
+{"id":"h27","account":"ham","message":"benign","kind":"bio_link","source":"synthetic","name":"someone","bio":"https://github.com/someone","index":1,"text":"我提了个 issue，作者有空能看看吗"}
+{"id":"h28","account":"ham","message":"benign","kind":"bio_link","source":"synthetic","name":"读书人","bio":"每日读书分享","personal_chat":"每日读书 @daily_reading","index":4,"text":"推荐一本书：《置身事内》，讲中国经济的，写得很好"}
+{"id":"h29","account":"ham","message":"benign","kind":"bio_plain","source":"synthetic","name":"外贸小陈","bio":"做外贸的，有事私聊","index":1,"text":"请问这个群可以发招聘信息吗？"}

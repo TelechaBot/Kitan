@@ -125,7 +125,7 @@ test("a farm account that buys Turnstile solves, then advertises in two groups",
   w.calls = [];
   await w.say(7, A, "Earn $500/day, DM me t.me/quickcash");
   expect(actionsOn(w, 7)).toEqual([`restrictChatMember@${A}`]);
-  await w.say(7, B, "", { forward_origin: { type: "channel" } });
+  await w.say(7, B, "日赚五百", { forward_origin: { type: "channel" } });
   expect(w.callsTo("banChatMember").map((c) => c.params.chat_id).sort()).toEqual([String(A), String(B)]);
 
   w.calls = [];
