@@ -71,15 +71,26 @@ so Kitan makes each spam attempt cost an account:
 
 - **Before the check**, Kitan declines accounts listed by
   [lols.bot](https://lols.bot) and accounts it has blocked itself.
-- **For 24 hours after joining** (or the first 20 messages), Kitan watches new
-  members. A message with a link, four or more @mentions, a forward, or an
-  inline-bot button is deleted, and the sender is muted until the 24 hours end.
+- **For 24 hours after joining** (or the first 20 messages), Kitan watches every
+  new member, whoever let them in: Kitan, another bot, an admin or an invite
+  link. Edited messages are checked again, since spam accounts often post a
+  greeting and edit it into an ad. A message with a link, four or more
+  @mentions, a forward, an inline-bot button, or little more than a bot's
+  @handle is deleted, and the sender is muted until the 24 hours end.
 - **A second offence within 30 days, in any group that uses Kitan**, or the
   same text posted in two groups, bans the account from every group where it
   is still new and blocks it from joining any Kitan group.
+- **Anyone who is not an admin** loses a message that carries a link button.
+  A bot or a channel posting one is banned from the group; a member is banned
+  on the second time.
 
-Members who joined before Kitan, or more than 24 hours ago, are never checked.
-If Kitan removes someone by mistake, unban them in the group settings.
+Language and image models also read new members' names, bios and messages, but
+only to record what they would have done: they do not act until their false
+positives on real newcomers are measured (see `bench/`). If Kitan removes
+someone by mistake, unban them in the group settings.
+
+Use only one bot to screen a group's join requests. A person another bot lets
+in skips Kitan's check, so only the 24-hour watch applies to them.
 
 ## Run your own copy
 
@@ -127,14 +138,21 @@ it; otherwise it uses private messages.
 For each join request, Kitan stores the group, the user ID, which way the check
 was delivered, when the page was opened, how many tries it took, how long the
 check took, any error, and the result. If an approved member later leaves or is
-banned, Kitan records the time. During the first 24 hours it also keeps a hash
-of each message for 10 minutes and a record of each offence for 30 days. It
-stores no message text.
+banned, Kitan records the time.
+
+For new members, during their first 24 hours, Kitan keeps a record for 14 days so
+an incident can be traced afterwards: how they joined and who let them in, their
+name, username and bio, the first 500 characters of each message and edit, and
+what each check concluded and did. It also keeps a hash of each message for 10
+minutes and each offence for 30 days. Messages from other members are not stored.
 
 To check the shared spam list, Kitan sends the requester's Telegram user ID to
-lols.bot. To see a summary:
+lols.bot. New members' names, bios, messages and photos are sent to Cloudflare
+Workers AI for the model checks. To see a summary, or one person's trail:
 
 ```shell
 bunx wrangler d1 execute kitan --remote --command \
   "SELECT delivery, status, count(*) FROM attempts GROUP BY 1, 2"
+bunx wrangler d1 execute kitan --remote --command \
+  "SELECT datetime(at/1000,'unixepoch'), kind, detail FROM events WHERE user_id = '<id>' ORDER BY at"
 ```

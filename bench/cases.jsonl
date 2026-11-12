@@ -1,0 +1,29 @@
+{"id":"s1-greet-1","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"晴晴 ❤️","approved_by":"bot:@NeutronVerifyBot","index":1,"text":"大家好，我是来学习的，顺便摸个鱼"}
+{"id":"s1-greet-2","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"晴晴 ❤️","approved_by":"bot:@NeutronVerifyBot","index":2,"text":"大家好呀，刚加进来打个招呼"}
+{"id":"s1-greet-3","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"晴晴 ❤️","approved_by":"bot:@NeutronVerifyBot","index":3,"text":"打工人报到，今天也是不想上班的一天"}
+{"id":"s2-opener","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"mugabula twaha","approved_by":"bot:@NeutronVerifyBot","index":1,"text":"新人一枚，不太会说话，只会哈哈哈"}
+{"id":"s2-pitch","account":"spam","message":"ad","kind":"covert","source":"incident-2026-11-12","name":"mugabula twaha","approved_by":"bot:@NeutronVerifyBot","index":2,"text":"现在全国夜场都要倒闭了 我们女生赚钱越来越难了"}
+{"id":"s3-bot","account":"spam","message":"ad","kind":"diversion","source":"incident-2026-11-12","name":"🌹 神财P图王","index":1,"text":"@BSGJUU_bot"}
+{"id":"s3-bot-edit","account":"spam","message":"ad","kind":"diversion","source":"incident-2026-11-12","name":"🌹 神财P图王","index":2,"edited":true,"text":"@BSGJUUU_bot"}
+{"id":"s4-bait","account":"spam","message":"benign","kind":"greeting_bait","source":"incident-2026-11-12","name":"景初","approved_by":"bot:@NeutronVerifyBot","index":1,"text":"大家做什么都可以，可千万别干正事啊"}
+{"id":"s5-name","account":"spam","message":"ad","kind":"profile","source":"incident-2026-11-12","name":"迅游群发器代发广告1","index":1,"text":"(a photo, caption empty)"}
+{"id":"h01","account":"ham","message":"benign","kind":"greeting","source":"synthetic","name":"林小北","index":1,"text":"大家好，刚进群，请多指教"}
+{"id":"h02","account":"ham","message":"benign","kind":"greeting","source":"synthetic","name":"Alex","index":1,"text":"hi all, found this group from the GitHub README"}
+{"id":"h03","account":"ham","message":"benign","kind":"question","source":"synthetic","name":"阿杰","index":1,"text":"请问这个模块在 Android 14 上能用吗？刷完开不了机"}
+{"id":"h04","account":"ham","message":"benign","kind":"question","source":"synthetic","name":"momo","index":1,"text":"Emby 硬解一直转码失败，有人遇到过吗"}
+{"id":"h05","account":"ham","message":"benign","kind":"question","source":"synthetic","name":"陈默","index":2,"text":"日志贴在这里了，麻烦帮看下是不是权限问题"}
+{"id":"h06","account":"ham","message":"benign","kind":"chat","source":"synthetic","name":"小鱼干","index":1,"text":"哈哈哈哈 这个梗我笑死"}
+{"id":"h07","account":"ham","message":"benign","kind":"chat","source":"synthetic","name":"Kei","index":1,"text":"今天又加班，打工人不配休息"}
+{"id":"h08","account":"ham","message":"benign","kind":"chat","source":"synthetic","name":"三水","index":3,"text":"摸鱼中，顺便学习一下大佬们的配置"}
+{"id":"h09","account":"ham","message":"benign","kind":"greeting","source":"synthetic","name":"Yuki","index":1,"text":"新人报道，纯小白一个，先潜水学习"}
+{"id":"h10","account":"ham","message":"benign","kind":"question","source":"synthetic","name":"老王","index":1,"text":"有没有推荐的 VPS？想自己搭一个 Emby"}
+{"id":"h11","account":"ham","message":"benign","kind":"question","source":"synthetic","name":"路人甲","index":2,"text":"这个 bot 是群主的吗 @SmartVerifyBot"}
+{"id":"h12","account":"ham","message":"benign","kind":"chat","source":"synthetic","name":"星野","index":1,"text":"原神新版本谁抽了"}
+{"id":"h13","account":"ham","message":"benign","kind":"chat","source":"synthetic","name":"橘子","index":2,"text":"女生玩这个游戏的多吗哈哈"}
+{"id":"h14","account":"ham","message":"benign","kind":"question","source":"synthetic","name":"ZZ","index":1,"text":"怎么赚 Telegram Premium 的积分啊，求教"}
+{"id":"h15","account":"ham","message":"benign","kind":"chat","source":"synthetic","name":"阿离","index":1,"text":"最近经济不好，工作越来越难找了"}
+{"id":"h16","account":"ham","message":"benign","kind":"question","source":"synthetic","name":"Nina","index":1,"text":"请问群里可以发自己做的开源项目链接吗？"}
+{"id":"h17","account":"ham","message":"benign","kind":"chat","source":"synthetic","name":"夜猫子","index":2,"text":"夜宵吃啥，在线等"}
+{"id":"h18","account":"ham","message":"benign","kind":"greeting","source":"synthetic","name":"tomo","index":1,"text":"こんにちは、日本からです。よろしくお願いします"}
+{"id":"h19","account":"ham","message":"benign","kind":"question","source":"synthetic","name":"阿明","index":1,"text":"MultiTTS 的引擎在哪里下载？"}
+{"id":"h20","account":"ham","message":"benign","kind":"chat","source":"synthetic","name":"咸鱼","index":1,"text":"大家都是做什么工作的呀"}

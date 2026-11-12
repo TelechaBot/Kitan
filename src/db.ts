@@ -217,36 +217,70 @@ export async function chatsSeen(db: D1Database): Promise<{ chat_id: string; chat
 
 // ---------- probation ----------
 
-// Counts a message against the member's latest approval in this chat if it was
-// approved after `since` and has sent fewer than `maxMessages`. Returns when it
-// was approved, or null when the member is not on probation.
+// A member joined, by any route. Rejoining restarts their probation.
+export async function recordJoin(db: D1Database, chatId: string, userId: string, now: number): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO newcomers (chat_id, user_id, joined_at, messages) VALUES (?, ?, ?, 0)
+       ON CONFLICT (chat_id, user_id) DO UPDATE SET joined_at = excluded.joined_at, messages = 0`,
+    )
+    .bind(chatId, userId, now)
+    .run();
+}
+
+// Counts a message (or edit) against a newcomer who joined after `since` and has
+// sent fewer than `maxMessages`. Returns when they joined and which message this
+// is, or null when they are not on probation.
 export async function countProbationMessage(
   db: D1Database,
   chatId: string,
   userId: string,
   since: number,
   maxMessages: number,
-): Promise<number | null> {
+): Promise<{ joinedAt: number; index: number } | null> {
   const row = await db
     .prepare(
-      `UPDATE attempts SET messages = messages + 1
-       WHERE id = (SELECT id FROM attempts
-                   WHERE chat_id = ? AND user_id = ? AND status = 'approved' AND decided_at > ?
-                     AND messages < ? AND banned_at IS NULL
-                   ORDER BY decided_at DESC LIMIT 1)
-       RETURNING decided_at`,
+      `UPDATE newcomers SET messages = messages + 1
+       WHERE chat_id = ? AND user_id = ? AND joined_at > ? AND messages < ?
+       RETURNING joined_at, messages`,
     )
     .bind(chatId, userId, since, maxMessages)
-    .first<{ decided_at: number }>();
-  return row?.decided_at ?? null;
+    .first<{ joined_at: number; messages: number }>();
+  return row ? { joinedAt: row.joined_at, index: row.messages } : null;
 }
 
-export async function chatsApprovedSince(db: D1Database, userId: string, since: number): Promise<string[]> {
+export async function chatsJoinedSince(db: D1Database, userId: string, since: number): Promise<string[]> {
   const { results } = await db
-    .prepare(`SELECT DISTINCT chat_id FROM attempts WHERE user_id = ? AND status = 'approved' AND decided_at > ?`)
+    .prepare(`SELECT chat_id FROM newcomers WHERE user_id = ? AND joined_at > ?`)
     .bind(userId, since)
     .all<{ chat_id: string }>();
   return results.map((row) => row.chat_id);
+}
+
+// ---------- footprints ----------
+
+// The profile recorded when this person last joined this chat.
+export async function latestProfile(
+  db: D1Database,
+  chatId: string,
+  userId: string,
+): Promise<{ bio?: string; personal_chat?: string; approved_by?: string } | null> {
+  const row = await db
+    .prepare(`SELECT detail FROM events WHERE chat_id = ? AND user_id = ? AND kind = 'profile' ORDER BY at DESC LIMIT 1`)
+    .bind(chatId, userId)
+    .first<{ detail: string }>();
+  return row ? JSON.parse(row.detail) : null;
+}
+
+export async function recordEvent(
+  db: D1Database,
+  event: { chatId: string; userId: string; kind: string; detail: Record<string, unknown> },
+  now: number,
+): Promise<void> {
+  await db
+    .prepare(`INSERT INTO events (at, chat_id, user_id, kind, detail) VALUES (?, ?, ?, ?, ?)`)
+    .bind(now, event.chatId, event.userId, event.kind, JSON.stringify(event.detail))
+    .run();
 }
 
 export async function countOffenses(db: D1Database, userId: string, since: number): Promise<number> {
@@ -290,7 +324,12 @@ export async function seenElsewhere(
   return elsewhere !== null;
 }
 
-export async function prune(db: D1Database, hashesBefore: number, offensesBefore: number): Promise<void> {
-  await db.prepare(`DELETE FROM recent_messages WHERE at <= ?`).bind(hashesBefore).run();
-  await db.prepare(`DELETE FROM offenses WHERE at <= ?`).bind(offensesBefore).run();
+export async function prune(
+  db: D1Database,
+  before: { hashes: number; offenses: number; newcomers: number; events: number },
+): Promise<void> {
+  await db.prepare(`DELETE FROM recent_messages WHERE at <= ?`).bind(before.hashes).run();
+  await db.prepare(`DELETE FROM offenses WHERE at <= ?`).bind(before.offenses).run();
+  await db.prepare(`DELETE FROM newcomers WHERE joined_at <= ?`).bind(before.newcomers).run();
+  await db.prepare(`DELETE FROM events WHERE at <= ?`).bind(before.events).run();
 }

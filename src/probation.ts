@@ -12,8 +12,10 @@ const MIN_DUPLICATE_LENGTH = 10;
 
 const LINK = /(https?:\/\/|t\.me\/|telegram\.me\/|tg:\/\/|wa\.me\/)/i;
 const MENTION = /@[a-zA-Z0-9_]{3,}/g;
+const BOT_MENTION = /@[a-zA-Z0-9_]{2,}bot\b/i;
+const BOT_MENTION_ALL = /@[a-zA-Z0-9_]{2,}bot\b/gi;
 
-export type SpamReason = "link" | "mentions" | "forward" | "inline_bot" | "cross_group_duplicate";
+export type SpamReason = "link" | "mentions" | "forward" | "inline_bot" | "bot_promo" | "cross_group_duplicate";
 
 export type Verdict =
   | { action: "allow" }
@@ -47,9 +49,21 @@ export function spamReason(message: Message): SpamReason | null {
   const entities = [...(message.entities ?? []), ...(message.caption_entities ?? [])];
   if (LINK.test(text) || entities.some((e) => e.type === "url" || e.type === "text_link")) return "link";
   if ((text.match(MENTION) ?? []).length >= 4) return "mentions";
+  // Pointing at a bot keeps the destination inside Telegram, where link filters do not look.
+  // A promo is little more than the handle ("@BSGJUU_bot"); people mention a bot inside a
+  // sentence ("这个 bot 是群主的吗 @SmartVerifyBot"), which bench case h11 keeps honest.
+  if (BOT_MENTION.test(text) && text.replace(BOT_MENTION_ALL, "").replace(/[\s\p{P}\p{S}]/gu, "").length < 10) {
+    return "bot_promo";
+  }
   if (message.forward_origin || message.external_reply || message.story) return "forward";
   if (message.via_bot || message.reply_markup) return "inline_bot";
   return null;
+}
+
+// A button that opens a link. People cannot attach these themselves; they come from
+// bots, inline bots, or channel posts, and in a group they are the shape of an ad.
+export function hasLinkButton(message: Message): boolean {
+  return (message.reply_markup?.inline_keyboard ?? []).some((row) => row.some((b) => b.url || b.login_url));
 }
 
 export function messageText(message: Message): string {

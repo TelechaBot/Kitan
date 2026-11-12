@@ -1,9 +1,9 @@
 import { type Attempt, type Refusal, openForUser } from "./attempt";
 import { constantTimeEqual, verifyInitData } from "./crypto";
-import { chatsSeen, findAttempt, labelMember, markOpened, recordTry, recordTurnstileError } from "./db";
+import { chatsSeen, findAttempt, markOpened, recordTry, recordTurnstileError } from "./db";
 import { pickLang, t } from "./i18n";
 import { advance, expirePending, onJoinRequest, resumeFor } from "./join";
-import { onGroupMessage, pruneModeration } from "./moderation";
+import { type Context, onGroupMessage, onMemberUpdate, pruneModeration } from "./moderation";
 import { notifyAdmins } from "./notice";
 import { renderPage } from "./page";
 import { callTelegram, isGone, log, messageOf } from "./telegram";
@@ -11,7 +11,7 @@ import { verifyTurnstile } from "./turnstile";
 import type { Env, Message, Update } from "./types";
 
 const INIT_DATA_MAX_AGE_S = 15 * 60;
-const ALLOWED_UPDATES = ["chat_join_request", "chat_member", "message"];
+const ALLOWED_UPDATES = ["chat_join_request", "chat_member", "message", "edited_message"];
 
 class HttpError extends Error {
   constructor(
@@ -23,7 +23,7 @@ class HttpError extends Error {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, execution: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const route = `${request.method} ${url.pathname}`;
     try {
@@ -40,7 +40,7 @@ export default {
         case "GET /health":
           return json({ ok: true });
         case "POST /telegram":
-          return await handleWebhook(request, env, url.origin);
+          return await handleWebhook(request, env, url.origin, execution);
         case "POST /api/open":
           return await handleOpen(request, env);
         case "POST /api/verify":
@@ -77,24 +77,27 @@ export default {
 
 // ---------- Telegram webhook ----------
 
-async function handleWebhook(request: Request, env: Env, origin: string): Promise<Response> {
+async function handleWebhook(request: Request, env: Env, origin: string, execution: ExecutionContext): Promise<Response> {
   const secret = request.headers.get("x-telegram-bot-api-secret-token") ?? "";
   if (!constantTimeEqual(secret, env.WEBHOOK_SECRET)) {
     throw new HttpError(401, "unauthorized");
   }
   const update = (await request.json()) as Update;
   const now = Date.now();
+  // Shadow detectors and profile lookups may finish after the webhook has answered.
+  const background = (work: Promise<unknown>) =>
+    execution.waitUntil(work.catch((error) => log("background_failed", { error: messageOf(error) })));
+  const ctx: Context = { now, edited: false, background };
   try {
     if (update.chat_join_request) {
       await onJoinRequest(env, update.chat_join_request, origin, now);
     } else if (update.chat_member) {
-      const { chat, new_chat_member } = update.chat_member;
-      if (new_chat_member.status === "kicked" || new_chat_member.status === "left") {
-        const outcome = new_chat_member.status === "kicked" ? "banned" : "left";
-        await labelMember(env.DB, String(chat.id), String(new_chat_member.user.id), outcome, now);
-      }
+      await onMemberUpdate(env, update.chat_member, ctx);
     } else if (update.message) {
-      await onMessage(env, update.message, origin, now);
+      await onMessage(env, update.message, origin, ctx);
+    } else if (update.edited_message && isGroup(update.edited_message)) {
+      // Spam accounts post a greeting first and edit it into the ad later.
+      await onGroupMessage(env, update.edited_message, { ...ctx, edited: true });
     }
   } catch (error) {
     // Acknowledge anyway: a Telegram retry cannot fix a failed handler and would duplicate work.
@@ -103,15 +106,19 @@ async function handleWebhook(request: Request, env: Env, origin: string): Promis
   return json({ ok: true });
 }
 
-async function onMessage(env: Env, message: Message, origin: string, now: number): Promise<void> {
-  if (message.chat.type === "group" || message.chat.type === "supergroup") {
-    await onGroupMessage(env, message, now);
+function isGroup(message: Message): boolean {
+  return message.chat.type === "group" || message.chat.type === "supergroup";
+}
+
+async function onMessage(env: Env, message: Message, origin: string, ctx: Context): Promise<void> {
+  if (isGroup(message)) {
+    await onGroupMessage(env, message, ctx);
     return;
   }
   if (message.chat.type !== "private" || !message.from || !message.text?.startsWith("/start")) return;
   // Someone the bot could not message first has now opened the chat: send their checks.
   const lang = pickLang(message.from.language_code);
-  if ((await resumeFor(env, message.from.id, lang, origin, now)) > 0) return;
+  if ((await resumeFor(env, message.from.id, lang, origin, ctx.now)) > 0) return;
   const addToGroup = `https://t.me/${await botUsername(env)}?startgroup&admin=${ADMIN_RIGHTS}`;
   await callTelegram(env, "sendMessage", {
     chat_id: message.chat.id,

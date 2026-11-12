@@ -50,7 +50,8 @@ test("DM path: the button carries a token, approval cleans up the message", asyn
   const token = w.latestAttempt(USER, CHAT).token;
   expect(w.calls[0].params.reply_markup.inline_keyboard[0][0].web_app.url).toBe(`${ORIGIN}/?token=${token}`);
   expect(await w.completeCheck(USER, CHAT)).toBe(200);
-  expect(w.methods()).toEqual(["sendMessage", "approveChatJoinRequest", "deleteMessage"]);
+  const joinFlow = ["sendMessage", "approveChatJoinRequest", "declineChatJoinRequest", "deleteMessage"];
+  expect(w.methods().filter((m) => joinFlow.includes(m))).toEqual(["sendMessage", "approveChatJoinRequest", "deleteMessage"]);
 });
 
 test("the DM speaks the requester's language", async () => {

@@ -175,7 +175,7 @@ test("gap: a spam account waits out probation before advertising", async () => {
   const w = new World();
   await w.requestJoin(11, A);
   await w.completeCheck(11, A);
-  w.db.run("UPDATE attempts SET decided_at = decided_at - ? WHERE user_id = '11'", [DAY + 60_000]);
+  w.db.run("UPDATE newcomers SET joined_at = joined_at - ? WHERE user_id = '11'", [DAY + 60_000]);
   w.calls = [];
   await w.say(11, A, "cheap followers t.me/spam");
   expect(w.calls).toHaveLength(0);

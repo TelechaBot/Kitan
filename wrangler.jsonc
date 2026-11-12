@@ -8,6 +8,7 @@
   "preview_urls": false,
   "observability": { "enabled": true },
   "triggers": { "crons": ["* * * * *"] },
+  "ai": { "binding": "AI" },
   "d1_databases": [
     {
       "binding": "DB",
