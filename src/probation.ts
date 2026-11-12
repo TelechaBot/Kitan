@@ -1,11 +1,41 @@
 // Probation as pure decisions. Spam accounts must post to pay for themselves,
-// so a new member's first messages are judged by what that post looks like,
-// and a repeat burns the account in every group Kitan serves.
+// so a new or silent member's first messages are judged by what that post looks
+// like, and a repeat burns the account in every group Kitan serves. People who are
+// active in a group are never judged, whatever they post.
 import type { Message } from "./types";
 
-export const PROBATION_MS = 24 * 60 * 60 * 1000;
-export const PROBATION_MESSAGES = 20;
+// Someone who joined a group less than this ago is new there and always reviewed, however
+// much they post: otherwise an account could post its way out of review in our own groups.
+export const NEWCOMER_MS = 7 * 24 * 60 * 60 * 1000;
+// More messages than this across Kitan groups makes someone active.
+export const ACTIVE_AFTER = 20;
+// An isolation-forest score at or above this marks behaviour as anomalous (≈0.5 is ordinary).
+export const ANOMALY_AT = 0.65;
+// Cold start: Kitan began counting at deploy, so everyone's count was 0. Someone Kitan never
+// saw join who spoke within this long of that is presumed an old regular, not a quiet account.
+export const QUIET_MS = 7 * 24 * 60 * 60 * 1000;
+export const MUTE_MS = 24 * 60 * 60 * 1000;
 export const OFFENSE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+export interface Standing {
+  joinedAt: number | null; // when Kitan last saw them join this group; null if never
+  messages: number; // across all Kitan groups, including this one
+  firstAt: number | null; // their first message Kitan counted, in any group
+  anomaly: number | null; // isolation-forest score of their behaviour; null without a model
+}
+
+export type Review = { review: true; why: "newcomer" | "quiet" | "anomalous" } | { review: false; why: "active" | "regular" };
+
+// Newcomers are always reviewed. Anyone else is left alone only when active across Kitan
+// groups (or an old regular from before counting) and their behaviour is not anomalous.
+export function needsReview(s: Standing, countingSince: number, now: number): Review {
+  if (s.joinedAt !== null && now - s.joinedAt < NEWCOMER_MS) return { review: true, why: "newcomer" };
+  const anomalous = s.anomaly !== null && s.anomaly >= ANOMALY_AT;
+  if (s.messages > ACTIVE_AFTER) return anomalous ? { review: true, why: "anomalous" } : { review: false, why: "active" };
+  const regular = s.joinedAt === null && s.firstAt !== null && s.firstAt - countingSince < QUIET_MS;
+  if (regular) return anomalous ? { review: true, why: "anomalous" } : { review: false, why: "regular" };
+  return { review: true, why: "quiet" };
+}
 export const DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
 const BLOCK_AFTER_OFFENSES = 2;
 const MIN_DUPLICATE_LENGTH = 10;
@@ -26,7 +56,7 @@ export interface Judgement {
   reason: SpamReason | null; // from spamReason(), before the duplicate check
   duplicateElsewhere: boolean; // same text from this user in another group within DUPLICATE_WINDOW_MS
   priorOffenses: number; // this user's offenses within OFFENSE_WINDOW_MS, any group
-  approvedAt: number;
+  now: number;
 }
 
 export function judge(j: Judgement): Verdict {
@@ -35,7 +65,7 @@ export function judge(j: Judgement): Verdict {
   if (reason === "cross_group_duplicate" || j.priorOffenses + 1 >= BLOCK_AFTER_OFFENSES) {
     return { action: "burn", reason };
   }
-  return { action: "mute", reason, until: j.approvedAt + PROBATION_MS };
+  return { action: "mute", reason, until: j.now + MUTE_MS };
 }
 
 // Accounts with enough recent offenses may not join any Kitan group.

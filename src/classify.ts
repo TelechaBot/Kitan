@@ -1,4 +1,6 @@
 // Model judgements for the shadow benchmark: is this newcomer advertising?
+// Photos are judged at Telegram's ~320 px size: in bench/ it gave the same verdicts as
+// 1280 px at a quarter to a sixth of the cost, though its transcripts drop small print.
 // Results are recorded, not acted on, until their false-positive rate is measured
 // (CHASM, NeurIPS 2025: zero-shot models reach F1 ~0.6 on covert ads, with low
 // precision, so they are not trusted blind).
@@ -27,7 +29,7 @@ export interface Subject {
   personalChat?: string;
   approvedBy?: string;
   minutesSinceJoin: number;
-  index: number; // 1 for their first message in the group
+  index: number; // their message count across Kitan groups, this one included
   edited: boolean;
   text: string;
 }
@@ -57,6 +59,58 @@ export async function judgeText(env: Env, s: Subject): Promise<ModelVerdict | nu
   ]);
 }
 
+// A decision rather than a written verdict, in the manner of typesafe.ai's jev: the model
+// answers one token, yes or no, and the probability it gave "yes" is the score, which
+// Kitan thresholds itself. About a quarter of judgeText's cost, and the score is a real
+// probability rather than a self-reported confidence.
+const DECISION =
+  "Is this message, posted by someone who joined a Chinese Telegram group minutes ago, an advertisement " +
+  "or an attempt to draw members elsewhere (including covert ads written as personal stories, adult " +
+  "services, scams, or pointing people to a bot, channel or private chat)? Ordinary conversation, " +
+  "complaints, greetings and questions are not. Answer with exactly one word: yes or no.";
+
+export interface Decision {
+  model: string;
+  p: number; // probability of "yes, this is an ad"
+  ms: number;
+}
+
+export async function decideText(env: Env, s: Subject): Promise<Decision | null> {
+  const started = Date.now();
+  const text = [s.text || "(no text)", s.name ? `(display name: ${s.name})` : ""].filter(Boolean).join("\n");
+  try {
+    const out = (await env.AI.run(TEXT_MODEL as Parameters<Ai["run"]>[0], {
+      messages: [
+        { role: "system", content: DECISION },
+        { role: "user", content: `${text}\n/no_think` },
+      ],
+      max_tokens: 8,
+      logprobs: true,
+      top_logprobs: 10,
+    } as never)) as { choices?: { logprobs?: { content?: { token: string; top_logprobs?: { token: string; logprob: number }[] }[] } }[] };
+    const p = yesProbability(out.choices?.[0]?.logprobs?.content ?? []);
+    if (p === null) {
+      log("decide_unparsed", {});
+      return null;
+    }
+    return { model: TEXT_MODEL, p, ms: Date.now() - started };
+  } catch (error) {
+    log("decide_failed", { error: messageOf(error) });
+    return null;
+  }
+}
+
+// The answer token comes after an empty <think> block; normalise P(yes) against P(no).
+export function yesProbability(tokens: { token: string; top_logprobs?: { token: string; logprob: number }[] }[]): number | null {
+  const answer = tokens.find((t) => /^\s*(yes|no)\b/i.test(t.token));
+  if (!answer?.top_logprobs) return null;
+  const mass = (word: string) =>
+    answer.top_logprobs!.filter((x) => x.token.trim().toLowerCase() === word).reduce((s, x) => s + Math.exp(x.logprob), 0);
+  const yes = mass("yes");
+  const no = mass("no");
+  return yes + no > 0 ? yes / (yes + no) : null;
+}
+
 // Reads the text in a photo and judges it with the same rubric.
 export async function judgeImage(env: Env, fileId: string, s: Subject): Promise<ModelVerdict | null> {
   const image = await downloadPhoto(env, fileId).catch((error) => {
@@ -64,8 +118,13 @@ export async function judgeImage(env: Env, fileId: string, s: Subject): Promise<
     return null;
   });
   if (!image) return null;
+  // Verdict first, transcript last and short: a dense price list once ran past the token
+  // limit mid-transcript, and the cut-off JSON lost the verdict.
   return run(env, VISION_MODEL, [
-    { role: "system", content: `${INSTRUCTIONS}\nAlso add "transcript": the text visible in the image.` },
+    {
+      role: "system",
+      content: `${INSTRUCTIONS}\nAdd one more field, last: "transcript", the visible text in the image, at most 200 characters.`,
+    },
     {
       role: "user",
       content: [
@@ -73,13 +132,13 @@ export async function judgeImage(env: Env, fileId: string, s: Subject): Promise<
         { type: "image_url", image_url: { url: image } },
       ],
     },
-  ]);
+  ], 500);
 }
 
-async function run(env: Env, model: string, messages: unknown[]): Promise<ModelVerdict | null> {
+async function run(env: Env, model: string, messages: unknown[], maxTokens = 300): Promise<ModelVerdict | null> {
   const started = Date.now();
   try {
-    const out = (await env.AI.run(model as Parameters<Ai["run"]>[0], { messages, max_tokens: 300 } as never)) as {
+    const out = (await env.AI.run(model as Parameters<Ai["run"]>[0], { messages, max_tokens: maxTokens } as never)) as {
       response?: string | Record<string, unknown>;
       choices?: { message?: { content?: string } }[];
     };
@@ -96,26 +155,42 @@ async function run(env: Env, model: string, messages: unknown[]): Promise<ModelV
   }
 }
 
-// Models wrap JSON in prose or <think> blocks; take the first JSON object.
+// Models wrap JSON in prose or <think> blocks; take the first JSON object. When the
+// reply was cut off, read the verdict fields that arrived before the cut.
 export function parseVerdict(raw: string): Omit<ModelVerdict, "model" | "ms"> | null {
   const body = raw.replace(/<think>[\s\S]*?<\/think>/g, "");
   const start = body.indexOf("{");
+  if (start < 0) return null;
   const end = body.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
+  let v: Record<string, unknown> | null = null;
   try {
-    const v = JSON.parse(body.slice(start, end + 1)) as Record<string, unknown>;
-    if (typeof v.ad !== "boolean") return null;
-    const confidence = Number(v.confidence);
-    return {
-      ad: v.ad,
-      confidence: Number.isFinite(confidence) ? Math.min(1, Math.max(0, confidence)) : 0.5,
-      kind: (typeof v.kind === "string" ? v.kind : "other") as AdKind,
-      reason: String(v.reason ?? "").slice(0, 200),
-      ...(typeof v.transcript === "string" ? { transcript: v.transcript.slice(0, 500) } : {}),
-    };
+    v = end > start ? (JSON.parse(body.slice(start, end + 1)) as Record<string, unknown>) : null;
   } catch {
-    return null;
+    v = null;
   }
+  v ??= salvage(body.slice(start));
+  if (!v || typeof v.ad !== "boolean") return null;
+  const confidence = Number(v.confidence);
+  return {
+    ad: v.ad,
+    confidence: Number.isFinite(confidence) ? Math.min(1, Math.max(0, confidence)) : 0.5,
+    kind: (typeof v.kind === "string" ? v.kind : "other") as AdKind,
+    reason: String(v.reason ?? "").slice(0, 200),
+    ...(typeof v.transcript === "string" ? { transcript: v.transcript.slice(0, 500) } : {}),
+  };
+}
+
+function salvage(partial: string): Record<string, unknown> | null {
+  const ad = /"ad"\s*:\s*(true|false)/.exec(partial);
+  if (!ad) return null;
+  const field = (name: string) => new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`).exec(partial)?.[1];
+  return {
+    ad: ad[1] === "true",
+    confidence: /"confidence"\s*:\s*([0-9.]+)/.exec(partial)?.[1],
+    kind: field("kind"),
+    reason: field("reason"),
+    transcript: field("transcript"),
+  };
 }
 
 async function downloadPhoto(env: Env, fileId: string): Promise<string> {

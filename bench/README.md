@@ -27,7 +27,7 @@ group screenshots; `synthetic` are hard negatives written to resemble real newco
 
 The seed set is small (9 spam, 20 ham) and the ham is synthetic, so it is a smoke
 test, not an estimate of production rates. The real benchmark comes from production:
-detectors run in shadow on every newcomer message (`events` rows of kind `verdict`),
+detectors run in shadow on every reviewed message (`events` rows of kind `verdict`),
 and are scored against what happened next (banned by an admin, left right after
 posting, later listed by lols.bot, or labelled by hand).
 
@@ -44,6 +44,17 @@ person's complaint, "最近经济不好，工作越来越难找了", read as a c
 matches CHASM (NeurIPS 2025), where zero-shot models reach F1 ≈ 0.6 on covert ads
 with low precision. The model stays in shadow until production data shows its false
 positive rate on real newcomers.
+
+A yes/no decision read from the model's token probabilities (`decideText`) costs
+about 0.65 neurons per message against 2.15 for the written verdict, also with
+recall 1.00, and one stable false positive: "可以发开源项目链接吗？" (p ≈ 0.82). The
+two ask styles misread different ham, so production runs the decision on every reviewed
+message and the written verdict only where the decision gives p ≥ 0.2, a rule
+fired, or on a random 10% kept for comparison.
+
+Photos: on three synthetic ad images, llama-4-scout gave the same verdicts (9 of 9)
+from Telegram's 320 px size as from 1280 px, at 13–17 neurons instead of 69–105,
+though its transcripts lose small print. Production reads the 320 px size.
 
 The first run also caught a false positive in an enforced rule: a person asking
 "这个 bot 是群主的吗 @SmartVerifyBot" was read as bot promotion. The rule now needs

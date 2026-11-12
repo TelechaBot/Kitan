@@ -171,15 +171,27 @@ test("cost: a real newcomer shares a link on day one", async () => {
   record("COST newcomer posting a link", "message deleted, muted for day one, told why privately");
 });
 
-test("gap: a spam account waits out probation before advertising", async () => {
+test("a spam account that stays quiet past its first week, then advertises", async () => {
   const w = new World();
   await w.requestJoin(11, A);
   await w.completeCheck(11, A);
-  w.db.run("UPDATE newcomers SET joined_at = joined_at - ? WHERE user_id = '11'", [DAY + 60_000]);
+  w.db.run("UPDATE speakers SET joined_at = joined_at - ? WHERE user_id = '11'", [8 * DAY]);
   w.calls = [];
   await w.say(11, A, "cheap followers t.me/spam");
+  expect(w.methods()).toContain("restrictChatMember");
+  record("spammer patient for a week", "still under review while quiet; muted");
+});
+
+test("gap: a spam account that farms ordinary chat for a week, then advertises", async () => {
+  const w = new World();
+  await w.requestJoin(13, A);
+  await w.completeCheck(13, A);
+  for (let i = 0; i < 21; i++) await w.say(13, A, `今天天气不错 ${i}`);
+  w.db.run("UPDATE speakers SET joined_at = joined_at - ? WHERE user_id = '13'", [8 * DAY]);
+  w.calls = [];
+  await w.say(13, A, "cheap followers t.me/spam");
   expect(w.calls).toHaveLength(0);
-  record("GAP spammer patient for 24h", "not caught; needs admins or reports");
+  record("GAP farmer: 21 messages then an ad", "not caught by rules unless the forest flags the shift");
 });
 
 test("members who joined before Kitan are never touched", async () => {

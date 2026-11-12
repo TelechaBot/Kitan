@@ -3,7 +3,7 @@ import { constantTimeEqual, verifyInitData } from "./crypto";
 import { chatsSeen, findAttempt, markOpened, recordTry, recordTurnstileError } from "./db";
 import { pickLang, t } from "./i18n";
 import { advance, expirePending, onJoinRequest, resumeFor } from "./join";
-import { type Context, onGroupMessage, onMemberUpdate, pruneModeration } from "./moderation";
+import { type Context, hourly, onGroupMessage, onMemberUpdate } from "./moderation";
 import { notifyAdmins } from "./notice";
 import { renderPage } from "./page";
 import { callTelegram, isGone, log, messageOf } from "./telegram";
@@ -71,7 +71,7 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     const now = Date.now();
     await expirePending(env, now);
-    await pruneModeration(env, now);
+    if (new Date(now).getUTCMinutes() === 0) await hourly(env, now);
   },
 } satisfies ExportedHandler<Env>;
 

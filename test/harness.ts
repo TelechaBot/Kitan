@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { hmacSha256, toHex } from "../src/crypto";
 import worker from "../src/index";
 import { expirePending } from "../src/join";
+import { hourly } from "../src/moderation";
 import type { Env } from "../src/types";
 
 const TOKEN = "123:test-bot-token";
@@ -17,7 +18,7 @@ export interface Call {
   params: Record<string, any>;
 }
 
-// Enough of D1's prepare/bind/first/all/run for the Worker.
+// Enough of D1's prepare/bind/first/all/run/batch for the Worker.
 function d1(db: Database): D1Database {
   const statement = (sql: string, args: unknown[]) => ({
     bind: (...next: unknown[]) => statement(sql, next),
@@ -25,7 +26,16 @@ function d1(db: Database): D1Database {
     all: async () => ({ results: db.query(sql).all(...(args as never[])) }),
     run: async () => ({ meta: { changes: db.query(sql).run(...(args as never[])).changes } }),
   });
-  return { prepare: (sql: string) => statement(sql, []) } as unknown as D1Database;
+  type Statement = ReturnType<typeof statement>;
+  // D1 runs a batch as one transaction.
+  const batch = async (statements: Statement[]) => {
+    const results: unknown[] = [];
+    db.transaction(() => {
+      for (const s of statements) results.push(s.run());
+    })();
+    return Promise.all(results);
+  };
+  return { prepare: (sql: string) => statement(sql, []), batch } as unknown as D1Database;
 }
 
 export class World {
@@ -41,6 +51,7 @@ export class World {
   bios = new Map<number, string>(); // what getChat returns for a user's profile
   // The model's reply, decided per call from what it was asked (the user message).
   model: (prompt: string, model: string) => Record<string, unknown> = () => ({ ad: false, confidence: 0.9, kind: "none", reason: "chat" });
+  decision: (prompt: string) => number = () => 0.01; // P(ad) a decision call returns
   aiCalls: { model: string; prompt: string }[] = [];
   private background: Promise<unknown>[] = [];
   private nextUpdate = 1;
@@ -50,10 +61,20 @@ export class World {
     const dir = join(import.meta.dir, "../migrations");
     for (const file of readdirSync(dir).sort()) this.db.exec(readFileSync(join(dir, file), "utf8"));
     const ai = {
-      run: async (model: string, input: { messages: { role: string; content: unknown }[] }) => {
+      run: async (model: string, input: { messages: { role: string; content: unknown }[]; logprobs?: boolean }) => {
         const user = input.messages.find((m) => m.role === "user")?.content;
         const prompt = typeof user === "string" ? user : JSON.stringify(user);
         this.aiCalls.push({ model, prompt });
+        if (input.logprobs) {
+          // A decision: an empty think block, then "yes" or "no" with their probabilities.
+          const p = this.decision(prompt);
+          const top = [
+            { token: "yes", logprob: Math.log(Math.max(p, 1e-9)) },
+            { token: "no", logprob: Math.log(Math.max(1 - p, 1e-9)) },
+          ];
+          const content = [{ token: "<think>" }, { token: "</think>" }, { token: p >= 0.5 ? "yes" : "no", top_logprobs: top }];
+          return { choices: [{ logprobs: { content } }] };
+        }
         return { response: JSON.stringify(this.model(prompt, model)) };
       },
     };
@@ -238,6 +259,11 @@ export class World {
 
   expire(at: number): Promise<void> {
     return expirePending(this.env, at);
+  }
+
+  // What the cron does on the hour: training the forest and pruning.
+  hourly(): Promise<void> {
+    return hourly(this.env, Date.now());
   }
 
   latestAttempt(userId: number, chatId: number): Record<string, any> {
