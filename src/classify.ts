@@ -109,7 +109,26 @@ export interface Decision {
   ms: number;
 }
 
+// What each call costs, in neurons, as Cloudflare billed it on 2026-11-13 (about 0.8 for a
+// decision and 2.6 for a written verdict on qwen3, 13 for an image on llama-4-scout),
+// rounded up. Used to keep within the free plan's 10,000 a day.
+export const NEURONS = { decision: 1, verdict: 3, image: 15 };
+
+// Once the free allowance is spent every call fails until it frees up again; after the
+// first such failure this Worker instance stops asking for half an hour.
+let pausedUntil = 0;
+export function modelsPaused(now: number): boolean {
+  return now < pausedUntil;
+}
+
+function failed(event: string, error: unknown, model?: string) {
+  const message = messageOf(error);
+  if (/daily free allocation|\b4006\b/.test(message)) pausedUntil = Date.now() + 30 * 60 * 1000;
+  log(event, { model, error: message });
+}
+
 export async function decideText(env: Env, d: Dossier): Promise<Decision | null> {
+  if (modelsPaused(Date.now())) return null;
   const started = Date.now();
   const text = describe(d);
   try {
@@ -129,7 +148,7 @@ export async function decideText(env: Env, d: Dossier): Promise<Decision | null>
     }
     return { model: TEXT_MODEL, p, ms: Date.now() - started };
   } catch (error) {
-    log("decide_failed", { error: messageOf(error) });
+    failed("decide_failed", error);
     return null;
   }
 }
@@ -170,6 +189,7 @@ export async function judgeImage(env: Env, fileId: string, d: Dossier): Promise<
 }
 
 async function run(env: Env, model: string, messages: unknown[], maxTokens = 300): Promise<ModelVerdict | null> {
+  if (modelsPaused(Date.now())) return null;
   const started = Date.now();
   try {
     const out = (await env.AI.run(model as Parameters<Ai["run"]>[0], { messages, max_tokens: maxTokens } as never)) as {
@@ -184,7 +204,7 @@ async function run(env: Env, model: string, messages: unknown[], maxTokens = 300
     }
     return { model, ...parsed, ms: Date.now() - started };
   } catch (error) {
-    log("classify_failed", { model, error: messageOf(error) });
+    failed("classify_failed", error, model);
     return null;
   }
 }

@@ -7,6 +7,12 @@ Workers AI models.
 CLOUDFLARE_ACCOUNT_ID=… CLOUDFLARE_API_TOKEN=$(bunx wrangler auth token) bun bench/run.ts --repeat 3
 ```
 
+Runs spend the production Worker's Workers AI allowance: 10,000 neurons over a
+rolling day on the free plan, which ran out on 2026-11-13 after a day of bench runs
+and left production's model calls failing for hours. `budget.ts` makes each run check
+what is left (keeping 3,000 for production) and book what it spent in the `spend`
+table that production's own budget reads.
+
 ## Labels
 
 Each line of `cases.jsonl` is one message from someone who joined less than a day

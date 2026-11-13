@@ -9,7 +9,8 @@
 //   account: does this message come from a spam account? (label field "account": spam | ham)
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Dossier, type ModelVerdict, decideText, forModels, judgeText } from "../src/classify";
+import { type Dossier, type ModelVerdict, NEURONS, decideText, forModels, judgeText } from "../src/classify";
+import { bookSpend, checkHeadroom } from "./budget";
 import { chatWords, profileWords } from "../src/lexicon";
 import { spamReason } from "../src/probation";
 import type { Env, Message } from "../src/types";
@@ -76,6 +77,9 @@ const rows: {
 }[] = [];
 const neurons = { model: 0, decision: 0 };
 let failures = 0;
+
+// A written verdict and a decision per ask (classify.ts NEURONS).
+await checkHeadroom(account, token, cases.length * repeat * (NEURONS.verdict + NEURONS.decision));
 
 for (const c of cases) {
   const message = { message_id: 1, chat: { id: -1 }, text: c.text } as Message;
@@ -150,3 +154,4 @@ const asks = cases.length * repeat;
 console.log(
   `neurons per message: written verdict ${(neurons.model / asks).toFixed(2)}, decision ${(neurons.decision / asks).toFixed(2)}`,
 );
+bookSpend(spent);

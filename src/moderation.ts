@@ -4,7 +4,7 @@
 // deterministic rules act at once while keyword and model judgements run in the
 // background and are only recorded (shadow mode). Reviewed people leave footprints in
 // `events`; people left alone are not recorded.
-import { type Dossier, decideText, forModels, judgeImage, judgeText } from "./classify";
+import { type Dossier, NEURONS, decideText, forModels, judgeImage, judgeText, modelsPaused } from "./classify";
 import {
   type Profile,
   chatTitle,
@@ -18,7 +18,10 @@ import {
   latestJoin,
   loadForest,
   noteChat,
+  judgedSince,
   readProfile,
+  recordSpend,
+  spentToday,
   writeProfile,
   modelAge,
   prune,
@@ -35,6 +38,8 @@ import { score, train } from "./iforest";
 import { chatWords, profileWords } from "./lexicon";
 import {
   ACTIVE_AFTER,
+  NEWCOMER_MS,
+  type Target,
   DUPLICATE_WINDOW_MS,
   MIN_DUPLICATE_LENGTH,
   OFFENSE_WINDOW_MS,
@@ -128,11 +133,17 @@ async function screenProfile(env: Env, update: ChatMemberUpdated, now: number) {
     kind: "none",
     text: "(they have just joined and not posted yet)",
   };
-  const [decision, textModel] = await Promise.all([decideText(env, forModels(dossier)), judgeText(env, forModels(dossier))]);
+  const targets = targetsOf(dossier);
+  const skipped = await modelsWorthAsking(env, String(user.id), targets, null, 0, now);
+  const [decision, textModel] = skipped
+    ? [null, null]
+    : await Promise.all([decideText(env, forModels(dossier)), judgeText(env, forModels(dossier))]);
+  if (!skipped) await recordSpend(env.DB, NEURONS.decision + NEURONS.verdict, now);
   await footprint(env, chatId, String(user.id), "verdict", {
     on: "profile",
     lexicon: profileWords([dossier.name, user.username, profile?.bio, profile?.personal_chat].filter(Boolean).join(" ")),
-    targets: targetsOf(dossier),
+    targets,
+    skipped,
     decision,
     text_model: textModel,
     dossier,
@@ -393,26 +404,60 @@ async function shadow(
     text: text || (message.contact ? `[contact card: ${[message.contact.first_name, message.contact.last_name].filter(Boolean).join(" ")}]` : ""),
   };
   const picture = pictureOf(message);
-  const [decision, imageModel] = await Promise.all([
-    decideText(env, forModels(dossier)),
-    picture ? judgeImage(env, picture.file_id, forModels(dossier)) : null,
-  ]);
-  const textModel = await judgeText(env, forModels(dossier));
+  const targets = targetsOf(dossier, message);
+  const skipped = await modelsWorthAsking(env, userId, targets, trajectory, picture ? NEURONS.image : 0, ctx.now);
+  const [decision, imageModel, textModel] = skipped
+    ? [null, null, null]
+    : await Promise.all([
+        decideText(env, forModels(dossier)),
+        picture ? judgeImage(env, picture.file_id, forModels(dossier)) : null,
+        judgeText(env, forModels(dossier)),
+      ]);
+  if (!skipped) await recordSpend(env.DB, NEURONS.decision + NEURONS.verdict + (picture ? NEURONS.image : 0), ctx.now);
   await footprint(env, chatId, userId, "verdict", {
     on: ctx.edited ? "edit" : "message",
     review: review.why,
     rules: spamReason(message),
     enforced,
     lexicon: { text: chatWords(text), name: profileWords(dossier.name) },
+    skipped,
     decision,
     text_model: textModel,
     image_model: imageModel ? { ...imageModel, px: picture?.width } : null,
-    targets: targetsOf(dossier, message),
+    targets,
     social: social(trajectory),
     // Everything Kitan knew; the models saw forModels(dossier). Kept whole so a replay can
     // try other views.
     dossier,
   }, Date.now());
+}
+
+// The paid models come last, as in the Python bot, where a keyword automaton screened
+// profiles and only a member's first 8 messages were checked. They are asked only when
+// their answer could matter, and within the free plan's 10,000 neurons a day: on
+// 2026-11-13 these gates would have cut 612 calls in ten hours to 130. Returns why not.
+const JUDGED_PER_ACCOUNT = 4; // the profile and three distinct messages
+const DAILY_NEURONS = 7000; // leaves room for bench runs under the 10,000 allowance
+
+async function modelsWorthAsking(
+  env: Env,
+  userId: string,
+  targets: Target[],
+  trajectory: Trajectory | null,
+  extra: number,
+  now: number,
+): Promise<"no_target" | "sociable" | "judged_enough" | "budget" | "paused" | null> {
+  // Without somewhere to send people there is no ad to act on, whatever a model says.
+  if (!targets.some(strong)) return "no_target";
+  if (trajectory) {
+    const s = social(trajectory);
+    if (s.replies + s.repliedBy + s.stickers > 0) return "sociable";
+  }
+  if (modelsPaused(now)) return "paused";
+  if ((await judgedSince(env.DB, userId, now - NEWCOMER_MS)) >= JUDGED_PER_ACCOUNT) return "judged_enough";
+  const cost = NEURONS.decision + NEURONS.verdict + extra;
+  if ((await spentToday(env.DB, now)) + cost > DAILY_NEURONS) return "budget";
+  return null;
 }
 
 // Where this sender points people, from the message and everything on their profile.

@@ -39,6 +39,7 @@ test("greetings, deleted and re-posted, then gone: recorded, not actionable by r
 
 test("passed Kitan's check, then a covert adult-services pitch: the decision leans ad, so the written verdict runs", async () => {
   w.decision = (prompt) => (prompt.includes("夜场") ? 0.9 : 0.01);
+  w.bios.set(22, "私我");
   await w.join(22, GROUP, KITAN, { first_name: "mugabula", last_name: "twaha" });
   await w.say(22, GROUP, "新人一枚，不太会说话，只会哈哈哈");
   await w.say(22, GROUP, "现在全国夜场都要倒闭了 我们女生赚钱越来越难了");
@@ -97,6 +98,26 @@ test("the same contact card again and again is a flood too", async () => {
   expect(JSON.stringify(w.events(38))).not.toContain("555");
 });
 
+test("the models are asked only when their answer could matter, and within the day's budget", async () => {
+  // Nowhere to send people: no ad to act on, so no paid call.
+  await w.join(47, GROUP, KITAN);
+  await w.say(47, GROUP, "大家好");
+  expect(w.aiCalls).toHaveLength(0);
+  expect(w.events(47, "verdict").map((v) => v.detail.skipped)).toEqual(["no_target", "no_target"]);
+
+  // Pointing somewhere: the profile and three distinct messages, then enough is known.
+  w.bios.set(48, "公群 https://t.me/+abc");
+  await w.join(48, GROUP, KITAN);
+  for (const text of ["一", "二", "三", "四"]) await w.say(48, GROUP, text);
+  expect(w.events(48, "verdict").map((v) => v.detail.skipped ?? "asked")).toEqual(["asked", "asked", "asked", "asked", "judged_enough"]);
+
+  // Near the day's allowance, nothing more is asked.
+  w.db.run("UPDATE spend SET neurons = 6999");
+  w.bios.set(49, "公群 https://t.me/+abc");
+  await w.join(49, GROUP, KITAN);
+  expect(w.events(49, "verdict")[0].detail.skipped).toBe("budget");
+});
+
 test("a copy of what someone just sent is not judged by the models again", async () => {
   await w.join(39, GROUP, KITAN);
   await w.say(39, GROUP, "有人在吗");
@@ -135,6 +156,7 @@ test("a person repeating a short question a few times is left alone", async () =
 });
 
 test("an ad in the display name with a picture: the name and the image reach the detectors", async () => {
+  w.bios.set(24, "代发联系 @xunyou_ad");
   await w.join(24, GROUP, KITAN, { first_name: "迅游群发器代发广告1" });
   await w.say(24, GROUP, "", { photo: [{ file_id: "p1", width: 320, height: 320 }, { file_id: "p2", width: 1280, height: 1280 }] }, {
     first_name: "迅游群发器代发广告1",
@@ -156,6 +178,7 @@ test("a newcomer's message is stored with the facts the rules read, and both mod
 });
 
 test("photos are read at Telegram's ~320 px size", async () => {
+  w.bios.set(27, "进群 https://t.me/+x");
   await w.join(27, GROUP, KITAN);
   await w.say(27, GROUP, "", { photo: [{ file_id: "s", width: 90, height: 90 }, { file_id: "m", width: 320, height: 320 }, { file_id: "y", width: 1280, height: 1280 }] });
   expect(w.callsTo("getFile").map((c) => c.params.file_id)).toEqual(["m"]);

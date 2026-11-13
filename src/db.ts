@@ -422,6 +422,37 @@ export async function countingSince(db: D1Database): Promise<number> {
   return value;
 }
 
+// ---------- model budget ----------
+
+const HOUR_MS = 60 * 60 * 1000;
+
+export async function recordSpend(db: D1Database, neurons: number, now: number): Promise<void> {
+  if (neurons <= 0) return;
+  await db
+    .prepare(`INSERT INTO spend (hour, neurons) VALUES (?, ?) ON CONFLICT (hour) DO UPDATE SET neurons = neurons + excluded.neurons`)
+    .bind(Math.floor(now / HOUR_MS), neurons)
+    .run();
+}
+
+// Neurons spent in the last 24 hours. Cloudflare's allowance behaved as a rolling day:
+// calls failed at 06:00 UTC after 10,236 neurons in the 24 hours before.
+export async function spentToday(db: D1Database, now: number): Promise<number> {
+  const row = await db
+    .prepare(`SELECT coalesce(sum(neurons), 0) AS n FROM spend WHERE hour > ?`)
+    .bind(Math.floor(now / HOUR_MS) - 24)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+// How many times the models have judged this account lately (skipped verdicts excluded).
+export async function judgedSince(db: D1Database, userId: string, since: number): Promise<number> {
+  const row = await db
+    .prepare(`SELECT count(*) AS n FROM events WHERE user_id = ? AND kind = 'verdict' AND at > ? AND json_extract(detail, '$.skipped') IS NULL`)
+    .bind(userId, since)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
 // ---------- models ----------
 
 const modelCache = new WeakMap<D1Database, { forest: Forest | null; until: number }>();
@@ -543,4 +574,5 @@ export async function prune(
   await db.prepare(`DELETE FROM recent_messages WHERE at <= ?`).bind(before.hashes).run();
   await db.prepare(`DELETE FROM offenses WHERE at <= ?`).bind(before.offenses).run();
   await db.prepare(`DELETE FROM events WHERE at <= ?`).bind(before.events).run();
+  await db.prepare(`DELETE FROM spend WHERE hour < ?`).bind(Math.floor(Date.now() / HOUR_MS) - 48).run();
 }

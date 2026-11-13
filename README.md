@@ -105,7 +105,11 @@ works if people go somewhere, so Kitan notes where a member points people: an
 invite link, a link, an @handle, a WeChat or QQ id, a phone number, a contact
 card, a button, or "see my profile". And ad accounts talk at a group, not with
 it, so Kitan counts how often a member answers someone, is answered, and sends
-stickers. If Kitan removes
+stickers. The models are asked only where their answer could matter: about
+members who point somewhere and whom nobody has talked with, at most four
+times per account (the profile and three distinct messages), and within 7,000
+neurons a day, below Workers AI's free 10,000. Past that, the rules keep
+working and the models wait. If Kitan removes
 someone by mistake, unban them in the group settings.
 
 Use only one bot to screen a group's join requests. A person another bot lets

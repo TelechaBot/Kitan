@@ -12,7 +12,8 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Dossier, PROMPTS, decideText, forModels, judgeText } from "../src/classify";
+import { type Dossier, NEURONS, PROMPTS, decideText, forModels, judgeText } from "../src/classify";
+import { bookSpend, checkHeadroom } from "./budget";
 import { diversionTargets } from "../src/probation";
 import { accountYears } from "../src/trajectory";
 import type { Env } from "../src/types";
@@ -228,7 +229,10 @@ async function replay() {
       }
     }
   }
+  // Cached answers cost nothing; this bounds the rest from above.
+  await checkHeadroom(account, token, jobs.length * (NEURONS.verdict + NEURONS.decision));
   for (let i = 0; i < jobs.length; i += 8) await Promise.all(jobs.slice(i, i + 8).map((j) => j()));
+  bookSpend(spent);
 
   // Account-level: flagged if any of its messages is.
   console.log(`\nAccounts labelled: ${labels.size}; model calls this run: ${Math.round(spent)} neurons\n`);
