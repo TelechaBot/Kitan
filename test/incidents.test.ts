@@ -118,6 +118,15 @@ test("the models are asked only when their answer could matter, and within the d
   expect(w.events(49, "verdict")[0].detail.skipped).toBe("budget");
 });
 
+test("an offer with nowhere to point is the keyword layer's: muted without asking a model", async () => {
+  // 2026-11-13: "蛋糕（软乎乎）" posted only "可约".
+  await w.join(50, GROUP, KITAN, { first_name: "蛋糕（软乎乎）" });
+  await w.say(50, GROUP, "可约");
+  expect(w.callsTo("restrictChatMember")).toHaveLength(1);
+  expect(w.events(50, "action")[0].detail).toMatchObject({ rule: "keyword", action: "mute", words: ["可约"] });
+  expect(w.aiCalls).toHaveLength(0);
+});
+
 test("a copy of what someone just sent is not judged by the models again", async () => {
   await w.join(39, GROUP, KITAN);
   await w.say(39, GROUP, "有人在吗");

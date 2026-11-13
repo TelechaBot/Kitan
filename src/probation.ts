@@ -2,6 +2,7 @@
 // so a new or silent member's first messages are judged by what that post looks
 // like, and a repeat burns the account in every group Kitan serves. People who are
 // active in a group are never judged, whatever they post.
+import { bannedWords } from "./lexicon";
 import type { Message } from "./types";
 
 // Someone who joined a group less than this ago is new there and always reviewed, however
@@ -50,7 +51,15 @@ const MENTION = /@[a-zA-Z0-9_]{3,}/g;
 const BOT_MENTION = /@[a-zA-Z0-9_]{2,}bot\b/i;
 const BOT_MENTION_ALL = /@[a-zA-Z0-9_]{2,}bot\b/gi;
 
-export type SpamReason = "link" | "mentions" | "forward" | "inline_bot" | "bot_promo" | "cross_group_duplicate" | "repeated";
+export type SpamReason =
+  | "link"
+  | "mentions"
+  | "forward"
+  | "inline_bot"
+  | "bot_promo"
+  | "keyword"
+  | "cross_group_duplicate"
+  | "repeated";
 
 export type Verdict =
   | { action: "allow" }
@@ -101,6 +110,8 @@ export function spamReason(message: Message): SpamReason | null {
   }
   if (message.forward_origin || message.external_reply || message.story) return "forward";
   if (message.via_bot || message.reply_markup) return "inline_bot";
+  // The keyword layer, as in the Python bot: ads and offers that need no model.
+  if (bannedWords(text).length > 0) return "keyword";
   return null;
 }
 

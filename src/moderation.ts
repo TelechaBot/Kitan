@@ -35,7 +35,7 @@ import {
 } from "./db";
 import { pickLang, t } from "./i18n";
 import { score, train } from "./iforest";
-import { chatWords, profileWords } from "./lexicon";
+import { bannedWords, chatWords, profileWords } from "./lexicon";
 import {
   ACTIVE_AFTER,
   NEWCOMER_MS,
@@ -360,7 +360,8 @@ async function enforceRules(
   } else {
     await burn(env, chatId, userId, ctx.now);
   }
-  const done = { rule: verdict.reason, action: verdict.action, ...campaign };
+  const words = verdict.reason === "keyword" ? bannedWords(messageText(message)) : undefined;
+  const done = { rule: verdict.reason, action: verdict.action, words, ...campaign };
   await footprint(env, chatId, userId, "action", done, ctx.now);
   log(verdict.action === "mute" ? "spam_muted" : "spam_blocked", { chat_id: chatId, user_id: userId, reason: verdict.reason });
   return { enforced: done, seenBefore };

@@ -77,8 +77,9 @@ so Kitan makes each spam attempt cost an account:
   sent more than 20 messages across Kitan groups. Edited messages are checked
   again, since spam accounts often post a greeting and edit it into an ad. A
   message with a link, four or more @mentions, a forward, an inline-bot
-  button, or little more than a bot's @handle is deleted, and the sender is
-  muted for 24 hours. So is the fourth copy of the same text or contact card
+  button, little more than a bot's @handle, a word from the earlier Kitan's
+  ad list (such as 代收代付 or 看我主页), or nothing but an offer such as "可约"
+  is deleted, and the sender is muted for 24 hours. So is the fourth copy of the same text or contact card
   within 15 minutes in one group; if the sender also points people somewhere
   (a link, an @handle, a contact card, "see my profile", in the message or the
   bio) and nobody in Kitan's groups has talked with them, the account is banned

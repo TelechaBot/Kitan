@@ -1,7 +1,27 @@
 // Diversion targets: where an account is trying to send people. Spam samples are bios
 // and messages from accounts removed on 2026-11-12; the ham are things people say.
 import { describe, expect, test } from "bun:test";
+import { bannedWords } from "../src/lexicon";
 import { diversionTargets } from "../src/probation";
+
+describe("the keyword layer", () => {
+  test("the Python bot's chat list, through zero-width padding", () => {
+    // 2026-11-12, "章响哥" accounts, with a zero-width character between letters.
+    expect(bannedWords("二道混 ‌招代​收代付啦")).toEqual(["代付"]);
+  });
+
+  test("an offer that is the whole message, and only then", () => {
+    expect(bannedWords("可约")).toEqual(["可约"]);
+    expect(bannedWords("可约吗？")).toEqual(["可约吗"]);
+    expect(bannedWords("合同里可约定违约金吗")).toEqual([]);
+  });
+
+  test("words people also use in ordinary talk are not acted on", () => {
+    for (const text of ["我是做社工的", "有没有担保交易的群", "新号怎么引流比较好", "附近有药房吗", "可以代发货吗"]) {
+      expect(bannedWords(text)).toEqual([]);
+    }
+  });
+});
 
 const kinds = (where: Parameters<typeof diversionTargets>[0]) => diversionTargets(where).map((t) => `${t.kind}@${t.in}`);
 

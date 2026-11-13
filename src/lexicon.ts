@@ -32,3 +32,18 @@ function matches(words: readonly string[], text: string): string[] {
 
 export const chatWords = (text: string): string[] => matches(CHAT, text);
 export const profileWords = (text: string): string[] => matches(PROFILE, text);
+
+// The rules act on the chat list, as the Python bot did, less words people also use in
+// ordinary talk: a social worker (社工), escrow in trading groups (担保), marketing talk
+// (引流), a pharmacy (药房), shipping (代发). On 418 distinct reviewed messages of
+// 2026-11-12/13 the list hit 7 accounts, all advertising, and no one else.
+const ORDINARY = new Set(["社工", "担保", "引流", "药房", "代发"]);
+const ENFORCED = CHAT.filter((w) => !ORDINARY.has(w));
+// Messages that are an offer by themselves: "可约" alone means available for a paid date.
+// These ads point nowhere, so the models are not asked; the keyword layer handles them.
+const OFFERS = ["可约", "可约吗"];
+
+export function bannedWords(text: string): string[] {
+  const whole = squeeze(text.toLowerCase());
+  return [...matches(ENFORCED, text), ...OFFERS.filter((o) => whole === o)];
+}
