@@ -48,6 +48,8 @@ import {
   contentHash,
   hasLinkButton,
   judge,
+  messageTargetCounts,
+  ruleOf,
   messageKind,
   messageText,
   needsReview,
@@ -322,7 +324,8 @@ async function enforceRules(
   if (!reason && !duplicateElsewhere && !repeatedHere) return { enforced: null, seenBefore };
 
   const priorOffenses = await countOffenses(env.DB, userId, ctx.now - OFFENSE_WINDOW_MS);
-  const signs = await senderSigns(env, message, from, trajectory);
+  const rule = ruleOf({ reason, duplicateElsewhere, repeatedHere })!;
+  const signs = await senderSigns(env, message, from, trajectory, messageTargetCounts(rule));
   const verdict = judge({ reason, duplicateElsewhere, repeatedHere, priorOffenses, ...signs, now: ctx.now });
   if (verdict.action === "allow") return { enforced: null, seenBefore };
 
@@ -381,12 +384,13 @@ async function burn(env: Env, chatId: string, userId: string, now: number) {
 
 // Beyond the offending message's text: does the sender point people somewhere (name, bio,
 // a contact card), and has anyone talked with them? These move the penalty up or down.
-async function senderSigns(env: Env, message: Message, from: TelegramUser, trajectory: Trajectory) {
+async function senderSigns(env: Env, message: Message, from: TelegramUser, trajectory: Trajectory, withText: boolean) {
   const profile = await readProfile(env.DB, String(from.id));
   const card = message.contact ? [message.contact.first_name, message.contact.last_name].filter(Boolean).join(" ") || "card" : undefined;
   const s = social(trajectory);
+  const where = { message: withText ? messageText(message) : undefined, name: displayName(from), bio: profile?.bio ?? undefined, contact: card };
   return {
-    pointsElsewhere: diversionTargets({ name: displayName(from), bio: profile?.bio ?? undefined, contact: card }).some(strong),
+    pointsElsewhere: diversionTargets(where).some(strong),
     sociable: s.replies + s.repliedBy + s.stickers > 0,
   };
 }

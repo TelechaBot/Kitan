@@ -69,8 +69,9 @@ export interface Judgement {
   duplicateElsewhere: boolean; // same text from this user in another group within DUPLICATE_WINDOW_MS
   repeatedHere: boolean; // this text REPEAT_AT times in this group within DUPLICATE_WINDOW_MS
   priorOffenses: number; // this user's offenses within OFFENSE_WINDOW_MS, any group
-  // Beyond the message itself, does the sender point people somewhere: a strong target in
-  // the name, bio or a contact card? And has anyone talked with them?
+  // Does the sender point people somewhere: a strong target in the name, bio or a contact
+  // card, or in the message's text unless that target is what broke the rule
+  // (messageTargetCounts)? And has anyone talked with them?
   pointsElsewhere: boolean;
   sociable: boolean;
   now: number;
@@ -98,8 +99,20 @@ export function score(j: Judgement, reason: SpamReason): number {
   return WEIGHT[reason] + (j.pointsElsewhere ? 2 : 0) - (j.sociable ? 1 : 0) + 2 * j.priorOffenses;
 }
 
+// The rule a message breaks, if any: its own shape first, then copies of it.
+export function ruleOf(j: Pick<Judgement, "reason" | "duplicateElsewhere" | "repeatedHere">): SpamReason | null {
+  return j.reason ?? (j.duplicateElsewhere ? "cross_group_duplicate" : j.repeatedHere ? "repeated" : null);
+}
+
+// Rules whose evidence is the target itself: a link, handles, buttons. For the others a
+// target in the message's own text is extra evidence, as one on the profile is.
+const TARGET_IS_THE_RULE: ReadonlySet<SpamReason> = new Set(["link", "mentions", "bot_promo", "inline_bot"]);
+export function messageTargetCounts(reason: SpamReason): boolean {
+  return !TARGET_IS_THE_RULE.has(reason);
+}
+
 export function judge(j: Judgement): Verdict {
-  const reason = j.reason ?? (j.duplicateElsewhere ? "cross_group_duplicate" : j.repeatedHere ? "repeated" : null);
+  const reason = ruleOf(j);
   if (!reason) return { action: "allow" };
   const s = Math.max(1, score(j, reason));
   if (s >= BAN_AT) return { action: "burn", reason, score: s };

@@ -71,6 +71,19 @@ test("a flood that points elsewhere, from someone nobody talks with, is banned w
   expect(w.events(34, "action")[0].detail).toMatchObject({ rule: "repeated", action: "burn", pointsElsewhere: true, sociable: false });
 });
 
+test("a flood whose own text points elsewhere is banned, though the profile is blank", async () => {
+  // 2026-11-13: "فرح", no bio, rotated counterfeit-money ads, each ending in "@chunqiu0099".
+  await w.join(51, GROUP, { id: 900, username: "an_admin" }, { first_name: "فرح" });
+  for (let i = 0; i < 4; i++) await w.say(51, GROUP, "假钞 假钞 假钞！！ 包过BC验钞机的假钞！可线下面交！  @chunqiu0099");
+  expect(w.events(51, "action")[0].detail).toMatchObject({ rule: "repeated", action: "burn", score: 5, pointsElsewhere: true });
+});
+
+test("a link's own target is not counted twice", async () => {
+  await w.join(52, GROUP, KITAN);
+  await w.say(52, GROUP, "the docs are at https://example.org/guide");
+  expect(w.events(52, "action")[0].detail).toMatchObject({ rule: "link", action: "mute", score: 1, pointsElsewhere: false });
+});
+
 test("a flood with nowhere to send people, or from someone others answer, is only muted", async () => {
   await w.join(44, GROUP, KITAN);
   for (let i = 0; i < 4; i++) await w.say(44, GROUP, "有人在吗？？");
