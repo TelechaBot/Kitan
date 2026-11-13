@@ -15,7 +15,6 @@ export const ANOMALY_AT = 0.65;
 // Cold start: Kitan began counting at deploy, so everyone's count was 0. Someone Kitan never
 // saw join who spoke within this long of that is presumed an old regular, not a quiet account.
 export const QUIET_MS = 7 * 24 * 60 * 60 * 1000;
-export const MUTE_MS = 24 * 60 * 60 * 1000;
 export const OFFENSE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface Standing {
@@ -42,7 +41,6 @@ export const DUPLICATE_WINDOW_MS = 15 * 60 * 1000;
 // a live account posted "最新项目" every 1–3 minutes for hours. People do repeat
 // "有人吗?" once or twice; four times in a quarter hour they do not.
 export const REPEAT_AT = 4;
-const BLOCK_AFTER_OFFENSES = 2;
 // Shorter texts ("hi", "666") are too common to count as the same message across groups.
 export const MIN_DUPLICATE_LENGTH = 10;
 
@@ -63,37 +61,54 @@ export type SpamReason =
 
 export type Verdict =
   | { action: "allow" }
-  | { action: "mute"; reason: SpamReason; until: number }
-  | { action: "burn"; reason: SpamReason };
+  | { action: "mute"; reason: SpamReason; score: number; until: number }
+  | { action: "burn"; reason: SpamReason; score: number };
 
 export interface Judgement {
   reason: SpamReason | null; // from spamReason(), before the duplicate check
   duplicateElsewhere: boolean; // same text from this user in another group within DUPLICATE_WINDOW_MS
   repeatedHere: boolean; // this text REPEAT_AT times in this group within DUPLICATE_WINDOW_MS
   priorOffenses: number; // this user's offenses within OFFENSE_WINDOW_MS, any group
-  // Only read for a flood: does the sender point people somewhere (a strong target), and
-  // has anyone talked with them?
-  pointsElsewhere?: boolean;
-  sociable?: boolean;
+  // Beyond the message itself, does the sender point people somewhere: a strong target in
+  // the name, bio or a contact card? And has anyone talked with them?
+  pointsElsewhere: boolean;
+  sociable: boolean;
   now: number;
+}
+
+// The penalty grows with the evidence, as no rule is sure. How much each shape says on
+// its own: people share links and forwards; a bare bot handle or a flood rarely comes
+// from a person. A target on the profile is what an ad needs, so it weighs most.
+const WEIGHT: Record<SpamReason, number> = {
+  link: 1,
+  forward: 1,
+  mentions: 2,
+  inline_bot: 2,
+  keyword: 2,
+  bot_promo: 3,
+  repeated: 3,
+  cross_group_duplicate: 5,
+};
+export const BAN_AT = 5;
+const MINUTE = 60 * 1000;
+// By score: 1 is the Python bot's 3 minutes, enough to break a burst; 4 is a day.
+const MUTE_FOR = [3 * MINUTE, 3 * MINUTE, 60 * MINUTE, 6 * 60 * MINUTE, 24 * 60 * MINUTE];
+
+export function score(j: Judgement, reason: SpamReason): number {
+  return WEIGHT[reason] + (j.pointsElsewhere ? 2 : 0) - (j.sociable ? 1 : 0) + 2 * j.priorOffenses;
 }
 
 export function judge(j: Judgement): Verdict {
   const reason = j.reason ?? (j.duplicateElsewhere ? "cross_group_duplicate" : j.repeatedHere ? "repeated" : null);
   if (!reason) return { action: "allow" };
-  // A flood that points elsewhere from someone nobody talks with is an ad campaign: all 35
-  // floods muted on 2026-11-12 were, and their earlier copies stayed in the group until a
-  // ban removed them.
-  const campaign = reason === "repeated" && j.pointsElsewhere === true && j.sociable === false;
-  if (reason === "cross_group_duplicate" || campaign || j.priorOffenses + 1 >= BLOCK_AFTER_OFFENSES) {
-    return { action: "burn", reason };
-  }
-  return { action: "mute", reason, until: j.now + MUTE_MS };
+  const s = Math.max(1, score(j, reason));
+  if (s >= BAN_AT) return { action: "burn", reason, score: s };
+  return { action: "mute", reason, score: s, until: j.now + MUTE_FOR[s] };
 }
 
-// Accounts with enough recent offenses may not join any Kitan group.
-export function isBlocked(offenses: number): boolean {
-  return offenses >= BLOCK_AFTER_OFFENSES;
+// An account Kitan banned lately may not join any Kitan group; a mute alone does not bar it.
+export function isBlocked(bans: number): boolean {
+  return bans > 0;
 }
 
 // High-confidence spam shapes only; anything a newcomer plausibly sends is allowed.

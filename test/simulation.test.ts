@@ -123,15 +123,18 @@ test("a farm account that buys Turnstile solves, then advertises in two groups",
     expect(await w.completeCheck(7, chat)).toBe(200);
   }
   w.calls = [];
+  // Each offense weighs more: a link alone is 3 minutes, the next one 6 hours, the third a ban.
   await w.say(7, A, "Earn $500/day, DM me t.me/quickcash");
   expect(actionsOn(w, 7)).toEqual([`restrictChatMember@${A}`]);
   await w.say(7, B, "日赚五百", { forward_origin: { type: "channel" } });
+  await w.say(7, A, "DM me t.me/quickcash2");
+  expect(w.events(7, "action").map((a) => `${a.detail.action}:${a.detail.score}`)).toEqual(["mute:1", "mute:3", "burn:5"]);
   expect(w.callsTo("banChatMember").map((c) => c.params.chat_id).sort()).toEqual([String(A), String(B)]);
 
   w.calls = [];
   await w.requestJoin(7, C);
   expect(w.latestAttempt(7, C)).toMatchObject({ status: "declined", error: "kitan_blocklist" });
-  record("solver-backed farm account", "muted on 1st ad, banned from A and B on 2nd, refused by C");
+  record("solver-backed farm account", "3 min, then 6 h, banned from A and B on the 3rd ad, refused by C");
 });
 
 test("a farm account that pastes one ad into several groups", async () => {

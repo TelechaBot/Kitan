@@ -2,9 +2,9 @@
 // performs the effects. Performing an effect is the only place the guard-bot
 // and DM paths differ.
 import { type Attempt, type JoinEffect, type JoinEvent, MISS_WINDOW_MS, type Refusal, intake, step } from "./attempt";
-import { countMisses, countOffenses, insertAttempt, noteChat, recordEvent, save, unreachableFor, waitingDue } from "./db";
+import { countBans, countMisses, insertAttempt, noteChat, recordEvent, save, unreachableFor, waitingDue } from "./db";
 import { type Lang, pickLang, t } from "./i18n";
-import { OFFENSE_WINDOW_MS, isBlocked } from "./probation";
+import { BAN_AT, OFFENSE_WINDOW_MS, isBlocked } from "./probation";
 import { callTelegram, isRefused, log, messageOf } from "./telegram";
 import type { ChatJoinRequest, Env, Message } from "./types";
 
@@ -24,8 +24,8 @@ export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: 
       username: request.from.username,
     },
   }, now).catch((error) => log("footprint_failed", { kind: "join_request", error: messageOf(error) }));
-  const [offenses, lols, misses] = await Promise.all([
-    countOffenses(env.DB, userId, now - OFFENSE_WINDOW_MS),
+  const [bans, lols, misses] = await Promise.all([
+    countBans(env.DB, userId, now - OFFENSE_WINDOW_MS, BAN_AT),
     lolsBanned(userId),
     countMisses(env.DB, chatId, userId, now - MISS_WINDOW_MS),
   ]);
@@ -36,7 +36,7 @@ export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: 
     delivery: request.query_id
       ? { kind: "guard", queryId: request.query_id }
       : { kind: "dm", token: crypto.randomUUID().replace(/-/g, ""), messageId: null },
-    blocked: isBlocked(offenses),
+    blocked: isBlocked(bans),
     lols,
     misses,
     at: now,

@@ -333,11 +333,11 @@ async function enforceRules(
   if (!reason && !duplicateElsewhere && !repeatedHere) return { enforced: null, seenBefore };
 
   const priorOffenses = await countOffenses(env.DB, userId, ctx.now - OFFENSE_WINDOW_MS);
-  const campaign = repeatedHere ? await campaignSigns(env, message, from, trajectory) : {};
-  const verdict = judge({ reason, duplicateElsewhere, repeatedHere, priorOffenses, ...campaign, now: ctx.now });
+  const signs = await senderSigns(env, message, from, trajectory);
+  const verdict = judge({ reason, duplicateElsewhere, repeatedHere, priorOffenses, ...signs, now: ctx.now });
   if (verdict.action === "allow") return { enforced: null, seenBefore };
 
-  await insertOffense(env.DB, userId, chatId, verdict.reason, ctx.now);
+  await insertOffense(env.DB, userId, chatId, verdict.reason, verdict.score, ctx.now);
   await act(env, "deleteMessage", { chat_id: chatId, message_id: message.message_id });
   if (verdict.action === "mute") {
     const until = Math.floor(verdict.until / 1000);
@@ -361,7 +361,7 @@ async function enforceRules(
     await burn(env, chatId, userId, ctx.now);
   }
   const words = verdict.reason === "keyword" ? bannedWords(messageText(message)) : undefined;
-  const done = { rule: verdict.reason, action: verdict.action, words, ...campaign };
+  const done = { rule: verdict.reason, action: verdict.action, score: verdict.score, prior: priorOffenses, words, ...signs };
   await footprint(env, chatId, userId, "action", done, ctx.now);
   log(verdict.action === "mute" ? "spam_muted" : "spam_blocked", { chat_id: chatId, user_id: userId, reason: verdict.reason });
   return { enforced: done, seenBefore };
@@ -373,13 +373,14 @@ async function burn(env: Env, chatId: string, userId: string, now: number) {
   for (const chat of chats) await act(env, "banChatMember", { chat_id: chat, user_id: userId, revoke_messages: true });
 }
 
-// Whether a flooding sender points people somewhere, and whether anyone has talked with them.
-async function campaignSigns(env: Env, message: Message, from: TelegramUser, trajectory: Trajectory) {
+// Beyond the offending message's text: does the sender point people somewhere (name, bio,
+// a contact card), and has anyone talked with them? These move the penalty up or down.
+async function senderSigns(env: Env, message: Message, from: TelegramUser, trajectory: Trajectory) {
   const profile = await readProfile(env.DB, String(from.id));
-  const d: Dossier = { name: displayName(from), bio: profile?.bio ?? undefined, personalChat: profile?.personal_chat ?? undefined, edited: false, text: "" };
+  const card = message.contact ? [message.contact.first_name, message.contact.last_name].filter(Boolean).join(" ") || "card" : undefined;
   const s = social(trajectory);
   return {
-    pointsElsewhere: targetsOf(d, message).some(strong),
+    pointsElsewhere: diversionTargets({ name: displayName(from), bio: profile?.bio ?? undefined, contact: card }).some(strong),
     sociable: s.replies + s.repliedBy + s.stickers > 0,
   };
 }

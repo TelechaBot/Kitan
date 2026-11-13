@@ -2,7 +2,33 @@
 // and messages from accounts removed on 2026-11-12; the ham are things people say.
 import { describe, expect, test } from "bun:test";
 import { bannedWords } from "../src/lexicon";
-import { diversionTargets } from "../src/probation";
+import { type Judgement, diversionTargets, isBlocked, judge } from "../src/probation";
+
+describe("penalties grow with the evidence", () => {
+  const base = { reason: null, duplicateElsewhere: false, repeatedHere: false, priorOffenses: 0, pointsElsewhere: false, sociable: false, now: 0 };
+  const verdict = (j: Partial<Judgement>) => {
+    const v = judge({ ...base, ...j });
+    return v.action === "mute" ? `mute ${v.until / 60_000} min` : v.action;
+  };
+
+  test("a newcomer's first link is three minutes, as in the Python bot", () => {
+    expect(verdict({ reason: "link" })).toBe("mute 3 min");
+  });
+
+  test("a profile that points elsewhere weighs most; being talked with weighs less", () => {
+    expect(verdict({ reason: "keyword" })).toBe("mute 60 min");
+    expect(verdict({ reason: "keyword", pointsElsewhere: true })).toBe("mute 1440 min");
+    expect(verdict({ repeatedHere: true })).toBe("mute 360 min");
+    expect(verdict({ repeatedHere: true, pointsElsewhere: true })).toBe("burn");
+    expect(verdict({ repeatedHere: true, pointsElsewhere: true, sociable: true })).toBe("mute 1440 min");
+  });
+
+  test("each earlier offense adds two, and a ban is what bars an account from joining", () => {
+    expect([0, 1, 2].map((priorOffenses) => verdict({ reason: "link", priorOffenses }))).toEqual(["mute 3 min", "mute 360 min", "burn"]);
+    expect(isBlocked(0)).toBe(false);
+    expect(isBlocked(1)).toBe(true);
+  });
+});
 
 describe("the keyword layer", () => {
   test("the Python bot's chat list, through zero-width padding", () => {

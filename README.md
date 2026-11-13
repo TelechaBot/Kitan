@@ -79,20 +79,31 @@ so Kitan makes each spam attempt cost an account:
   message with a link, four or more @mentions, a forward, an inline-bot
   button, little more than a bot's @handle, a word from the earlier Kitan's
   ad list (such as 代收代付 or 看我主页), or nothing but an offer such as "可约"
-  is deleted, and the sender is muted for 24 hours. So is the fourth copy of the same text or contact card
-  within 15 minutes in one group; if the sender also points people somewhere
-  (a link, an @handle, a contact card, "see my profile", in the message or the
-  bio) and nobody in Kitan's groups has talked with them, the account is banned
-  instead and all its messages removed.
+  is deleted, and so is the fourth copy of the same text or contact card
+  within 15 minutes in one group. How long the sender is muted depends on the
+  evidence, since no rule is certain:
+
+  | evidence | points |
+  |---|---|
+  | a link or a forward | 1 |
+  | four @mentions, an inline-bot button, or a listed word | 2 |
+  | little more than a bot's @handle, or a flood | 3 |
+  | the name, bio or a shared contact card points people somewhere | +2 |
+  | someone in Kitan's groups has talked with them | −1 |
+  | each earlier offence in the last 30 days | +2 |
+
+  1 point mutes for 3 minutes, 2 for an hour, 3 for 6 hours, 4 for a day.
+  5 or more bans the account from every group where it is still new, removes
+  its messages there, and blocks it from joining any Kitan group for 30 days.
+  A newcomer's first link costs 3 minutes; a flood from an account whose bio is
+  an invite link is a ban.
 - **Active members are left alone**, whatever they post, unless their activity
   stops looking like the people in Kitan's groups: a model retrained daily on
   active members' activity (how often and when they post, how much of it is
   links, mentions or forwards, and how that has recently changed) flags the
   account, and Kitan reviews it again. Members who were in a group before
   Kitan and spoke in its first week count as active.
-- **A second offence within 30 days, in any group that uses Kitan**, or the
-  same text posted in two groups, bans the account from every group where it
-  is still new and blocks it from joining any Kitan group.
+- **The same text posted in two groups** within 15 minutes is a ban outright.
 - **Anyone who is not an admin** loses a message that carries a link button.
   A bot or a channel posting one is banned from the group; a member is banned
   on the second time.

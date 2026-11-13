@@ -538,12 +538,22 @@ export async function insertOffense(
   userId: string,
   chatId: string,
   reason: string,
+  score: number,
   now: number,
 ): Promise<void> {
   await db
-    .prepare(`INSERT INTO offenses (user_id, chat_id, reason, at) VALUES (?, ?, ?, ?)`)
-    .bind(userId, chatId, reason, now)
+    .prepare(`INSERT INTO offenses (user_id, chat_id, reason, score, at) VALUES (?, ?, ?, ?, ?)`)
+    .bind(userId, chatId, reason, score, now)
     .run();
+}
+
+// Offenses serious enough to have banned the account (probation.ts BAN_AT).
+export async function countBans(db: D1Database, userId: string, since: number, banAt: number): Promise<number> {
+  const row = await db
+    .prepare(`SELECT count(*) AS n FROM offenses WHERE user_id = ? AND at > ? AND score >= ?`)
+    .bind(userId, since, banAt)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 // Records the hash and counts this user's earlier copies of it since `since`, here and elsewhere.
