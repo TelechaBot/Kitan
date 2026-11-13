@@ -1,8 +1,8 @@
 // One-off notes to the admins of every group Kitan serves. Each admin gets a
 // note once per group: by DM when they have talked to the bot, otherwise as an
 // ephemeral message in the group, which Telegram delivers only if they are online.
-import { chatsSeen } from "./db";
-import { callTelegram, isRefused, log, messageOf } from "./telegram";
+import { type LinkTally, chatTitle, chatsSeen, inviteLinksWithAds, lastNoticeAt, recordNotice } from "./db";
+import { botUsername, callTelegram, isRefused, log, messageOf } from "./telegram";
 import type { Env } from "./types";
 
 // Bump the id when the text changes in substance, so admins receive the new note.
@@ -75,6 +75,60 @@ export async function notifyAdmins(env: Env, send: boolean, now: number) {
     report.push({ group, admins: people.length, already_notified: done.size, ...(send ? sent : { to_notify: todo.length }) });
   }
   return { notice: NOTICE_ID, sent: send, groups: report };
+}
+
+// ---------- invite links that bring in ads ----------
+
+// Invite links let people in without the bot's check, by design: an admin hands them to
+// people they trust. Rarely, a link travels further and brings mostly ad accounts; then,
+// and only then, the owner hears about it, once in 30 days per link. On 2026-11-13 four
+// links in one group had brought 85 people in a week, 69 of whom the bot removed.
+const LINK_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const LINK_MIN_REMOVED = 10;
+const LINK_QUIET_MS = 30 * 24 * 60 * 60 * 1000;
+
+function linkNoticeText(bot: string, group: string, links: LinkTally[]): string {
+  const lines = links.map((l) => {
+    const by = l.creator ? `, made by ${l.creator.replace(/^(user|bot):/, "")}` : "";
+    return `• "${l.link}"${by}: ${l.joined} joined, ${l.removed} removed or muted`;
+  });
+  return [
+    `Hi! A note from @${bot} about ${group}.`,
+    "",
+    `In the last 7 days, most people who joined through ${links.length === 1 ? "this invite link were" : "these invite links were"} ad accounts, which the bot removed or muted for posting ads:`,
+    ...lines,
+    "",
+    "People who join through an invite link don't go through the bot's join check. If a link has travelled " +
+      "further than you meant, you can revoke it, or turn on \"Request admin approval\" for it under Group settings → " +
+      "Invite links, so the bot checks the people who use it.",
+    "",
+    `You won't hear about ${links.length === 1 ? "this link" : "these links"} again for 30 days.`,
+  ].join("\n");
+}
+
+// Run daily. Each group's owner gets one note listing its links that crossed the line.
+export async function noticeInviteLinks(env: Env, now: number): Promise<void> {
+  const byChat = new Map<string, LinkTally[]>();
+  for (const tally of await inviteLinksWithAds(env.DB, now - LINK_WINDOW_MS, LINK_MIN_REMOVED)) {
+    const last = await lastNoticeAt(env.DB, `invite-link:${tally.link}`, tally.chatId);
+    if (last !== null && now - last < LINK_QUIET_MS) continue;
+    byChat.set(tally.chatId, [...(byChat.get(tally.chatId) ?? []), tally]);
+  }
+  if (!byChat.size) return;
+  const bot = await botUsername(env);
+  for (const [chatId, links] of byChat) {
+    const group = (await chatTitle(env.DB, chatId)) ?? chatId;
+    const admins = await callTelegram<Admin[]>(env, "getChatAdministrators", { chat_id: chatId }).catch((error) => {
+      log("link_notice_admins_failed", { chat_id: chatId, error: messageOf(error) });
+      return [];
+    });
+    const text = linkNoticeText(bot, group, links);
+    for (const owner of recipients(admins)) {
+      const via = await deliver(env, chatId, String(owner.user.id), text);
+      for (const l of links) await recordNotice(env.DB, `invite-link:${l.link}`, chatId, String(owner.user.id), via, now);
+      log("link_notice_sent", { chat_id: chatId, links: links.length, via });
+    }
+  }
 }
 
 async function deliver(env: Env, chatId: string, userId: string, text: string): Promise<Via> {

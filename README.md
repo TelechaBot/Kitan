@@ -129,7 +129,11 @@ working and the models wait. If Kitan removes
 someone by mistake, unban them in the group settings.
 
 Use only one bot to screen a group's join requests. A person another bot lets
-in skips Kitan's check, so only the message review applies to them.
+in skips Kitan's check, so only the message review applies to them. So does
+anyone who joins through an invite link that doesn't require approval, by
+design. If such a link brings in mostly ad accounts (at least 10 in a week,
+and at least half of those who used it), Kitan tells the group owner once,
+privately, and does not mention that link again for 30 days.
 
 ## Run your own copy
 

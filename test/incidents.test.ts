@@ -3,6 +3,7 @@
 // records enough to reconstruct each case. Whether models catch them is measured
 // by bench/, against the real models; the model here is a stand-in.
 import { beforeEach, expect, test } from "bun:test";
+import { noticeInviteLinks } from "../src/notice";
 import { empty, step } from "../src/trajectory";
 import { World } from "./harness";
 
@@ -138,6 +139,39 @@ test("an offer with nowhere to point is the keyword layer's: muted without askin
   expect(w.callsTo("restrictChatMember")).toHaveLength(1);
   expect(w.events(50, "action")[0].detail).toMatchObject({ rule: "keyword", action: "mute", words: ["可约"] });
   expect(w.aiCalls).toHaveLength(0);
+});
+
+test("rarely, an invite link that brings mostly ads earns its owner one quiet note", async () => {
+  // People who join through an invite link skip the check by design; four links on
+  // 2026-11-13 brought 85 people in a week, 69 of them ad accounts.
+  const viaLink = (userId: number, chatId: number, link: string) =>
+    w.hook({
+      chat_member: {
+        chat: { id: chatId, type: "supergroup", title: "牛仔资本" },
+        from: { id: userId },
+        old_chat_member: { status: "left", user: { id: userId } },
+        new_chat_member: { status: "member", user: { id: userId } },
+        invite_link: { name: link, creator: { id: 900, username: "an_admin" } },
+      },
+    });
+  for (let i = 0; i < 12; i++) {
+    await viaLink(600 + i, GROUP, "Leah baby");
+    if (i < 10) await w.say(600 + i, GROUP, "日赚五百 https://t.me/+abc");
+  }
+  for (let i = 0; i < 9; i++) {
+    await viaLink(700 + i, -2003, "小🐯");
+    await w.say(700 + i, -2003, "日赚五百 https://t.me/+abc");
+  }
+  w.admins = [{ id: 900, status: "creator" }, { id: 901 }];
+  w.calls = [];
+  await noticeInviteLinks(w.env, Date.now());
+  const notes = w.callsTo("sendMessage");
+  expect(notes.map((n) => n.params.chat_id)).toEqual(["900"]); // the owner, by DM; the 9-of-9 link is below the bar
+  expect(notes[0].params.text).toContain('"Leah baby", made by @an_admin: 12 joined, 10 removed or muted');
+
+  w.calls = [];
+  await noticeInviteLinks(w.env, Date.now() + 24 * 60 * 60 * 1000);
+  expect(w.callsTo("sendMessage")).toHaveLength(0); // not again within 30 days
 });
 
 test("a copy of what someone just sent is not judged by the models again", async () => {

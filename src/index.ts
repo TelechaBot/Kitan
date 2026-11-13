@@ -5,7 +5,7 @@ import { type Appeal, chatTitle, chatsSeen, findAttempt, markAppealOpened, markO
 import { pickLang, t } from "./i18n";
 import { advance, expirePending, onJoinRequest, resumeFor } from "./join";
 import { type Context, hourly, onGroupMessage, onMemberUpdate } from "./moderation";
-import { notifyAdmins } from "./notice";
+import { noticeInviteLinks, notifyAdmins } from "./notice";
 import { renderPage } from "./page";
 import { botUsername, callTelegram, isGone, log, messageOf } from "./telegram";
 import { verifyTurnstile } from "./turnstile";
@@ -72,7 +72,10 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     const now = Date.now();
     await expirePending(env, now);
-    if (new Date(now).getUTCMinutes() === 0) await hourly(env, now);
+    const at = new Date(now);
+    if (at.getUTCMinutes() === 0) await hourly(env, now);
+    // Once a day, at 17:00 in China where most groups are, while owners are awake.
+    if (at.getUTCMinutes() === 0 && at.getUTCHours() === 9) await noticeInviteLinks(env, now);
   },
 } satisfies ExportedHandler<Env>;
 

@@ -422,6 +422,51 @@ export async function countingSince(db: D1Database): Promise<number> {
   return value;
 }
 
+// ---------- invite links ----------
+
+export interface LinkTally {
+  chatId: string;
+  link: string;
+  creator: string | null; // "user:@name" or "user:<id>", as footprints record it
+  joined: number;
+  removed: number; // of those, muted or banned by Kitan in that group since
+}
+
+// Invite links that brought in mostly ad accounts lately: at least `minRemoved` of the
+// people who joined through them since `since`, and at least half.
+export async function inviteLinksWithAds(db: D1Database, since: number, minRemoved: number): Promise<LinkTally[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT j.chat_id, json_extract(j.detail, '$.invite_link') AS link, json_extract(j.detail, '$.invite_link_creator') AS creator,
+              count(DISTINCT j.user_id) AS joined, count(DISTINCT o.user_id) AS removed
+       FROM events j
+       LEFT JOIN offenses o ON o.user_id = j.user_id AND o.chat_id = j.chat_id AND o.at >= j.at
+       WHERE j.kind = 'join' AND j.at > ? AND json_extract(j.detail, '$.invite_link') IS NOT NULL
+       GROUP BY 1, 2, 3
+       HAVING removed >= ? AND removed * 2 >= joined
+       ORDER BY 1, removed DESC`,
+    )
+    .bind(since, minRemoved)
+    .all<{ chat_id: string; link: string; creator: string | null; joined: number; removed: number }>();
+  return results.map((r) => ({ chatId: r.chat_id, link: r.link, creator: r.creator, joined: r.joined, removed: r.removed }));
+}
+
+// When the owner of this group last heard about this link.
+export async function lastNoticeAt(db: D1Database, notice: string, chatId: string): Promise<number | null> {
+  const row = await db
+    .prepare(`SELECT max(at) AS at FROM admin_notices WHERE notice = ? AND chat_id = ?`)
+    .bind(notice, chatId)
+    .first<{ at: number | null }>();
+  return row?.at ?? null;
+}
+
+export async function recordNotice(db: D1Database, notice: string, chatId: string, userId: string, via: string, now: number) {
+  await db
+    .prepare(`INSERT OR REPLACE INTO admin_notices (notice, chat_id, user_id, via, at) VALUES (?, ?, ?, ?, ?)`)
+    .bind(notice, chatId, userId, via, now)
+    .run();
+}
+
 // ---------- appeals ----------
 
 export interface Appeal {
