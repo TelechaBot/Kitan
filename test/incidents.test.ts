@@ -59,18 +59,30 @@ test("a bot-username drop, posted and then edited: caught on the post and on the
   expect(w.events(23, "action").map((a) => a.detail.rule)).toEqual(["bot_promo", "bot_promo"]);
 });
 
-test("the same short line every few minutes in one group: muted on the fourth, banned on the next flood", async () => {
+test("a flood that points elsewhere, from someone nobody talks with, is banned with all its copies", async () => {
   // 2026-11-12: "搞钱", in through an admin's invite link, posted "最新项目" 65 times in 3 hours.
   w.bios.set(34, "最新项目 小白可做 秒下款 公群：https://t.me/+abc");
   await w.join(34, GROUP, { id: 900, username: "an_admin" }, { first_name: "搞钱" });
   for (let i = 0; i < 3; i++) await w.say(34, GROUP, "最新项目");
   expect(w.callsTo("deleteMessage")).toHaveLength(0);
   await w.say(34, GROUP, "最新项目");
-  expect(w.callsTo("deleteMessage")).toHaveLength(1);
-  expect(w.callsTo("restrictChatMember")).toHaveLength(1);
-  await w.say(34, GROUP, "最新项目"); // a muted account cannot post; in case it still does
   expect(w.callsTo("banChatMember").map((c) => c.params)).toEqual([{ chat_id: String(GROUP), user_id: "34", revoke_messages: true }]);
-  expect(w.events(34, "action").map((a) => a.detail.rule)).toEqual(["repeated", "repeated"]);
+  expect(w.events(34, "action")[0].detail).toMatchObject({ rule: "repeated", action: "burn", pointsElsewhere: true, sociable: false });
+});
+
+test("a flood with nowhere to send people, or from someone others answer, is only muted", async () => {
+  await w.join(44, GROUP, KITAN);
+  for (let i = 0; i < 4; i++) await w.say(44, GROUP, "有人在吗？？");
+  expect(w.callsTo("restrictChatMember")).toHaveLength(1);
+  expect(w.callsTo("banChatMember")).toHaveLength(0);
+
+  w.bios.set(45, "博客 https://example.org");
+  await w.join(45, GROUP, KITAN);
+  const id = await w.say(45, GROUP, "求助");
+  await w.say(46, GROUP, "怎么了", { reply_to_message: { message_id: id, from: { id: 45 } } });
+  for (let i = 0; i < 3; i++) await w.say(45, GROUP, "求助");
+  expect(w.callsTo("restrictChatMember")).toHaveLength(2);
+  expect(w.callsTo("banChatMember")).toHaveLength(0);
 });
 
 test("the same contact card again and again is a flood too", async () => {
@@ -79,7 +91,7 @@ test("the same contact card again and again is a flood too", async () => {
   for (let i = 0; i < 4; i++) {
     await w.say(38, GROUP, "", { contact: { phone_number: "+1 555 0100", first_name: "客服", user_id: 4242 } });
   }
-  expect(w.callsTo("restrictChatMember")).toHaveLength(1);
+  expect(w.callsTo("banChatMember")).toHaveLength(1); // a contact card is somewhere to go
   const verdict = w.events(38, "verdict").find((v) => v.detail.on === "message")!.detail;
   expect(verdict.dossier).toMatchObject({ kind: "contact", text: "[contact card: 客服]" });
   expect(JSON.stringify(w.events(38))).not.toContain("555");

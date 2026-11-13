@@ -79,7 +79,10 @@ so Kitan makes each spam attempt cost an account:
   message with a link, four or more @mentions, a forward, an inline-bot
   button, or little more than a bot's @handle is deleted, and the sender is
   muted for 24 hours. So is the fourth copy of the same text or contact card
-  within 15 minutes in one group.
+  within 15 minutes in one group; if the sender also points people somewhere
+  (a link, an @handle, a contact card, "see my profile", in the message or the
+  bio) and nobody in Kitan's groups has talked with them, the account is banned
+  instead and all its messages removed.
 - **Active members are left alone**, whatever they post, unless their activity
   stops looking like the people in Kitan's groups: a model retrained daily on
   active members' activity (how often and when they post, how much of it is

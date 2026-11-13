@@ -62,13 +62,21 @@ export interface Judgement {
   duplicateElsewhere: boolean; // same text from this user in another group within DUPLICATE_WINDOW_MS
   repeatedHere: boolean; // this text REPEAT_AT times in this group within DUPLICATE_WINDOW_MS
   priorOffenses: number; // this user's offenses within OFFENSE_WINDOW_MS, any group
+  // Only read for a flood: does the sender point people somewhere (a strong target), and
+  // has anyone talked with them?
+  pointsElsewhere?: boolean;
+  sociable?: boolean;
   now: number;
 }
 
 export function judge(j: Judgement): Verdict {
   const reason = j.reason ?? (j.duplicateElsewhere ? "cross_group_duplicate" : j.repeatedHere ? "repeated" : null);
   if (!reason) return { action: "allow" };
-  if (reason === "cross_group_duplicate" || j.priorOffenses + 1 >= BLOCK_AFTER_OFFENSES) {
+  // A flood that points elsewhere from someone nobody talks with is an ad campaign: all 35
+  // floods muted on 2026-11-12 were, and their earlier copies stayed in the group until a
+  // ban removed them.
+  const campaign = reason === "repeated" && j.pointsElsewhere === true && j.sociable === false;
+  if (reason === "cross_group_duplicate" || campaign || j.priorOffenses + 1 >= BLOCK_AFTER_OFFENSES) {
     return { action: "burn", reason };
   }
   return { action: "mute", reason, until: j.now + MUTE_MS };
@@ -132,6 +140,11 @@ const TARGETS: [TargetKind, RegExp][] = [
 // Spam writes "t。me", "t . me" and hides zero-width characters to slip past filters.
 function plain(text: string): string {
   return text.normalize("NFKC").replace(/[​-‏⁠﻿]/g, "").replace(/\s*[。．·]\s*/g, ".").replace(/t\s*\.\s*me/gi, "t.me");
+}
+
+// A profile channel is weak evidence: people keep personal channels too ("来日纵是遇人千万").
+export function strong(t: Target): boolean {
+  return t.kind !== "channel";
 }
 
 export function diversionTargets(where: {

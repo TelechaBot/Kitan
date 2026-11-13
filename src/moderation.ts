@@ -49,6 +49,7 @@ import {
   sameness,
   diversionTargets,
   spamReason,
+  strong,
 } from "./probation";
 import { callTelegram, log, messageOf } from "./telegram";
 import { type Trajectory, accountYears, features, social, step } from "./trajectory";
@@ -261,7 +262,7 @@ export async function onGroupMessage(env: Env, message: Message, ctx: Context): 
     facts: messageFacts(message),
   }, ctx.now);
 
-  const { enforced, seenBefore } = await enforceRules(env, message, from, ctx);
+  const { enforced, seenBefore } = await enforceRules(env, message, from, ctx, trajectory);
   // A copy of what they just sent gets the same answer; floods would otherwise cost the most.
   if (!seenBefore) ctx.background(shadow(env, message, from, { ...standing, trajectory }, review, ctx, enforced));
 }
@@ -305,6 +306,7 @@ async function enforceRules(
   message: Message,
   from: TelegramUser,
   ctx: Context,
+  trajectory: Trajectory,
 ): Promise<{ enforced: { rule: string; action: string } | null; seenBefore: boolean }> {
   const chatId = String(message.chat.id);
   const userId = String(from.id);
@@ -320,7 +322,8 @@ async function enforceRules(
   if (!reason && !duplicateElsewhere && !repeatedHere) return { enforced: null, seenBefore };
 
   const priorOffenses = await countOffenses(env.DB, userId, ctx.now - OFFENSE_WINDOW_MS);
-  const verdict = judge({ reason, duplicateElsewhere, repeatedHere, priorOffenses, now: ctx.now });
+  const campaign = repeatedHere ? await campaignSigns(env, message, from, trajectory) : {};
+  const verdict = judge({ reason, duplicateElsewhere, repeatedHere, priorOffenses, ...campaign, now: ctx.now });
   if (verdict.action === "allow") return { enforced: null, seenBefore };
 
   await insertOffense(env.DB, userId, chatId, verdict.reason, ctx.now);
@@ -344,15 +347,29 @@ async function enforceRules(
       ephemeral_message_parameters: { receiver_user_id: from.id },
     });
   } else {
-    // Ban the account wherever it is still new, removing its messages there too.
-    for (const chat of await chatsJoinedSince(env.DB, userId, ctx.now - 7 * 24 * 60 * 60 * 1000)) {
-      await act(env, "banChatMember", { chat_id: chat, user_id: userId, revoke_messages: true });
-    }
+    await burn(env, chatId, userId, ctx.now);
   }
-  const done = { rule: verdict.reason, action: verdict.action };
+  const done = { rule: verdict.reason, action: verdict.action, ...campaign };
   await footprint(env, chatId, userId, "action", done, ctx.now);
   log(verdict.action === "mute" ? "spam_muted" : "spam_blocked", { chat_id: chatId, user_id: userId, reason: verdict.reason });
   return { enforced: done, seenBefore };
+}
+
+// Bans the account in this group and wherever else it is still new, removing its messages.
+async function burn(env: Env, chatId: string, userId: string, now: number) {
+  const chats = new Set([chatId, ...(await chatsJoinedSince(env.DB, userId, now - 7 * 24 * 60 * 60 * 1000))]);
+  for (const chat of chats) await act(env, "banChatMember", { chat_id: chat, user_id: userId, revoke_messages: true });
+}
+
+// Whether a flooding sender points people somewhere, and whether anyone has talked with them.
+async function campaignSigns(env: Env, message: Message, from: TelegramUser, trajectory: Trajectory) {
+  const profile = await readProfile(env.DB, String(from.id));
+  const d: Dossier = { name: displayName(from), bio: profile?.bio ?? undefined, personalChat: profile?.personal_chat ?? undefined, edited: false, text: "" };
+  const s = social(trajectory);
+  return {
+    pointsElsewhere: targetsOf(d, message).some(strong),
+    sociable: s.replies + s.repliedBy + s.stickers > 0,
+  };
 }
 
 // Every detector's opinion on this message, recorded for the benchmark; none of it acts.
