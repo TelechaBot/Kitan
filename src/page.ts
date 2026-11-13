@@ -112,10 +112,15 @@ export function renderPage(siteKey: string): string {
   document.documentElement.lang = lang;
   document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
   const M = MESSAGES[lang];
+  // A token from a mute notice: the same check, to lift the mute instead of to join.
+  const appeal = /^u[0-9a-f]{24}$/.test(token);
+  const named = (text, chat) => text.replace("{chat}", "\\u2068" + chat + "\\u2069");
   const T = Object.assign({}, M, {
-    title: (chat) => chat ? M.title.replace("{chat}", "\\u2068" + chat + "\\u2069") : M.titleGeneric,
+    title: (chat) => appeal
+      ? (chat ? named(M.appealTitle, chat) : M.appealTitleGeneric)
+      : (chat ? named(M.title, chat) : M.titleGeneric),
     expires: (t) => M.expires.replace("{t}", t),
-  });
+  }, appeal ? { lede: M.appealLede, success: M.unmuted, expired: M.appealNone, done: M.unmuted } : {});
 
   const ICONS = {
     loading: '<circle cx="8" cy="8" r="6" opacity=".25"/><path class="spin" d="M14 8a6 6 0 0 0-6-6"/>',
@@ -181,6 +186,7 @@ export function renderPage(siteKey: string): string {
 
   function errorFor(status) {
     if (status === 404 || status === 410) return { text: T.expired, terminal: true };
+    if (status === 403 && appeal) return { text: T.appealUsed, terminal: true };
     if (status === 409) return { text: T.done, terminal: true };
     if (status === 400) return { text: T.failed, terminal: false };
     return { text: T.busy, terminal: false };

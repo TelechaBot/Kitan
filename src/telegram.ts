@@ -32,6 +32,36 @@ export async function callTelegram<T = unknown>(
   return body.result as T;
 }
 
+// Everything a member may send, all off (a mute) or all on (lifting it; the group's own
+// defaults still apply on top).
+export function sendPermissions(allowed: boolean) {
+  return {
+    can_send_messages: allowed,
+    can_send_audios: allowed,
+    can_send_documents: allowed,
+    can_send_photos: allowed,
+    can_send_videos: allowed,
+    can_send_video_notes: allowed,
+    can_send_voice_notes: allowed,
+    can_send_polls: allowed,
+    can_send_other_messages: allowed,
+    can_add_web_page_previews: allowed,
+  };
+}
+
+let username: Promise<string> | null = null;
+
+// Looked up once per Worker instance, so self-hosted copies link to their own bot.
+export function botUsername(env: Env): Promise<string> {
+  username ??= callTelegram<{ username: string }>(env, "getMe", {})
+    .then((me) => me.username)
+    .catch((error) => {
+      username = null;
+      throw error;
+    });
+  return username;
+}
+
 // Telegram forbids the bot to start a conversation with this person: their
 // privacy settings, another admin wrote to them first, or they blocked the bot.
 // Once they press Start in the bot, messages go through.

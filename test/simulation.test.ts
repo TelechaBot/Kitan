@@ -160,18 +160,42 @@ test("a farm account on the guard-bot path", async () => {
   record("mass-mention spammer (guard path)", "muted on the 1st mention flood");
 });
 
-test("cost: a real newcomer shares a link on day one", async () => {
+test("cost: a real newcomer shares a link, is muted for 3 minutes, and lifts it with the check", async () => {
   const w = new World();
   await w.requestJoin(10, A);
   await w.completeCheck(10, A);
+  w.calls = [];
   await w.say(10, A, "the docs are at https://example.org/guide");
-  expect(w.methods()).toContain("restrictChatMember");
+  const mute = w.callsTo("restrictChatMember")[0].params;
+  expect(mute.until_date * 1000 - Date.now()).toBeLessThan(3 * 60_000 + 5_000);
   expect(w.methods()).not.toContain("banChatMember");
-  // Only they are told why, and until when, in their own time zone.
-  const note = w.callsTo("sendMessage").find((c) => c.params.ephemeral_message_parameters);
-  expect(note?.params).toMatchObject({ chat_id: String(A), parse_mode: "HTML", ephemeral_message_parameters: { receiver_user_id: 10 } });
-  expect(note?.params.text).toMatch(/^Your message was removed because .* from ⁨<tg-time unix="\d+" format="dt">/);
-  record("COST newcomer posting a link", "message deleted, muted for day one, told why privately");
+
+  // Only they see why, until when (in their own time zone), and a way out.
+  const note = w.callsTo("sendMessage").find((c) => c.params.ephemeral_message_parameters)!.params;
+  expect(note).toMatchObject({ chat_id: String(A), parse_mode: "HTML", ephemeral_message_parameters: { receiver_user_id: 10 } });
+  expect(note.text).toMatch(/from ⁨<tg-time unix="\d+" format="dt">/);
+  const link = note.reply_markup.inline_keyboard[0][0].url as string;
+  expect(link).toMatch(/^https:\/\/t\.me\/test_bot\?start=u[0-9a-f]{24}$/);
+  const token = link.split("start=")[1];
+
+  // The button opens the bot, which offers the same check as at the door.
+  await w.startBot(10, token);
+  const offer = w.callsTo("sendMessage").at(-1)!.params;
+  expect(offer.chat_id).toBe(10);
+  expect(offer.reply_markup.inline_keyboard[0][0].web_app.url).toContain(`token=${token}`);
+
+  expect(await w.appeal(99, token)).toBe(410); // someone else holding the link gets nothing
+  expect(await w.appeal(10, token)).toBe(200);
+  expect(w.callsTo("restrictChatMember").at(-1)!.params.permissions.can_send_messages).toBe(true);
+  expect(w.callsTo("sendMessage").at(-1)!.params).toMatchObject({ chat_id: String(A), ephemeral_message_parameters: { receiver_user_id: 10 } });
+  expect(w.events(10, "appeal")[0].detail).toMatchObject({ rule: "link", score: 1, solve_ms: 2000 });
+
+  // Once in 30 days: the next mute has to be waited out, or lifted by an admin.
+  expect(await w.appeal(10, token)).toBe(410);
+  await w.say(10, A, "and the repo is https://example.org/repo");
+  const next = w.callsTo("sendMessage").at(-1)!.params.reply_markup.inline_keyboard[0][0].url.split("start=")[1];
+  expect(await w.appeal(10, next)).toBe(403);
+  record("COST newcomer posting a link", "muted 3 min, told why privately, lifted it by passing the check");
 });
 
 test("a spam account that stays quiet past its first week, then advertises", async () => {

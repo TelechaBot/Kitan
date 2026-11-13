@@ -210,11 +210,24 @@ export class World {
     return rows.filter((r) => !kind || r.kind === kind).map((r) => ({ kind: r.kind, detail: JSON.parse(r.detail) }));
   }
 
-  // The person opens the bot and presses Start.
-  startBot(userId: number): Promise<Response> {
+  // The person opens the bot and presses Start, perhaps from a link carrying a payload.
+  startBot(userId: number, payload?: string): Promise<Response> {
     return this.hook({
-      message: { message_id: this.nextMessage++, chat: { id: userId, type: "private" }, from: { id: userId }, text: "/start" },
+      message: {
+        message_id: this.nextMessage++,
+        chat: { id: userId, type: "private" },
+        from: { id: userId },
+        text: payload ? `/start ${payload}` : "/start",
+      },
     });
+  }
+
+  // Opens the check from a mute notice's button and passes it. Returns the HTTP status.
+  async appeal(userId: number, token: string): Promise<number> {
+    const body = { initData: await this.initData(userId), token };
+    const opened = await this.post("/api/open", body);
+    if (!opened.ok) return opened.status;
+    return (await this.post("/api/verify", { ...body, turnstileToken: "t", solveMs: 2000 })).status;
   }
 
   memberUpdate(userId: number, chatId: number, status: string, by = { id: 999, username: "an_admin" }): Promise<Response> {

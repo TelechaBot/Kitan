@@ -1,14 +1,15 @@
 import { type Attempt, type Refusal, openForUser } from "./attempt";
 import { constantTimeEqual, verifyInitData } from "./crypto";
-import { chatsSeen, findAttempt, markOpened, recordTry, recordTurnstileError } from "./db";
+import { checkAppeal, isAppealToken, passAppeal, startAppeal } from "./appeal";
+import { type Appeal, chatTitle, chatsSeen, findAttempt, markAppealOpened, markOpened, recordAppealTry, recordTry, recordTurnstileError } from "./db";
 import { pickLang, t } from "./i18n";
 import { advance, expirePending, onJoinRequest, resumeFor } from "./join";
 import { type Context, hourly, onGroupMessage, onMemberUpdate } from "./moderation";
 import { notifyAdmins } from "./notice";
 import { renderPage } from "./page";
-import { callTelegram, isGone, log, messageOf } from "./telegram";
+import { botUsername, callTelegram, isGone, log, messageOf } from "./telegram";
 import { verifyTurnstile } from "./turnstile";
-import type { Env, Message, Update } from "./types";
+import type { Env, InitData, Message, Update } from "./types";
 
 const INIT_DATA_MAX_AGE_S = 15 * 60;
 const ALLOWED_UPDATES = ["chat_join_request", "chat_member", "message", "edited_message"];
@@ -116,6 +117,12 @@ async function onMessage(env: Env, message: Message, origin: string, ctx: Contex
     return;
   }
   if (message.chat.type !== "private" || !message.from || !message.text?.startsWith("/start")) return;
+  // From the button on a mute notice: "/start u…".
+  const payload = message.text.split(/\s+/)[1];
+  if (isAppealToken(payload)) {
+    await startAppeal(env, message.from, payload, origin, ctx.now);
+    return;
+  }
   // Someone the bot could not message first has now opened the chat: send their checks.
   const lang = pickLang(message.from.language_code);
   if ((await resumeFor(env, message.from.id, lang, origin, ctx.now)) > 0) return;
@@ -130,18 +137,6 @@ async function onMessage(env: Env, message: Message, origin: string, ctx: Contex
 // The admin rights Kitan needs: approve join requests, delete spam, ban spammers.
 const ADMIN_RIGHTS = "can_invite_users+can_delete_messages+can_restrict_members";
 
-let username: Promise<string> | null = null;
-
-// Looked up once per Worker instance, so self-hosted copies link to their own bot.
-function botUsername(env: Env): Promise<string> {
-  username ??= callTelegram<{ username: string }>(env, "getMe", {})
-    .then((me) => me.username)
-    .catch((error) => {
-      username = null;
-      throw error;
-    });
-  return username;
-}
 
 // ---------- Mini App API ----------
 
@@ -152,8 +147,8 @@ interface ClientBody {
   solveMs?: number;
 }
 
-// Authenticates the Mini App request and returns the user's pending attempt.
-async function readClient(request: Request, env: Env): Promise<{ body: ClientBody; attempt: Attempt }> {
+// Authenticates the Mini App request: who is asking, signed by Telegram.
+async function authenticate(request: Request, env: Env): Promise<{ body: ClientBody; data: InitData }> {
   if (Number(request.headers.get("content-length") ?? "0") > 16 * 1024) {
     throw new HttpError(413, "Request too large.");
   }
@@ -164,6 +159,20 @@ async function readClient(request: Request, env: Env): Promise<{ body: ClientBod
       throw new HttpError(400, "Open this page from Telegram.");
     },
   );
+  return { body, data };
+}
+
+// The appeal behind a Mini App request, if this person may still use it.
+async function appealFor(env: Env, token: string, data: InitData, now: number): Promise<Appeal> {
+  const appeal = await checkAppeal(env, token, data.user.id, now);
+  // 403, not 429: the WAF's rate limit on /api/* already answers 429.
+  if (appeal === "used") throw new HttpError(403, "Already used in the last 30 days.");
+  if (appeal === "none") throw new HttpError(410, "Nothing to lift.");
+  return appeal;
+}
+
+// The user's pending attempt behind a Mini App request.
+async function attemptFor(env: Env, body: ClientBody, data: InitData): Promise<Attempt> {
   const key = data.joinQueryId ? { queryId: data.joinQueryId } : body.token ? { token: body.token } : null;
   const attempt = key ? await findAttempt(env.DB, key) : null;
   if (!attempt || attempt.userId !== String(data.user.id)) {
@@ -171,7 +180,7 @@ async function readClient(request: Request, env: Env): Promise<{ body: ClientBod
   }
   const closed = openForUser(attempt, Date.now());
   if (closed) throw refusal(closed);
-  return { body, attempt };
+  return attempt;
 }
 
 function refusal(reason: Refusal): HttpError {
@@ -181,23 +190,39 @@ function refusal(reason: Refusal): HttpError {
 }
 
 async function handleOpen(request: Request, env: Env): Promise<Response> {
-  const { attempt } = await readClient(request, env);
-  await markOpened(env.DB, attempt.id, Date.now());
+  const { body, data } = await authenticate(request, env);
+  const now = Date.now();
+  if (isAppealToken(body.token)) {
+    const appeal = await appealFor(env, body.token, data, now);
+    await markAppealOpened(env.DB, appeal.token, now);
+    return json({ chat_title: await chatTitle(env.DB, appeal.chatId), expires_at: 0 });
+  }
+  const attempt = await attemptFor(env, body, data);
+  await markOpened(env.DB, attempt.id, now);
   return json({ chat_title: attempt.chatTitle, expires_at: attempt.expiresAt });
 }
 
 async function handleVerify(request: Request, env: Env, hostname: string): Promise<Response> {
-  const { body, attempt } = await readClient(request, env);
+  const { body, data } = await authenticate(request, env);
   const now = Date.now();
   const solveMs = Number.isFinite(body.solveMs) ? Math.round(Number(body.solveMs)) : null;
-  await recordTry(env.DB, attempt.id, now, solveMs);
+  const passed = () => verifyTurnstile(env.TURNSTILE_SECRET_KEY, body.turnstileToken, request.headers.get("cf-connecting-ip"), hostname);
 
-  const failure = await verifyTurnstile(
-    env.TURNSTILE_SECRET_KEY,
-    body.turnstileToken,
-    request.headers.get("cf-connecting-ip"),
-    hostname,
-  );
+  if (isAppealToken(body.token)) {
+    const appeal = await appealFor(env, body.token, data, now);
+    await recordAppealTry(env.DB, appeal.token, solveMs);
+    const failure = await passed();
+    if (failure) {
+      log("turnstile_failed", { appeal: appeal.token, error: failure });
+      throw new HttpError(400, "The check failed. Try again.");
+    }
+    if (!(await passAppeal(env, appeal, data.user, solveMs, now))) throw new HttpError(409, "Already lifted.");
+    return json({ ok: true });
+  }
+
+  const attempt = await attemptFor(env, body, data);
+  await recordTry(env.DB, attempt.id, now, solveMs);
+  const failure = await passed();
   if (failure) {
     await recordTurnstileError(env.DB, attempt.id, failure);
     log("turnstile_failed", { attempt: attempt.id, error: failure });

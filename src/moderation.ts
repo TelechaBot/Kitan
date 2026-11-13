@@ -56,7 +56,8 @@ import {
   spamReason,
   strong,
 } from "./probation";
-import { callTelegram, log, messageOf } from "./telegram";
+import { offerAppeal } from "./appeal";
+import { callTelegram, log, messageOf, sendPermissions } from "./telegram";
 import { type Trajectory, accountYears, features, social, step } from "./trajectory";
 import type { ChatMemberUpdated, Env, Message, PhotoSize, TelegramChat, TelegramUser } from "./types";
 
@@ -70,18 +71,6 @@ const IMAGE_PX = 320;
 // Isolation forest: 50 trees of 128 rows trains in ~5 ms, within a free-plan cron's CPU.
 const FOREST = { trees: 50, sample: 128, rows: 1000, everyMs: 24 * 60 * 60 * 1000 };
 
-const MUTED = {
-  can_send_messages: false,
-  can_send_audios: false,
-  can_send_documents: false,
-  can_send_photos: false,
-  can_send_videos: false,
-  can_send_video_notes: false,
-  can_send_voice_notes: false,
-  can_send_polls: false,
-  can_send_other_messages: false,
-  can_add_web_page_previews: false,
-};
 
 export interface Context {
   now: number;
@@ -338,30 +327,47 @@ async function enforceRules(
   if (verdict.action === "allow") return { enforced: null, seenBefore };
 
   await insertOffense(env.DB, userId, chatId, verdict.reason, verdict.score, ctx.now);
+  let noticeSent: string | undefined;
   await act(env, "deleteMessage", { chat_id: chatId, message_id: message.message_id });
   if (verdict.action === "mute") {
     const until = Math.floor(verdict.until / 1000);
     await act(env, "restrictChatMember", {
       chat_id: chatId,
       user_id: userId,
-      permissions: MUTED,
+      permissions: sendPermissions(false),
       use_independent_chat_permissions: true,
       until_date: until,
     });
-    // Tell only them why and until when; a real newcomer should not be left guessing.
+    // Tell only them why, until when, and how to lift it now if this was a mistake.
     // Telegram shows the time in their own time zone; the text inside is the fallback.
     const fallback = `${new Date(verdict.until).toISOString().slice(0, 16).replace("T", " ")} UTC`;
-    await act(env, "sendMessage", {
+    const button = await offerAppeal(
+      env,
+      { chatId, userId, rule: verdict.reason, score: verdict.score, until: verdict.until, lang: from.language_code },
+      ctx.now,
+    ).catch((error) => {
+      log("appeal_offer_failed", { error: messageOf(error) });
+      return null;
+    });
+    const notice = {
       chat_id: chatId,
       text: t(pickLang(from.language_code), "muted", { time: `<tg-time unix="${until}" format="dt">${fallback}</tg-time>` }),
       parse_mode: "HTML",
       ephemeral_message_parameters: { receiver_user_id: from.id },
-    });
+    };
+    // The Bot API does not say whether ephemeral messages take buttons; if not, the notice still goes.
+    noticeSent = await callTelegram(env, "sendMessage", button ? { ...notice, reply_markup: { inline_keyboard: [[button]] } } : notice)
+      .then(() => (button ? "with_button" : "plain"))
+      .catch(async (error) => {
+        log("muted_notice_with_button_failed", { chat_id: chatId, error: messageOf(error) });
+        await act(env, "sendMessage", notice);
+        return `plain_after: ${messageOf(error).slice(0, 120)}`;
+      });
   } else {
     await burn(env, chatId, userId, ctx.now);
   }
   const words = verdict.reason === "keyword" ? bannedWords(messageText(message)) : undefined;
-  const done = { rule: verdict.reason, action: verdict.action, score: verdict.score, prior: priorOffenses, words, ...signs };
+  const done = { rule: verdict.reason, action: verdict.action, score: verdict.score, prior: priorOffenses, words, notice: noticeSent, ...signs };
   await footprint(env, chatId, userId, "action", done, ctx.now);
   log(verdict.action === "mute" ? "spam_muted" : "spam_blocked", { chat_id: chatId, user_id: userId, reason: verdict.reason });
   return { enforced: done, seenBefore };

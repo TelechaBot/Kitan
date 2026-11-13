@@ -422,6 +422,69 @@ export async function countingSince(db: D1Database): Promise<number> {
   return value;
 }
 
+// ---------- appeals ----------
+
+export interface Appeal {
+  token: string;
+  chatId: string;
+  userId: string;
+  rule: string;
+  score: number;
+  createdAt: number;
+  until: number;
+  openedAt: number | null;
+  passedAt: number | null;
+}
+
+export async function insertAppeal(db: D1Database, a: Omit<Appeal, "openedAt" | "passedAt">): Promise<void> {
+  await db
+    .prepare(`INSERT INTO appeals (token, chat_id, user_id, rule, score, created_at, until) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(a.token, a.chatId, a.userId, a.rule, a.score, a.createdAt, a.until)
+    .run();
+}
+
+export async function findAppeal(db: D1Database, token: string): Promise<Appeal | null> {
+  const row = await db.prepare(`SELECT * FROM appeals WHERE token = ?`).bind(token).first<Record<string, any>>();
+  return row
+    ? {
+        token: row.token,
+        chatId: row.chat_id,
+        userId: row.user_id,
+        rule: row.rule,
+        score: row.score,
+        createdAt: row.created_at,
+        until: row.until,
+        openedAt: row.opened_at,
+        passedAt: row.passed_at,
+      }
+    : null;
+}
+
+export async function appealsPassedSince(db: D1Database, userId: string, since: number): Promise<number> {
+  const row = await db
+    .prepare(`SELECT count(*) AS n FROM appeals WHERE user_id = ? AND passed_at > ?`)
+    .bind(userId, since)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+export async function markAppealOpened(db: D1Database, token: string, now: number): Promise<void> {
+  await db.prepare(`UPDATE appeals SET opened_at = coalesce(opened_at, ?) WHERE token = ?`).bind(now, token).run();
+}
+
+export async function recordAppealTry(db: D1Database, token: string, solveMs: number | null): Promise<void> {
+  await db
+    .prepare(`UPDATE appeals SET tries = tries + 1, solve_ms = coalesce(solve_ms, ?) WHERE token = ?`)
+    .bind(solveMs, token)
+    .run();
+}
+
+// Marks the appeal passed once; false if it already was.
+export async function markAppealPassed(db: D1Database, token: string, now: number): Promise<boolean> {
+  const result = await db.prepare(`UPDATE appeals SET passed_at = ? WHERE token = ? AND passed_at IS NULL`).bind(now, token).run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
 // ---------- model budget ----------
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -585,4 +648,6 @@ export async function prune(
   await db.prepare(`DELETE FROM offenses WHERE at <= ?`).bind(before.offenses).run();
   await db.prepare(`DELETE FROM events WHERE at <= ?`).bind(before.events).run();
   await db.prepare(`DELETE FROM spend WHERE hour < ?`).bind(Math.floor(Date.now() / HOUR_MS) - 48).run();
+  // Kept as long as offenses: a passed appeal limits the next one for 30 days.
+  await db.prepare(`DELETE FROM appeals WHERE created_at <= ?`).bind(before.offenses).run();
 }

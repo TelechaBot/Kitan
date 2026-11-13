@@ -96,7 +96,11 @@ so Kitan makes each spam attempt cost an account:
   5 or more bans the account from every group where it is still new, removes
   its messages there, and blocks it from joining any Kitan group for 30 days.
   A newcomer's first link costs 3 minutes; a flood from an account whose bio is
-  an invite link is a ban.
+  an invite link is a ban. A muted member is told privately why and until
+  when, with a button that opens the bot and offers the same check as at the
+  door; passing it lifts the mute at once. This works once per account in 30
+  days, and the offence still counts towards the next penalty. A ban has no
+  such way back; a group admin can lift one in the group settings.
 - **Active members are left alone**, whatever they post, unless their activity
   stops looking like the people in Kitan's groups: a model retrained daily on
   active members' activity (how often and when they post, how much of it is
@@ -173,7 +177,9 @@ it; otherwise it uses private messages.
 For each join request, Kitan stores the group, the user ID, which way the check
 was delivered, when the page was opened, how many tries it took, how long the
 check took, any error, and the result. If an approved member later leaves or is
-banned, Kitan records the time.
+banned, Kitan records the time. For each mute it keeps, for 30 days, which rule
+and score caused it, and whether and how fast the member passed the check to
+lift it.
 
 For each account, Kitan keeps a summary of its activity across Kitan groups:
 counts and averages of when and how often it posts and what share of its
