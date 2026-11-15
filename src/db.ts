@@ -307,22 +307,24 @@ export async function readStanding(
   db: D1Database,
   chatId: string,
   userId: string,
-): Promise<{ known: boolean; joinedAt: number | null; groups: number; trajectory: Trajectory }> {
+): Promise<{ known: boolean; joinedAt: number | null; groups: number; trajectory: Trajectory; updatedAt: number | null }> {
   const row = await db
     .prepare(
       `SELECT (SELECT 1 FROM speakers WHERE chat_id = ?1 AND user_id = ?2) AS known,
               (SELECT joined_at FROM speakers WHERE chat_id = ?1 AND user_id = ?2) AS joined_at,
               (SELECT count(*) FROM speakers WHERE user_id = ?2) AS groups,
-              (SELECT body FROM trajectories WHERE user_id = ?2) AS body`,
+              (SELECT body FROM trajectories WHERE user_id = ?2) AS body,
+              (SELECT updated_at FROM trajectories WHERE user_id = ?2) AS updated_at`,
     )
     .bind(chatId, userId)
-    .first<{ known: number | null; joined_at: number | null; groups: number; body: string | null }>();
+    .first<{ known: number | null; joined_at: number | null; groups: number; body: string | null; updated_at: number | null }>();
   return {
     known: Boolean(row?.known),
     joinedAt: row?.joined_at ?? null,
     // Kitan groups they joined or spoke in, counting this one even before the first write.
     groups: Math.max(1, (row?.groups ?? 0) + (row?.known ? 0 : 1)),
     trajectory: sketchCache(db).get(userId)?.t ?? (row?.body ? (JSON.parse(row.body) as Trajectory) : empty()),
+    updatedAt: row?.updated_at ?? null,
   };
 }
 
@@ -340,14 +342,16 @@ function sketchCache(db: D1Database) {
   return cache;
 }
 
-// Remembers the sketch and says whether it is due to be written now.
-function keepSketch(db: D1Database, userId: string, t: Trajectory, now: number, urgent: boolean): boolean {
+// Remembers the sketch and says whether it is due to be written now. `lastWritten` is the
+// stored row's updated_at: an isolate that has not seen this person yet must not assume the
+// stored copy is fresh, so a first sighting writes unless that row really is recent.
+function keepSketch(db: D1Database, userId: string, t: Trajectory, now: number, urgent: boolean, lastWritten = 0): boolean {
   const cache = sketchCache(db);
   const entry = cache.get(userId);
-  // First seen by this instance: the stored copy is as fresh as it gets.
-  const due = urgent || (entry !== undefined && now - entry.written >= SKETCH_WRITE_MS);
+  const last = entry?.written ?? lastWritten;
+  const due = urgent || now - last >= SKETCH_WRITE_MS;
   cache.delete(userId); // re-inserted last, so the oldest entry is first to go
-  cache.set(userId, { t, written: due ? now : (entry?.written ?? now) });
+  cache.set(userId, { t, written: due ? now : last });
   if (cache.size > SKETCHES_KEPT) cache.delete(cache.keys().next().value!);
   return due;
 }
@@ -371,17 +375,31 @@ export async function writeStanding(
   firstInChat: boolean,
   now: number,
   urgent: boolean,
+  lastWritten: number | null = null,
 ): Promise<void> {
   const writes = [];
-  if (keepSketch(db, userId, trajectory, now, urgent)) writes.push(sketchWrite(db, userId, trajectory, now));
+  if (keepSketch(db, userId, trajectory, now, urgent, lastWritten ?? 0)) writes.push(sketchWrite(db, userId, trajectory, now));
   if (firstInChat) writes.push(db.prepare(`INSERT OR IGNORE INTO speakers (chat_id, user_id) VALUES (?, ?)`).bind(chatId, userId));
   if (writes.length) await db.batch(writes);
 }
 
 // Someone answered one of their messages: a sign of a member, not a billboard.
 export async function creditReply(db: D1Database, userId: string, now: number): Promise<void> {
-  const t = step(await readTrajectory(db, userId), { kind: "replied", at: now });
-  if (keepSketch(db, userId, t, now, false)) await sketchWrite(db, userId, t, now).run();
+  const cached = sketchCache(db).get(userId);
+  let base: Trajectory;
+  let lastWritten = 0;
+  if (cached) {
+    base = cached.t;
+  } else {
+    const row = await db
+      .prepare(`SELECT body, updated_at FROM trajectories WHERE user_id = ?`)
+      .bind(userId)
+      .first<{ body: string; updated_at: number }>();
+    base = row ? (JSON.parse(row.body) as Trajectory) : empty();
+    lastWritten = row?.updated_at ?? 0;
+  }
+  const t = step(base, { kind: "replied", at: now });
+  if (keepSketch(db, userId, t, now, false, lastWritten)) await sketchWrite(db, userId, t, now).run();
 }
 
 // A member joined, by any route. Rejoining makes them new again.
@@ -591,12 +609,42 @@ export async function saveForest(db: D1Database, forest: Forest, rows: number, n
 }
 
 // A random sample of active accounts' sketches: what ordinary behaviour looks like.
+// Sampling globally let one large non-social group (牛仔资本) supply 95% of the accounts,
+// so ordinary chat looked anomalous. Take at most 50 per group instead, and never train on
+// accounts Kitan has already acted against. When `speakers` cannot supply the rows the forest
+// needs (young deployment, or sketches written before speakers existed), fall back to the
+// plain trajectory sample.
+const TRAIN_PER_GROUP = 50;
+const TRAIN_FLOOR = 128; // iforest.ts trains on 128 rows; fewer cannot produce a model
+
 export async function trainingSketches(db: D1Database, minMessages: number, limit: number) {
   const { results } = await db
-    .prepare(`SELECT user_id, body FROM trajectories WHERE messages > ? ORDER BY random() LIMIT ?`)
+    .prepare(
+      `SELECT user_id, max(body) AS body FROM (
+         SELECT t.user_id, t.body,
+                ROW_NUMBER() OVER (PARTITION BY s.chat_id ORDER BY random()) AS rn
+         FROM speakers s JOIN trajectories t ON t.user_id = s.user_id
+         WHERE t.messages > ?1
+           AND NOT EXISTS (SELECT 1 FROM offenses o WHERE o.user_id = t.user_id)
+       ) WHERE rn <= ?2
+       GROUP BY user_id
+       ORDER BY random() LIMIT ?3`,
+    )
+    .bind(minMessages, TRAIN_PER_GROUP, limit)
+    .all<{ user_id: string; body: string }>();
+  if (results.length >= Math.min(limit, TRAIN_FLOOR)) {
+    return results.map((r) => ({ userId: Number(r.user_id), trajectory: JSON.parse(r.body) as Trajectory }));
+  }
+  const fallback = await db
+    .prepare(
+      `SELECT user_id, body FROM trajectories
+       WHERE messages > ?1
+         AND NOT EXISTS (SELECT 1 FROM offenses o WHERE o.user_id = trajectories.user_id)
+       ORDER BY random() LIMIT ?2`,
+    )
     .bind(minMessages, limit)
     .all<{ user_id: string; body: string }>();
-  return results.map((r) => ({ userId: Number(r.user_id), trajectory: JSON.parse(r.body) as Trajectory }));
+  return fallback.results.map((r) => ({ userId: Number(r.user_id), trajectory: JSON.parse(r.body) as Trajectory }));
 }
 
 export async function chatsJoinedSince(db: D1Database, userId: string, since: number): Promise<string[]> {

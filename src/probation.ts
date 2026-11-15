@@ -22,18 +22,21 @@ export interface Standing {
   messages: number; // across all Kitan groups, including this one
   firstAt: number | null; // their first message Kitan counted, in any group
   anomaly: number | null; // isolation-forest score of their behaviour; null without a model
+  riskShift?: boolean; // their own recent behaviour jumped away from their usual mix
 }
 
 export type Review = { review: true; why: "newcomer" | "quiet" | "anomalous" } | { review: false; why: "active" | "regular" };
 
 // Newcomers are always reviewed. Anyone else is left alone only when active across Kitan
-// groups (or an old regular from before counting) and their behaviour is not anomalous.
+// groups (or an old regular from before counting) and their own behaviour has not shifted.
+// The global forest score is kept for measurement but no longer decides: one non-social
+// group supplying most training rows made ordinary regulars look anomalous.
 export function needsReview(s: Standing, countingSince: number, now: number): Review {
   if (s.joinedAt !== null && now - s.joinedAt < NEWCOMER_MS) return { review: true, why: "newcomer" };
-  const anomalous = s.anomaly !== null && s.anomaly >= ANOMALY_AT;
-  if (s.messages > ACTIVE_AFTER) return anomalous ? { review: true, why: "anomalous" } : { review: false, why: "active" };
+  const shifted = s.riskShift === true;
+  if (s.messages > ACTIVE_AFTER) return shifted ? { review: true, why: "anomalous" } : { review: false, why: "active" };
   const regular = s.joinedAt === null && s.firstAt !== null && s.firstAt - countingSince < QUIET_MS;
-  if (regular) return anomalous ? { review: true, why: "anomalous" } : { review: false, why: "regular" };
+  if (regular) return shifted ? { review: true, why: "anomalous" } : { review: false, why: "regular" };
   return { review: true, why: "quiet" };
 }
 export const DUPLICATE_WINDOW_MS = 15 * 60 * 1000;
@@ -45,6 +48,91 @@ export const REPEAT_AT = 4;
 export const MIN_DUPLICATE_LENGTH = 10;
 
 const LINK = /(https?:\/\/|t\.me\/|telegram\.me\/|tg:\/\/|wa\.me\/)/i;
+const LINK_TOKEN = /(?:https?:\/\/|t\.me\/|telegram\.me\/|tg:\/\/|wa\.me\/)[^\s<>()]+/gi;
+// Public content, media and code people share in chat. A link there is conversation, not an
+// ad; the deterministic rule acts only on links that leave Telegram, hide their target, or
+// arrive with ad words.
+const BENIGN_DOMAINS = [
+  "youtube.com", "youtu.be", "pixiv.net", "pximg.net", "github.com", "gist.github.com",
+  "bilibili.com", "b23.tv", "x.com", "twitter.com", "exhentai.org", "e-hentai.org",
+  "nhentai.net", "danbooru.donmai.us", "gelbooru.com", "wikipedia.org", "arxiv.org",
+  "reddit.com", "imgur.com", "nicovideo.jp", "steampowered.com", "steamcommunity.com",
+  "stackoverflow.com",
+];
+
+function hostMatches(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+function trimUrl(url: string): string {
+  return url.replace(/[.,;:!?，。；：！？"'”’]+$/, "");
+}
+
+// Telegram and WhatsApp links always point somewhere inside chat platforms; never benign.
+function telegramOrWhatsApp(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "tg:") return true;
+    const host = parsed.hostname.toLowerCase();
+    return hostMatches(host, "t.me") || hostMatches(host, "telegram.me") || hostMatches(host, "wa.me");
+  } catch {
+    // Written without a scheme ("t.me/+abc"), which URL cannot parse.
+    return /^(?:t\.me|telegram\.me|wa\.me)\//i.test(url);
+  }
+}
+
+const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+// A Telegram url entity may omit the scheme ("youtu.be/abc"); a bare word or a phone
+// number does not look like a host.
+const SCHEMELESS_HOST = /^[a-z0-9.-]+\.[a-z]{2,}(?:[/?#:]|$)/i;
+
+function httpHost(url: string): string | null {
+  let candidate = url;
+  if (!HAS_SCHEME.test(url)) {
+    // Chat-platform links have their own rule; do not give them a host here.
+    if (/^(?:t\.me|telegram\.me|wa\.me)\//i.test(url)) return null;
+    if (!SCHEMELESS_HOST.test(url)) return null;
+    candidate = `https://${url}`;
+  }
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.hostname.toLowerCase() : null;
+  } catch {
+    return null; // unknown shape: treat as suspicious, as before
+  }
+}
+
+function benignPublicUrl(url: string): boolean {
+  const host = httpHost(url);
+  return host !== null && BENIGN_DOMAINS.some((domain) => hostMatches(host, domain));
+}
+
+// Every URL a message carries: what its text shows, and what link entities point at. A
+// link entity that hides its target without a URL cannot be checked, and counts as a link.
+function messageLinks(message: Message): { urls: string[]; unverifiable: boolean } {
+  const text = messageText(message);
+  const urls: string[] = [];
+  for (const match of text.matchAll(LINK_TOKEN)) urls.push(trimUrl(match[0]));
+  let unverifiable = false;
+  for (const [entities, source] of [
+    [message.entities ?? [], message.text ?? ""],
+    [message.caption_entities ?? [], message.caption ?? ""],
+  ] as const) {
+    for (const entity of entities) {
+      if (entity.type !== "url" && entity.type !== "text_link") continue;
+      if (entity.url) {
+        urls.push(trimUrl(entity.url));
+      } else if (entity.offset !== undefined && entity.length !== undefined) {
+        const visible = source.slice(entity.offset, entity.offset + entity.length);
+        if (visible) urls.push(trimUrl(visible));
+        else unverifiable = true;
+      } else {
+        unverifiable = true;
+      }
+    }
+  }
+  return { urls, unverifiable };
+}
 const MENTION = /@[a-zA-Z0-9_]{3,}/g;
 const BOT_MENTION = /@[a-zA-Z0-9_]{2,}bot\b/i;
 const BOT_MENTION_ALL = /@[a-zA-Z0-9_]{2,}bot\b/gi;
@@ -128,18 +216,47 @@ export function isBlocked(bans: number): boolean {
 export function spamReason(message: Message): SpamReason | null {
   const text = messageText(message);
   const entities = [...(message.entities ?? []), ...(message.caption_entities ?? [])];
-  if (LINK.test(text) || entities.some((e) => e.type === "url" || e.type === "text_link")) return "link";
+  const words = bannedWords(text);
+  const { urls, unverifiable } = messageLinks(message);
+  const linkEntity = entities.some((e) => e.type === "url" || e.type === "text_link");
+  if (LINK.test(text) || linkEntity) {
+    // Shared public content is chat, not advertising. Any Telegram/WhatsApp link, hidden
+    // target, unparseable URL or ad word keeps the link rule.
+    const onlyBenign =
+      urls.length > 0 && !unverifiable && words.length === 0 && urls.every((u) => !telegramOrWhatsApp(u) && benignPublicUrl(u));
+    if (!onlyBenign) return "link";
+  }
   if ((text.match(MENTION) ?? []).length >= 4) return "mentions";
   // Pointing at a bot keeps the destination inside Telegram, where link filters do not look.
   // A promo is little more than the handle ("@BSGJUU_bot"); people mention a bot inside a
   // sentence ("这个 bot 是群主的吗 @SmartVerifyBot"), which bench case h11 keeps honest.
-  if (BOT_MENTION.test(text) && text.replace(BOT_MENTION_ALL, "").replace(/[\s\p{P}\p{S}]/gu, "").length < 10) {
+  // A slash command naming a bot ("/setu@kmuav2bot") is someone using a bot, not an ad.
+  const botCommand = entities.some((e) => e.type === "bot_command") || /^\s*\/[a-z0-9_]+@[a-z0-9_]+bot\b/i.test(text);
+  if (
+    !botCommand &&
+    BOT_MENTION.test(text) &&
+    text.replace(BOT_MENTION_ALL, "").replace(/[\s\p{P}\p{S}]/gu, "").length < 10
+  ) {
     return "bot_promo";
   }
-  if (message.forward_origin || message.external_reply || message.story) return "forward";
+  // A forwarded channel post, a quote, a story, or a forward that carries somewhere to go
+  // or ad words. Public content someone forwards (a video, a picture, a repo) is still just
+  // content: only targets Telegram does not police, or that are not ordinary public links,
+  // make a forward an ad.
+  const origin = (message.forward_origin as { type?: string } | undefined)?.type;
+  const forwarded = Boolean(message.forward_origin || message.external_reply || message.story);
+  const pointsOut = diversionTargets({ message: text }).some(
+    (t) => strong(t) && !(t.kind === "link" && !telegramOrWhatsApp(t.value) && benignPublicUrl(t.value)),
+  );
+  if (
+    forwarded &&
+    (message.external_reply || message.story || origin === "channel" || pointsOut || words.length > 0)
+  ) {
+    return "forward";
+  }
   if (message.via_bot || message.reply_markup) return "inline_bot";
   // The keyword layer, as in the Python bot: ads and offers that need no model.
-  if (bannedWords(text).length > 0) return "keyword";
+  if (words.length > 0) return "keyword";
   return null;
 }
 

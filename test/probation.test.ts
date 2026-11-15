@@ -2,7 +2,16 @@
 // and messages from accounts removed on 2026-11-12; the ham are things people say.
 import { describe, expect, test } from "bun:test";
 import { bannedWords } from "../src/lexicon";
-import { type Judgement, diversionTargets, isBlocked, judge } from "../src/probation";
+import {
+  type Judgement,
+  type Standing,
+  diversionTargets,
+  isBlocked,
+  judge,
+  needsReview,
+  spamReason,
+} from "../src/probation";
+import type { Message } from "../src/types";
 
 describe("penalties grow with the evidence", () => {
   const base = { reason: null, duplicateElsewhere: false, repeatedHere: false, priorOffenses: 0, pointsElsewhere: false, sociable: false, now: 0 };
@@ -73,5 +82,93 @@ describe("diversion targets", () => {
     for (const message of ["刚进群，大家好", "群名说要先看频道，频道是什么？", "有没有新手教程", "SOL 最近怎么跌这么多", "我提了个 issue，作者有空能看看吗"]) {
       expect(kinds({ message })).toEqual([]);
     }
+  });
+});
+
+const NOW = 40 * 24 * 60 * 60 * 1000;
+const COUNTING_SINCE = 10 * 24 * 60 * 60 * 1000;
+
+describe("who is reviewed", () => {
+  test("a high forest score alone never reopens a regular or active member", () => {
+    // The global model was poisoned by one non-social group; its score is telemetry now.
+    const regular: Standing = { joinedAt: null, messages: 3, firstAt: COUNTING_SINCE + 1000, anomaly: 0.99 };
+    expect(needsReview(regular, COUNTING_SINCE, NOW)).toEqual({ review: false, why: "regular" });
+    const active: Standing = { joinedAt: COUNTING_SINCE, messages: 21, firstAt: NOW - 1000, anomaly: 0.99 };
+    expect(needsReview(active, COUNTING_SINCE, NOW)).toEqual({ review: false, why: "active" });
+  });
+
+  test("their own behaviour shifting does reopen review", () => {
+    const active: Standing = { joinedAt: COUNTING_SINCE, messages: 21, firstAt: NOW - 1000, anomaly: null, riskShift: true };
+    expect(needsReview(active, COUNTING_SINCE, NOW)).toEqual({ review: true, why: "anomalous" });
+    const regular: Standing = { joinedAt: null, messages: 3, firstAt: COUNTING_SINCE + 1000, anomaly: 0.99, riskShift: true };
+    expect(needsReview(regular, COUNTING_SINCE, NOW)).toEqual({ review: true, why: "anomalous" });
+  });
+
+  test("a new joiner is always reviewed, a quiet account too", () => {
+    const newcomer: Standing = { joinedAt: NOW - 86_400_000, messages: 100, firstAt: NOW - 86_400_000, anomaly: null };
+    expect(needsReview(newcomer, COUNTING_SINCE, NOW)).toEqual({ review: true, why: "newcomer" });
+    const quiet: Standing = { joinedAt: COUNTING_SINCE, messages: 3, firstAt: null, anomaly: null };
+    expect(needsReview(quiet, COUNTING_SINCE, NOW)).toEqual({ review: true, why: "quiet" });
+  });
+});
+
+describe("what the rules treat as spam", () => {
+  const msg = (text: string, extra: Partial<Message> = {}): Message =>
+    Object.assign({ message_id: 1, chat: { id: 1 } }, text ? { text } : {}, extra) as Message;
+
+  test("shared music, art, code and archives are not links", () => {
+    for (const url of [
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "https://youtu.be/dQw4w9WgXcQ",
+      "https://www.pixiv.net/artworks/123",
+      "https://github.com/owner/repo",
+      "https://exhentai.org/g/123/abc/",
+      "https://e-hentai.org/g/123/abc/",
+      "https://b23.tv/abc",
+    ]) {
+      expect(spamReason(msg(`看看这个 ${url}`))).toBeNull();
+    }
+  });
+
+  test("a plain forwarded photo or user message is not an ad", () => {
+    const photo: Message = {
+      message_id: 2,
+      chat: { id: 1 },
+      caption: "好图",
+      photo: [{ file_id: "p", width: 320, height: 320 }],
+      forward_origin: { type: "user" },
+    };
+    expect(spamReason(photo)).toBeNull();
+  });
+
+  test("a slash command that names a bot is not a bot promo", () => {
+    expect(spamReason(msg("/setu@kmuav2bot"))).toBeNull();
+    expect(spamReason(msg("/setu@kmuav2bot", { entities: [{ type: "bot_command", offset: 0, length: 15 }] }))).toBeNull();
+  });
+
+  test("Telegram links, unknown hosts and look-alike domains still count", () => {
+    expect(spamReason(msg("join t.me/+abc"))).toBe("link");
+    expect(spamReason(msg("https://x.example/offer"))).toBe("link");
+    expect(spamReason(msg("https://youtube.com.evil.example/x"))).toBe("link");
+  });
+
+  test("benign media with ad words is still caught, and so is a bot handle or a channel forward", () => {
+    expect(spamReason(msg("日入过万 https://www.youtube.com/watch?v=x"))).toBe("link");
+    expect(spamReason(msg("@BSGJUU_bot"))).toBe("bot_promo");
+    expect(spamReason(msg("free money", { forward_origin: { type: "channel" } }))).toBe("forward");
+  });
+
+  test("scheme-less url entities to public media are not links", () => {
+    expect(spamReason(msg("看看这个", { entities: [{ type: "text_link", offset: 0, length: 4, url: "youtu.be/abc" }] }))).toBeNull();
+    expect(
+      spamReason(msg("shorts", { entities: [{ type: "text_link", offset: 0, length: 6, url: "youtube.com/shorts/123" }] })),
+    ).toBeNull();
+    // The chat platforms are still links however they are written.
+    expect(spamReason(msg("join", { entities: [{ type: "text_link", offset: 0, length: 4, url: "t.me/+abc" }] }))).toBe("link");
+  });
+
+  test("forwarding a person's public video is not an ad", () => {
+    expect(spamReason(msg("https://www.youtube.com/watch?v=x", { forward_origin: { type: "user" } }))).toBeNull();
+    expect(spamReason(msg("加v：abc_12345", { forward_origin: { type: "user" } }))).toBe("forward");
   });
 });

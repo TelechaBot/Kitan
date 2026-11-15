@@ -152,6 +152,20 @@ export function accountYears(userId: number, now: number): number {
   return Math.max(0, new Date(now).getUTCFullYear() + new Date(now).getUTCMonth() / 12 - registered);
 }
 
+// A farmed account's tell: ordinary chat for weeks, then links, forwards or handles in a
+// burst. Decided per account from its own recent-vs-usual mix, so it does not depend on a
+// forest trained on a population one noisy group can poison. 0.45 is about two consecutive
+// link messages after a run of none. From the fifth message on: a pre-Kitan regular with a
+// short history can be compromised too, while one risk message never moves it this far.
+export function hasRiskShift(t: Trajectory): boolean {
+  return (
+    t.messages >= 5 &&
+    (t.recent.link - t.usual.link >= 0.45 ||
+      t.recent.forward - t.usual.forward >= 0.45 ||
+      t.recent.mention - t.usual.mention >= 0.45)
+  );
+}
+
 export function features(t: Trajectory, userId: number, now: number): number[] {
   const days = t.firstAt !== null && t.lastAt !== null ? Math.max(1, (t.lastAt - t.firstAt) / 86_400_000) : 1;
   const total = t.hours.reduce((s, h) => s + h, 0);

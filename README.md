@@ -76,9 +76,11 @@ so Kitan makes each spam attempt cost an account:
   an invite link. After that, Kitan keeps reviewing an account until it has
   sent more than 20 messages across Kitan groups. Edited messages are checked
   again, since spam accounts often post a greeting and edit it into an ad. A
-  message with a link, four or more @mentions, a forward, an inline-bot
-  button, little more than a bot's @handle, a word from the earlier Kitan's
-  ad list (such as 代收代付 or 看我主页), or nothing but an offer such as "可约"
+  message with a link that leaves Telegram or arrives with ad words (ordinary
+  public links to video, art, code or papers are chat, not ads), four or more
+  @mentions, a forwarded channel post, an inline-bot button, little more than a
+  bot's @handle, a word from the earlier Kitan's ad list (such as 代收代付 or
+  看我主页), or nothing but an offer such as "可约"
   is deleted, and so is the fourth copy of the same text or contact card
   within 15 minutes in one group. How long the sender is muted depends on the
   evidence, since no rule is certain:
@@ -101,12 +103,14 @@ so Kitan makes each spam attempt cost an account:
   door; passing it lifts the mute at once. This works once per account in 30
   days, and the offence still counts towards the next penalty. A ban has no
   such way back; a group admin can lift one in the group settings.
-- **Active members are left alone**, whatever they post, unless their activity
-  stops looking like the people in Kitan's groups: a model retrained daily on
-  active members' activity (how often and when they post, how much of it is
-  links, mentions or forwards, and how that has recently changed) flags the
-  account, and Kitan reviews it again. Members who were in a group before
-  Kitan and spoke in its first week count as active.
+- **Active members are left alone**, whatever they post, unless their own
+  activity shifts: a burst of links, forwards or @mentions after a run of
+  ordinary chat (from the account's fifth message on) opens review again. The
+  isolation forest is still retrained daily and its score recorded, but one
+  noisy group can skew it, so it no longer decides. Members who were in a group
+  before Kitan and spoke in its first week count as active.
+- **Group admins are never moderated**: their messages still feed the
+  behaviour sketch, but no rule, model or footprint acts on them.
 - **The same text posted in two groups** within 15 minutes is a ban outright.
 - **Anyone who is not an admin** loses a message that carries a link button.
   A bot or a channel posting one is banned from the group; a member is banned

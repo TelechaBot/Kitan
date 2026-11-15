@@ -60,7 +60,7 @@ import {
 } from "./probation";
 import { offerAppeal } from "./appeal";
 import { callTelegram, log, messageOf, sendPermissions } from "./telegram";
-import { type Trajectory, accountYears, features, social, step } from "./trajectory";
+import { type Trajectory, accountYears, features, hasRiskShift, social, step } from "./trajectory";
 import type { ChatMemberUpdated, Env, Message, PhotoSize, TelegramChat, TelegramUser } from "./types";
 
 // A profile read from Telegram is reused for a week; spam accounts do change their bio.
@@ -244,11 +244,23 @@ export async function onGroupMessage(env: Env, message: Message, ctx: Context): 
   const mayBeLeftAlone = trajectory.messages > ACTIVE_AFTER || standing.joinedAt === null;
   const anomaly = mayBeLeftAlone ? await anomalyScore(env, trajectory, from.id, ctx.now) : null;
   const review = needsReview(
-    { joinedAt: standing.joinedAt, messages: trajectory.messages, firstAt: trajectory.firstAt, anomaly },
+    {
+      joinedAt: standing.joinedAt,
+      messages: trajectory.messages,
+      firstAt: trajectory.firstAt,
+      anomaly,
+      riskShift: hasRiskShift(trajectory),
+    },
     await countingSince(env.DB),
     ctx.now,
   );
-  await writeStanding(env.DB, chatId, userId, trajectory, !standing.known && !ctx.edited, ctx.now, review.review);
+  // Admins are never moderated, whatever they post and however new they are. Their message
+  // still feeds the sketch; it just never reaches a rule, a model or a footprint.
+  if (review.review && (await isAdmin(env, chatId, from.id))) {
+    await writeStanding(env.DB, chatId, userId, trajectory, !standing.known && !ctx.edited, ctx.now, false, standing.updatedAt);
+    return;
+  }
+  await writeStanding(env.DB, chatId, userId, trajectory, !standing.known && !ctx.edited, ctx.now, review.review, standing.updatedAt);
   if (!review.review) return;
 
   await footprint(env, chatId, userId, ctx.edited ? "edit" : "message", {
@@ -518,9 +530,15 @@ async function isAdmin(env: Env, chatId: string, userId: number): Promise<boolea
   const key = `${chatId}:${userId}`;
   const cached = admins.get(key);
   if (cached && cached.until > Date.now()) return cached.admin;
-  const member = await callTelegram<{ status: string }>(env, "getChatMember", { chat_id: chatId, user_id: userId }).catch(
-    () => ({ status: "unknown" }),
-  );
+  let member: { status: string };
+  try {
+    member = await callTelegram<{ status: string }>(env, "getChatMember", { chat_id: chatId, user_id: userId });
+  } catch (error) {
+    // A failed lookup says nothing about their rights. Do not cache "not an admin" for ten
+    // minutes: ask again next message rather than moderate an admin through an outage.
+    log("getChatMember_failed", { chat_id: chatId, user_id: userId, error: messageOf(error) });
+    return false;
+  }
   const admin = member.status === "creator" || member.status === "administrator";
   admins.set(key, { admin, until: Date.now() + 10 * 60 * 1000 });
   return admin;

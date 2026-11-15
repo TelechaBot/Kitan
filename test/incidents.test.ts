@@ -3,6 +3,7 @@
 // records enough to reconstruct each case. Whether models catch them is measured
 // by bench/, against the real models; the model here is a stand-in.
 import { beforeEach, expect, test } from "bun:test";
+import { trainingSketches } from "../src/db";
 import { noticeInviteLinks } from "../src/notice";
 import { empty, step } from "../src/trajectory";
 import { World } from "./harness";
@@ -274,13 +275,20 @@ test("after a week, someone active across Kitan groups is left alone, even posti
 });
 
 test("an active member whose behaviour turns anomalous is reviewed again", async () => {
-  forestScoring(1);
+  // Not the global forest: the account's own recent-vs-usual mix is the change point.
   await w.join(30, GROUP, KITAN);
   for (let i = 0; i < 21; i++) await w.say(30, GROUP, `hi ${i}`);
   age(30, WEEK + 60_000);
+  // One ordinary link is not a shift; it is neither reviewed nor acted on.
   await w.say(30, GROUP, LINK);
-  expect(w.callsTo("deleteMessage")).toHaveLength(1);
-  expect(w.events(30, "message").at(-1)?.detail).toMatchObject({ review: "anomalous", anomaly: expect.any(Number) });
+  expect(w.callsTo("deleteMessage")).toHaveLength(0);
+  expect(w.events(30, "message")).toHaveLength(21);
+  // Consecutive spam links are: the sketch notices and the rules act.
+  await w.say(30, GROUP, "see https://t.me/x1");
+  await w.say(30, GROUP, "see https://t.me/x2");
+  expect(w.callsTo("deleteMessage").length).toBeGreaterThan(0);
+  expect(w.events(30, "message").at(-1)?.detail).toMatchObject({ review: "anomalous" });
+  expect(w.events(30, "action").at(-1)?.detail).toMatchObject({ rule: "link" });
 });
 
 test("a quiet account past its first week is still reviewed", async () => {
@@ -302,6 +310,43 @@ test("the hourly job trains the forest on active accounts once a day", async () 
   await w.hourly();
   const model = w.db.query("SELECT rows FROM models WHERE name = 'trajectory_iforest'").get() as { rows: number } | null;
   expect(model?.rows).toBe(130);
+});
+
+test("training samples are balanced per group, deduplicated and free of offenders", async () => {
+  const g1: number[] = [];
+  const g2: number[] = [];
+  const g3: number[] = [];
+  let uid = 2_000_000;
+  const add = (chat: string, group: number[], count: number) => {
+    for (let i = 0; i < count; i++) {
+      const id = uid++;
+      group.push(id);
+      w.db.run("INSERT INTO trajectories (user_id, messages, updated_at, body) VALUES (?, 30, 0, ?)", [
+        String(id),
+        JSON.stringify(sketch(id)),
+      ]);
+      w.db.run("INSERT INTO speakers (chat_id, user_id) VALUES (?, ?)", [chat, String(id)]);
+    }
+  };
+  add("g1", g1, 70);
+  add("g2", g2, 60);
+  add("g3", g3, 55);
+  // People who speak in several groups must not be counted more than once.
+  for (const id of g1.slice(0, 10)) w.db.run("INSERT INTO speakers (chat_id, user_id) VALUES ('g2', ?)", [String(id)]);
+  const offender = g1[0];
+  w.db.run("INSERT INTO offenses (user_id, chat_id, reason, score, at) VALUES (?, 'g1', 'link', 1, ?)", [
+    String(offender),
+    Date.now(),
+  ]);
+
+  const sample = await trainingSketches(w.env.DB, 20, 1000);
+  const ids = sample.map((s) => s.userId);
+  const g1Only = g1.slice(10);
+  expect(sample.length).toBeGreaterThanOrEqual(128); // enough for the forest: the window path, not the fallback
+  expect(sample.length).toBeLessThanOrEqual(150); // at most 50 from each of the three groups
+  expect(new Set(ids).size).toBe(ids.length); // one row per account across groups
+  expect(ids).not.toContain(offender);
+  expect(ids.filter((id) => g1Only.includes(id)).length).toBeLessThanOrEqual(50); // one group cannot dominate
 });
 
 test("the profile is read at join: bio and who admitted them", async () => {
@@ -370,4 +415,50 @@ test("admins and the group's own channel posts keep their buttons", async () => 
     message: { message_id: 902, chat: { id: GROUP, type: "supergroup" }, sender_chat: { id: GROUP }, from: { id: 1087968824, is_bot: true }, text: "匿名管理员", ...buttons },
   });
   expect(w.callsTo("deleteMessage")).toHaveLength(0);
+});
+
+test("a human admin is never moderated, however new or spammy they look", async () => {
+  // A group owner who joined today still gets no rules, no models, no mute and no footprint.
+  w.admins = [{ id: 60 }];
+  await w.join(60, GROUP, KITAN, { first_name: "群主" });
+  const recorded = w.events(60).length;
+  w.calls = [];
+  await w.say(60, GROUP, "join t.me/+abc");
+  await w.say(60, GROUP, "日赚五百", { forward_origin: { type: "channel" } });
+  await w.say(60, GROUP, "@BSGJUU_bot");
+  await w.say(60, GROUP, "/setu@kmuav2bot", { entities: [{ type: "bot_command", offset: 0, length: 15 }] });
+  expect(w.callsTo("deleteMessage")).toHaveLength(0);
+  expect(w.callsTo("restrictChatMember")).toHaveLength(0);
+  expect(w.callsTo("banChatMember")).toHaveLength(0);
+  expect(w.events(60)).toHaveLength(recorded); // not even recorded
+  expect(w.db.query("SELECT count(*) AS n FROM offenses WHERE user_id = '60'").get()).toEqual({ n: 0 });
+});
+
+test("a regular member sharing ordinary links is never moderated, and their first message is stored at once", async () => {
+  forestScoring(1); // the poisoned global model would call anyone anomalous
+  await w.say(61, GROUP, "看看这个 https://www.youtube.com/watch?v=x");
+  await w.say(61, GROUP, "https://exhentai.org/g/1/abc/");
+  await w.say(61, GROUP, "", {
+    caption: "好图",
+    photo: [{ file_id: "p", width: 320, height: 320 }],
+    forward_origin: { type: "user" },
+  });
+  expect(w.callsTo("deleteMessage")).toHaveLength(0);
+  expect(w.callsTo("restrictChatMember")).toHaveLength(0);
+  expect(w.callsTo("banChatMember")).toHaveLength(0);
+  expect(w.events(61)).toHaveLength(0); // left alone: not even recorded
+
+  // The first message of a regular is written immediately, so firstAt and chats survive an isolate.
+  const row = w.db.query("SELECT body FROM trajectories WHERE user_id = '61'").get() as { body: string } | null;
+  expect(row).not.toBeNull();
+  const stored = JSON.parse(row!.body);
+  expect(stored).toMatchObject({ messages: 1, chats: 1 });
+  expect(stored.firstAt).toBeGreaterThan(0);
+});
+
+test("a slash command naming a bot is not a bot promotion", async () => {
+  await w.join(62, GROUP, KITAN);
+  await w.say(62, GROUP, "/setu@kmuav2bot", { entities: [{ type: "bot_command", offset: 0, length: 15 }] });
+  expect(w.callsTo("deleteMessage")).toHaveLength(0);
+  expect(w.events(62, "action")).toHaveLength(0);
 });

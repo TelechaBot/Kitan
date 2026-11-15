@@ -15,9 +15,12 @@ function record(actor: string, outcome: string) {
   outcomes.push({ actor, outcome });
 }
 
-// What Telegram was asked to do to one user, in order.
+// What Telegram was asked to do to one user, in order. Reading their membership to see
+// whether they are an admin is a question, not an action.
 function actionsOn(w: World, userId: number): string[] {
-  return w.calls.filter((c) => String(c.params.user_id) === String(userId)).map((c) => `${c.method}@${c.params.chat_id}`);
+  return w.calls
+    .filter((c) => c.method !== "getChatMember" && String(c.params.user_id) === String(userId))
+    .map((c) => `${c.method}@${c.params.chat_id}`);
 }
 
 test("a person passes the check and chats normally", async () => {
@@ -145,7 +148,7 @@ test("a farm account that pastes one ad into several groups", async () => {
   }
   w.calls = [];
   await w.say(8, A, "Exclusive crypto signals, join our VIP room today");
-  expect(w.calls).toHaveLength(0);
+  expect(actionsOn(w, 8)).toHaveLength(0); // only the admin question, no action
   await w.say(8, B, "exclusive  CRYPTO signals, join our VIP room today");
   expect(w.callsTo("banChatMember")).toHaveLength(2);
   record("copy-paste spammer (no links)", "banned from both groups on the 2nd paste");
@@ -218,7 +221,9 @@ test("gap: a spam account that farms ordinary chat for a week, then advertises",
   w.calls = [];
   await w.say(13, A, "cheap followers t.me/spam");
   expect(w.calls).toHaveLength(0);
-  record("GAP farmer: 21 messages then an ad", "not caught by rules unless the forest flags the shift");
+  // One ad after ordinary chat is not a shape jump; a consecutive second one would trip the
+  // per-account change point (trajectory.ts hasRiskShift) and reopen review.
+  record("GAP farmer: 21 messages then one ad", "not caught; a second consecutive ad is");
 });
 
 test("members who joined before Kitan are never touched", async () => {

@@ -61,9 +61,9 @@ export interface Message {
   is_automatic_forward?: boolean; // a post from the group's linked channel
   text?: string;
   caption?: string;
-  entities?: { type: string }[];
-  caption_entities?: { type: string }[];
-  forward_origin?: unknown;
+  entities?: { type: string; offset?: number; length?: number; url?: string }[];
+  caption_entities?: { type: string; offset?: number; length?: number; url?: string }[];
+  forward_origin?: { type?: string } | unknown; // { type: "channel" | "user" | ... }, or a bare flag
   external_reply?: unknown;
   story?: unknown;
   via_bot?: { username?: string };
