@@ -145,6 +145,28 @@ test("both signals must be confident: an ad verdict alone does not escalate", as
   expect(w.latestAttempt(USER, CHAT).challenge).toBeNull();
 });
 
+test("a profile matching the keyword list escalates to the strict check without asking a model", async () => {
+  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "日入过万 私我" });
+  expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
+  expect(w.aiCalls).toHaveLength(0);
+  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ on: "join_request", lexicon: ["日入过万"], escalated: true });
+});
+
+test("an ad avatar escalates to the strict check even with a clean bio; an ordinary avatar does not", async () => {
+  w.avatars.set(USER, [{ file_id: "av_s", width: 160, height: 160 }, { file_id: "av_m", width: 320, height: 320 }]);
+  w.model = () => ({ ad: true, confidence: 0.95, kind: "diversion", reason: "QR code to group", transcript: "扫码进群" });
+  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "hello" });
+  expect(w.callsTo("getFile").map((c) => c.params.file_id)).toEqual(["av_m"]);
+  expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
+  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ on: "join_request", escalated: true, avatar_model: { ad: true } });
+
+  const other = 43;
+  w.avatars.set(other, [{ file_id: "av_ok", width: 320, height: 320 }]);
+  w.model = () => ({ ad: false, confidence: 0.96, kind: "none", reason: "anime portrait" });
+  await w.requestJoin(other, CHAT, { queryId: "Q2", bio: "hello" });
+  expect(w.latestAttempt(other, CHAT).challenge).toBeNull();
+});
+
 test("every language has every message", () => {
   const keys = Object.keys(MESSAGES.en).sort();
   for (const [lang, messages] of Object.entries(MESSAGES)) {

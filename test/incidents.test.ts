@@ -404,3 +404,30 @@ test("a slash command naming a bot is not a bot promotion", async () => {
   expect(w.callsTo("deleteMessage")).toHaveLength(0);
   expect(w.events(62, "action")).toHaveLength(0);
 });
+
+test("within seven messages, high-confidence text or image model ad verdicts delete, mute and do not count towards graduation", async () => {
+  w.bios.set(68, "做单点击公群 https://t.me/+abc");
+  w.decision = () => 0.99;
+  w.model = () => ({ ad: true, confidence: 0.95, kind: "diversion", reason: "bio invite + pitch" });
+  await w.join(68, GROUP, KITAN);
+  await w.say(68, GROUP, "长·期·招·丝·滑·码 私·信·我");
+  expect(w.callsTo("deleteMessage")).toHaveLength(1);
+  expect(w.callsTo("restrictChatMember")).toHaveLength(1);
+  expect(w.events(68, "action")[0].detail).toMatchObject({ rule: "llm", action: "mute" });
+  expect(recentOf(68, GROUP)).toEqual([]); // deleted LLM spam must not buy its way out
+
+  // Photo ad with no text or bio: image model alone catches it when confident with visible ad text.
+  w.model = () => ({ ad: true, confidence: 0.95, kind: "diversion", reason: "QR poster", transcript: "扫码进群领福利" });
+  await w.join(69, GROUP, KITAN);
+  await w.say(69, GROUP, "", { photo: [{ file_id: "ad_img", width: 320, height: 320 }] });
+  expect(w.callsTo("deleteMessage")).toHaveLength(2);
+  expect(w.events(69, "action")[0].detail).toMatchObject({ rule: "llm", action: "mute" });
+});
+
+test("an ordinary photo or anime image from a newcomer is not deleted by the image model", async () => {
+  w.model = () => ({ ad: true, confidence: 0.8, kind: "diversion", reason: "uncertain game screenshot", transcript: "" });
+  await w.join(70, GROUP, KITAN);
+  await w.say(70, GROUP, "", { photo: [{ file_id: "art_img", width: 320, height: 320 }] });
+  expect(w.callsTo("deleteMessage")).toHaveLength(0);
+  expect(recentOf(70, GROUP)).toHaveLength(1);
+});

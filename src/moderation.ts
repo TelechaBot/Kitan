@@ -27,6 +27,7 @@ import {
   readTrajectory,
   recordEvent,
   recordJoin,
+  revokeRecentAt,
   writeStanding,
 } from "./db";
 import { pickLang, t } from "./i18n";
@@ -40,6 +41,7 @@ import {
   PROBATION_WINDOW_MS,
   REPEAT_AT,
   type Review,
+  type SpamReason,
   contentHash,
   hasLinkButton,
   judge,
@@ -357,9 +359,31 @@ async function enforceRules(
 
   const priorOffenses = await countOffenses(env.DB, userId, ctx.now - OFFENSE_WINDOW_MS);
   const rule = ruleOf({ reason, duplicateElsewhere, repeatedHere })!;
+  const done = await applyPenalty(env, message, from, ctx, trajectory, rule, priorOffenses);
+  return { enforced: done, seenBefore };
+}
+
+async function applyPenalty(
+  env: Env,
+  message: Message,
+  from: TelegramUser,
+  ctx: Context,
+  trajectory: Trajectory,
+  rule: SpamReason,
+  priorOffenses: number,
+): Promise<{ rule: string; action: string } | null> {
+  const chatId = String(message.chat.id);
+  const userId = String(from.id);
   const signs = await senderSigns(env, message, from, trajectory, messageTargetCounts(rule));
-  const verdict = judge({ reason, duplicateElsewhere, repeatedHere, priorOffenses, ...signs, now: ctx.now });
-  if (verdict.action === "allow") return { enforced: null, seenBefore };
+  const verdict = judge({
+    reason: rule === "cross_group_duplicate" || rule === "repeated" ? null : rule,
+    duplicateElsewhere: rule === "cross_group_duplicate",
+    repeatedHere: rule === "repeated",
+    priorOffenses,
+    ...signs,
+    now: ctx.now,
+  });
+  if (verdict.action === "allow") return null;
 
   await insertOffense(env.DB, userId, chatId, verdict.reason, verdict.score, ctx.now);
   let noticeSent: string | undefined;
@@ -405,7 +429,7 @@ async function enforceRules(
   const done = { rule: verdict.reason, action: verdict.action, score: verdict.score, prior: priorOffenses, words, notice: noticeSent, ...signs };
   await footprint(env, chatId, userId, "action", done, ctx.now);
   log(verdict.action === "mute" ? "spam_muted" : "spam_blocked", { chat_id: chatId, user_id: userId, reason: verdict.reason });
-  return { enforced: done, seenBefore };
+  return done;
 }
 
 // Bans the account in this group and wherever else it is still new, removing its messages.
@@ -427,7 +451,8 @@ async function senderSigns(env: Env, message: Message, from: TelegramUser, traje
   };
 }
 
-// Every detector's opinion on this message, recorded for the benchmark; none of it acts.
+// Runs the text and image models in the background; acts only when confident and guarded
+// against ordinary conversation, otherwise records what the models saw.
 async function shadow(
   env: Env,
   message: Message,
@@ -449,20 +474,32 @@ async function shadow(
   };
   const picture = pictureOf(message);
   const targets = targetsOf(dossier, message);
-  const skipped = await modelsWorthAsking(env, userId, targets, trajectory, picture ? NEURONS.image : 0, ctx.now);
+  const hasTarget = targets.some(strong);
+  const textCost = hasTarget ? NEURONS.decision + NEURONS.verdict : 0;
+  const skipped = await modelsWorthAsking(env, userId, targets, trajectory, (picture ? NEURONS.image : 0) - (hasTarget ? 0 : NEURONS.decision + NEURONS.verdict), ctx.now, Boolean(picture));
   const [decision, imageModel, textModel] = skipped
     ? [null, null, null]
     : await Promise.all([
-        decideText(env, forModels(dossier)),
+        hasTarget ? decideText(env, forModels(dossier)) : null,
         picture ? judgeImage(env, picture.file_id, forModels(dossier)) : null,
-        judgeText(env, forModels(dossier)),
+        hasTarget ? judgeText(env, forModels(dossier)) : null,
       ]);
-  if (!skipped) await recordSpend(env.DB, NEURONS.decision + NEURONS.verdict + (picture ? NEURONS.image : 0), ctx.now);
+  if (!skipped) await recordSpend(env.DB, textCost + (picture ? NEURONS.image : 0), ctx.now);
+  let outcome = enforced;
+  if (!outcome && !skipped) {
+    const textAd = hasTarget && decision !== null && decision.p >= 0.9 && textModel !== null && textModel.ad && textModel.confidence >= 0.85;
+    const imageAd = imageModel !== null && imageModel.ad && imageModel.confidence >= 0.9 && ((imageModel.transcript ?? "").trim().length > 0 || hasTarget);
+    if (textAd || imageAd) {
+      const priorOffenses = await countOffenses(env.DB, userId, ctx.now - OFFENSE_WINDOW_MS);
+      outcome = await applyPenalty(env, message, from, ctx, trajectory, "llm", priorOffenses);
+      if (outcome && !ctx.edited) await revokeRecentAt(env.DB, chatId, userId, ctx.now);
+    }
+  }
   await footprint(env, chatId, userId, "verdict", {
     on: ctx.edited ? "edit" : "message",
     review: review.why,
     rules: spamReason(message),
-    enforced,
+    enforced: outcome,
     lexicon: { text: chatWords(text), name: profileWords(dossier.name) },
     skipped,
     decision,
@@ -490,9 +527,10 @@ async function modelsWorthAsking(
   trajectory: Trajectory | null,
   extra: number,
   now: number,
+  hasPicture = false,
 ): Promise<"no_target" | "sociable" | "judged_enough" | "budget" | "paused" | null> {
-  // Without somewhere to send people there is no ad to act on, whatever a model says.
-  if (!targets.some(strong)) return "no_target";
+  // Without somewhere to send people there is no ad to act on, unless an image itself may carry one.
+  if (!hasPicture && !targets.some(strong)) return "no_target";
   if (trajectory) {
     const s = social(trajectory);
     if (s.replies + s.repliedBy + s.stickers > 0) return "sociable";
@@ -592,6 +630,15 @@ function who(user: TelegramUser): string {
 function largestUnder<T extends { width: number }>(sizes: T[], maxWidth: number): T {
   const fitting = sizes.filter((s) => s.width <= maxWidth);
   return fitting.at(-1) ?? sizes[0];
+}
+
+export async function avatarFileId(env: Env, userId: number): Promise<string | null> {
+  const res = await callTelegram<{ total_count?: number; photos?: PhotoSize[][] }>(env, "getUserProfilePhotos", {
+    user_id: userId,
+    limit: 1,
+  }).catch(() => null);
+  const first = res?.photos?.[0];
+  return first?.length ? largestUnder(first, IMAGE_PX).file_id : null;
 }
 
 // Exactly the parts of a message the rules read; stored so replay can run them again.

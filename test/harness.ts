@@ -83,6 +83,7 @@ export class World {
   refuseDMs = false; // Telegram refuses the bot's private messages; group messages still go through
   lolsDown = false;
   bios = new Map<number, string>(); // what getChat returns for a user's profile
+  avatars = new Map<number, { file_id: string; width: number; height: number }[]>(); // getUserProfilePhotos mock
   // The model's reply, decided per call from what it was asked (the user message).
   model: (prompt: string, model: string) => Record<string, unknown> = () => ({ ad: false, confidence: 0.9, kind: "none", reason: "chat" });
   decision: (prompt: string) => number = () => 0.01; // P(ad) a decision call returns
@@ -150,7 +151,17 @@ export class World {
                 user,
               }))
             : method === "getChat" && Number(params.chat_id) > 0
-              ? { id: params.chat_id, type: "private", bio: this.bios.get(Number(params.chat_id)) }
+              ? {
+                  id: params.chat_id,
+                  type: "private",
+                  bio: this.bios.get(Number(params.chat_id)),
+                  photo: this.avatars.has(Number(params.chat_id)) ? { small_file_id: "av" } : undefined,
+                }
+              : method === "getUserProfilePhotos"
+                ? (() => {
+                    const photos = this.avatars.get(Number(params.user_id));
+                    return { total_count: photos ? 1 : 0, photos: photos ? [photos] : [] };
+                  })()
               : method === "getFile"
                 ? { file_id: params.file_id, file_path: `photos/${params.file_id}.jpg` }
                 : method === "getChatMember"

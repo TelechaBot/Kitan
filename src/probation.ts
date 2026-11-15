@@ -53,9 +53,9 @@ export type SpamReason =
   | "inline_bot"
   | "bot_promo"
   | "keyword"
+  | "llm"
   | "cross_group_duplicate"
   | "repeated";
-
 export type Verdict =
   | { action: "allow" }
   | { action: "mute"; reason: SpamReason; score: number; until: number }
@@ -82,6 +82,7 @@ const WEIGHT: Record<SpamReason, number> = {
   mentions: 2,
   inline_bot: 2,
   keyword: 2,
+  llm: 2,
   bot_promo: 3,
   repeated: 3,
   cross_group_duplicate: 5,
@@ -108,6 +109,7 @@ const TARGET_IS_THE_RULE: Readonly<Record<SpamReason, boolean>> = {
   bot_promo: true,
   inline_bot: true,
   keyword: false,
+  llm: false,
   repeated: false,
   cross_group_duplicate: false,
 };

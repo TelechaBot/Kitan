@@ -19,12 +19,14 @@ import {
   NEURONS,
   decideText,
   forModels,
+  judgeAvatar,
   judgeText,
   modelsPaused,
 } from "./classify";
 import { countBans, countMisses, insertAttempt, noteChat, recordEvent, recordSpend, save, spentToday, unreachableFor, waitingDue } from "./db";
 import { type Lang, pickLang, t } from "./i18n";
-import { DAILY_NEURONS, profileOf } from "./moderation";
+import { bannedWords } from "./lexicon";
+import { DAILY_NEURONS, avatarFileId, profileOf } from "./moderation";
 import { BAN_AT, OFFENSE_WINDOW_MS, diversionTargets, isBlocked, strong } from "./probation";
 import { callTelegram, isRefused, log, messageOf } from "./telegram";
 import { accountYears } from "./trajectory";
@@ -76,11 +78,9 @@ export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: 
   }
 }
 
-const AUDIT_MS = 3_000;
-
-// Before the check: read the profile and ask the models whether it sends people somewhere.
-// A high-confidence ad earns two Turnstile checks and one sum; any error, timeout or budget
-// limit leaves the normal check in place, so a slow model never turns a person away.
+// Before the check: check the profile against the keyword list, then ask the models
+// about the bio (when it points somewhere) and the avatar. Any match escalates to two
+// Turnstile checks and one sum; errors, timeouts or spent budget fall back to normal.
 async function auditProfile(
   env: Env,
   request: ChatJoinRequest,
@@ -95,54 +95,84 @@ async function auditProfile(
   const bio = request.bio || profile?.bio || null;
   const name = [request.from.first_name, request.from.last_name].filter(Boolean).join(" ");
   const personalChat = profile?.personal_chat ?? undefined;
+  const lexicon = bannedWords([name, request.from.username, bio, personalChat].filter(Boolean).join(" "));
   const targets = diversionTargets({ name, bio: bio ?? undefined, channel: personalChat });
-  if (!targets.some(strong)) return null;
+  const dossier: Dossier = {
+    group: request.chat.title ?? undefined,
+    name,
+    username: request.from.username,
+    bio: bio ?? undefined,
+    personalChat,
+    accountYears: Math.round(accountYears(request.from.id, now) * 10) / 10,
+    kind: "none",
+    edited: false,
+    text: "(they are asking to join and have not posted yet)",
+  };
+
+  if (lexicon.length > 0) {
+    await footprint(env, chatId, userId, "verdict", {
+      on: "join_request",
+      lexicon,
+      targets,
+      escalated: true,
+      dossier,
+    }, now).catch((error) => log("footprint_failed", { kind: "join_request_verdict", error: messageOf(error) }));
+    return createStrictChallenge();
+  }
 
   try {
     if (modelsPaused(now)) return null;
-    if ((await spentToday(env.DB, now)) + NEURONS.decision + NEURONS.verdict > DAILY_NEURONS) return null;
-    const dossier: Dossier = {
-      group: request.chat.title ?? undefined,
-      name,
-      username: request.from.username,
-      bio: bio ?? undefined,
-      personalChat,
-      accountYears: Math.round(accountYears(request.from.id, now) * 10) / 10,
-      kind: "none",
-      edited: false,
-      text: "(they are asking to join and have not posted yet)",
-    };
-    const answer = await boundedAudit(env, dossier);
-    await recordSpend(env.DB, NEURONS.decision + NEURONS.verdict, now);
+    const spent = await spentToday(env.DB, now);
+    const hasTarget = targets.some(strong);
+    const wantText = hasTarget && spent + NEURONS.decision + NEURONS.verdict <= DAILY_NEURONS;
+    const avatarId = profile?.has_photo !== false ? await avatarFileId(env, request.from.id) : null;
+    const textCost = wantText ? NEURONS.decision + NEURONS.verdict : 0;
+    const wantAvatar = avatarId !== null && spent + textCost + NEURONS.image <= DAILY_NEURONS;
+    if (!wantText && !wantAvatar) return null;
+
+    const answer = await boundedAudit(env, dossier, wantText, wantAvatar ? avatarId : null);
+    await recordSpend(env.DB, textCost + (wantAvatar ? NEURONS.image : 0), now);
+    const [decision, verdict, avatar] = answer ?? [null, null, null];
+    const textAd = decision !== null && decision.p >= 0.9 && verdict !== null && verdict.ad && verdict.confidence >= 0.85;
+    const avatarAd = avatar !== null && avatar.ad && avatar.confidence >= 0.9;
+    const escalated = textAd || avatarAd;
     await footprint(env, chatId, userId, "verdict", {
       on: "join_request",
+      lexicon,
       targets,
       timed_out: answer === null,
-      decision: answer?.[0] ?? null,
-      text_model: answer?.[1] ?? null,
+      decision,
+      text_model: verdict,
+      avatar_model: avatar,
+      escalated,
       dossier,
     }, now).catch((error) => log("footprint_failed", { kind: "join_request_verdict", error: messageOf(error) }));
-    if (!answer) return null;
-    const [decision, verdict] = answer;
-    return decision !== null && decision.p >= 0.9 && verdict !== null && verdict.ad && verdict.confidence >= 0.85
-      ? createStrictChallenge()
-      : null;
+    return escalated ? createStrictChallenge() : null;
   } catch (error) {
     log("join_audit_failed", { chat_id: chatId, user_id: userId, error: messageOf(error) });
     return null;
   }
 }
 
-// The models must never stall a webhook: after three seconds the normal check is used.
+// The models must never stall a webhook: after four seconds the normal check is used.
+const AUDIT_TIMEOUT_MS = 4_000;
+
 async function boundedAudit(
   env: Env,
   dossier: Dossier,
-): Promise<[Decision | null, ModelVerdict | null] | null> {
+  wantText: boolean,
+  avatarId: string | null,
+): Promise<[Decision | null, ModelVerdict | null, ModelVerdict | null] | null> {
   let resolveTimer!: () => void;
-  const timer = setTimeout(() => resolveTimer(), AUDIT_MS);
+  const timer = setTimeout(() => resolveTimer(), AUDIT_TIMEOUT_MS);
+  const view = forModels(dossier);
   try {
     return await Promise.race([
-      Promise.all([decideText(env, forModels(dossier)), judgeText(env, forModels(dossier))]),
+      Promise.all([
+        wantText ? decideText(env, view) : null,
+        wantText ? judgeText(env, view) : null,
+        avatarId ? judgeAvatar(env, avatarId, view) : null,
+      ]),
       new Promise<null>((resolve) => {
         resolveTimer = () => resolve(null);
       }),

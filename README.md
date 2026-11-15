@@ -72,17 +72,16 @@ so Kitan makes each spam attempt cost an account:
 
 - **Before the check**, Kitan declines accounts listed by
   [lols.bot](https://lols.bot) and accounts it has blocked itself. For everyone
-  else it reads the profile: when the name, bio or profile channel points
-  people somewhere (an invite link, an @handle, a WeChat or QQ id, "see my
-  profile"), two Workers AI models judge whether the account is advertising.
-  A high-confidence yes — the decision at least 0.9, and the written verdict
-  an ad at confidence 0.85 — makes the check stricter: **two Cloudflare
-  Turnstile checks and one simple arithmetic question, in a shuffled order**.
-  A wrong sum gets a fresh question; only that step is ever checked, so a
-  token spent on an earlier one is no use. Any model error, a 3-second
-  timeout, or a spent daily model budget falls back to the ordinary single
-  Turnstile check, so a slow model never turns a person away.
-- **Inside a group**, Kitan reviews only non-admin members with **fewer than
+  else it checks the profile against the keyword list (`bannedWords`), then
+  runs Workers AI models on the bio/name/channel (when they point somewhere)
+  and on the profile avatar. A keyword match, a high-confidence text verdict
+  (decision ≥ 0.9 and written ad verdict at confidence ≥ 0.85), or a
+  high-confidence avatar ad verdict (confidence ≥ 0.9) makes the check stricter:
+  **two Cloudflare Turnstile checks and one simple arithmetic question, in a
+  shuffled order**. A wrong sum gets a fresh question; only that step is ever
+  checked, so a token spent on an earlier one is no use. Any model error, a
+  4-second timeout, or a spent daily model budget falls back to the ordinary
+  single Turnstile check, so a slow model never turns a person away.
   seven clean messages in the last seven days in that group**. A message counts
   only when Kitan did not delete it, and an edited message never counts, so
   spam cannot buy its way out. Once a member reaches seven clean messages
@@ -130,20 +129,18 @@ so Kitan makes each spam attempt cost an account:
 - **Anyone under review** who sends a message with a link button loses it. A
   bot or a channel posting one is banned from the group.
 
-Language and image models still read the name, username, bio and profile
-channel of each member under review, with each new message (and the preview of
-a photo or video), but only to record what they would have done: they do not
-act until their false positives on real newcomers are measured (see `bench/`).
-Two signals are recorded beside them as guards against mistakes. An ad only
-works if people go somewhere, so Kitan notes where a member points people: an
-invite link, a link, an @handle, a WeChat or QQ id, a phone number, a contact
-card, a button, or "see my profile". And ad accounts talk at a group, not with
-it, so Kitan counts how often a member answers someone, is answered, and sends
-stickers. The models are asked only where their answer could matter: about
-members who point somewhere and whom nobody has talked with, at most four
-times per account (the profile and three distinct messages), and within 7,000
-neurons a day, below Workers AI's free 10,000. Past that, the rules keep
-working and the models wait. If Kitan removes
+Language and image models also read the name, username, bio and profile
+channel of each member under review (fewer than seven clean messages in seven
+days), with each new message and photo/video preview. When guarded against
+ordinary chat (a strong diversion target for text, or visible ad text /
+diversion target for images) and both confident (decision ≥ 0.9 with written
+verdict confidence ≥ 0.85, or image confidence ≥ 0.9), the model deletes the
+message and applies the same graduated penalty — and deleted messages never
+count towards the seven clean messages. Ordinary images without visible ads
+are left alone. The models are asked only where their answer could matter:
+within 7,000 neurons a day (below Workers AI's free 10,000), skipping members
+who have already exchanged replies or stickers. Past the daily budget, the
+deterministic rules keep working and the models wait. If Kitan removes
 someone by mistake, unban them in the group settings.
 
 Use only one bot to screen a group's join requests. A person another bot lets

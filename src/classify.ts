@@ -164,8 +164,28 @@ export function yesProbability(tokens: { token: string; top_logprobs?: { token: 
   return yes + no > 0 ? yes / (yes + no) : null;
 }
 
+const AVATAR_INSTRUCTIONS = `You review a Telegram user's profile avatar when they apply to join a group.
+Decide whether the avatar image itself is advertising or drawing members elsewhere.
+Ordinary portraits, selfies, anime characters, pets, memes, logos and scenery are NOT ads (ad: false).
+Only mark ad: true when the avatar displays promotional text, QR codes, contact handles, group/channel links, or adult/gambling/scam offers.
+Reply with JSON only: {"ad": true|false, "confidence": 0..1, "kind": "none|direct|covert|diversion|adult|scam|other", "reason": "<one short sentence>", "transcript": "<visible text in image, max 200 chars>"}`;
+
 // Reads the text in a photo and judges it with the same rubric.
-export async function judgeImage(env: Env, fileId: string, d: Dossier): Promise<ModelVerdict | null> {
+export function judgeImage(env: Env, fileId: string, d: Dossier): Promise<ModelVerdict | null> {
+  return judgePhoto(
+    env,
+    fileId,
+    d,
+    `${INSTRUCTIONS}\nAdd one more field, last: "transcript", the visible text in the image, at most 200 characters.`,
+  );
+}
+
+// Judges a join requester's profile photo for embedded ads, QR codes, or contact handles.
+export function judgeAvatar(env: Env, fileId: string, d: Dossier): Promise<ModelVerdict | null> {
+  return judgePhoto(env, fileId, d, AVATAR_INSTRUCTIONS);
+}
+
+async function judgePhoto(env: Env, fileId: string, d: Dossier, systemPrompt: string): Promise<ModelVerdict | null> {
   const image = await downloadPhoto(env, fileId).catch((error) => {
     log("photo_download_failed", { error: messageOf(error) });
     return null;
@@ -174,10 +194,7 @@ export async function judgeImage(env: Env, fileId: string, d: Dossier): Promise<
   // Verdict first, transcript last and short: a dense price list once ran past the token
   // limit mid-transcript, and the cut-off JSON lost the verdict.
   return run(env, VISION_MODEL, [
-    {
-      role: "system",
-      content: `${INSTRUCTIONS}\nAdd one more field, last: "transcript", the visible text in the image, at most 200 characters.`,
-    },
+    { role: "system", content: systemPrompt },
     {
       role: "user",
       content: [

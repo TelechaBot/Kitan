@@ -443,6 +443,20 @@ export async function writeStanding(
   if (writes.length) await db.batch(writes);
 }
 
+// Removes a message timestamp from probation when background model review deletes it.
+export async function revokeRecentAt(db: D1Database, chatId: string, userId: string, at: number): Promise<void> {
+  const row = await db
+    .prepare(`SELECT recent_ats FROM speakers WHERE chat_id = ? AND user_id = ?`)
+    .bind(chatId, userId)
+    .first<{ recent_ats: string | null }>();
+  if (!row?.recent_ats) return;
+  const kept = decodeRecent(row.recent_ats).filter((t) => t !== at);
+  await db
+    .prepare(`UPDATE speakers SET recent_ats = ? WHERE chat_id = ? AND user_id = ?`)
+    .bind(JSON.stringify(kept), chatId, userId)
+    .run();
+}
+
 // Someone answered one of their messages: a sign of a member, not a billboard.
 export async function creditReply(db: D1Database, userId: string, now: number): Promise<void> {
   const cached = sketchCache(db).get(userId);
