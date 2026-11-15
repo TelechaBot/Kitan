@@ -1,11 +1,33 @@
 // Runs join attempts: loads state, applies the pure step, saves it, then
 // performs the effects. Performing an effect is the only place the guard-bot
 // and DM paths differ.
-import { type Attempt, type JoinEffect, type JoinEvent, MISS_WINDOW_MS, type Refusal, intake, step } from "./attempt";
-import { countBans, countMisses, insertAttempt, noteChat, recordEvent, save, unreachableFor, waitingDue } from "./db";
+import {
+  type Attempt,
+  type ChallengeState,
+  type JoinEffect,
+  type JoinEvent,
+  MISS_WINDOW_MS,
+  type Refusal,
+  createStrictChallenge,
+  intake,
+  step,
+} from "./attempt";
+import {
+  type Decision,
+  type Dossier,
+  type ModelVerdict,
+  NEURONS,
+  decideText,
+  forModels,
+  judgeText,
+  modelsPaused,
+} from "./classify";
+import { countBans, countMisses, insertAttempt, noteChat, recordEvent, recordSpend, save, spentToday, unreachableFor, waitingDue } from "./db";
 import { type Lang, pickLang, t } from "./i18n";
-import { BAN_AT, OFFENSE_WINDOW_MS, isBlocked } from "./probation";
+import { DAILY_NEURONS, profileOf } from "./moderation";
+import { BAN_AT, OFFENSE_WINDOW_MS, diversionTargets, isBlocked, strong } from "./probation";
 import { callTelegram, isRefused, log, messageOf } from "./telegram";
+import { accountYears } from "./trajectory";
 import type { ChatJoinRequest, Env, Message } from "./types";
 
 export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: string, now: number): Promise<void> {
@@ -29,6 +51,7 @@ export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: 
     lolsBanned(userId),
     countMisses(env.DB, chatId, userId, now - MISS_WINDOW_MS),
   ]);
+  const strict = await auditProfile(env, request, userId, chatId, bans, lols, now);
   const first = intake({
     chatId,
     chatTitle: request.chat.title ?? null,
@@ -40,6 +63,7 @@ export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: 
     lols,
     misses,
     at: now,
+    challenge: strict,
   });
   const attempt = await insertAttempt(env.DB, first.attempt, lols, now);
   if (!attempt) return;
@@ -50,6 +74,93 @@ export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: 
     log("join_declined", describe(attempt));
     await perform(env, attempt, first.effects);
   }
+}
+
+const AUDIT_MS = 3_000;
+
+// Before the check: read the profile and ask the models whether it sends people somewhere.
+// A high-confidence ad earns two Turnstile checks and one sum; any error, timeout or budget
+// limit leaves the normal check in place, so a slow model never turns a person away.
+async function auditProfile(
+  env: Env,
+  request: ChatJoinRequest,
+  userId: string,
+  chatId: string,
+  bans: number,
+  lols: boolean | null,
+  now: number,
+): Promise<ChallengeState | null> {
+  if (isBlocked(bans) || lols) return null;
+  const profile = await profileOf(env, request.from, now, !request.bio).catch(() => null);
+  const bio = request.bio || profile?.bio || null;
+  const name = [request.from.first_name, request.from.last_name].filter(Boolean).join(" ");
+  const personalChat = profile?.personal_chat ?? undefined;
+  const targets = diversionTargets({ name, bio: bio ?? undefined, channel: personalChat });
+  if (!targets.some(strong)) return null;
+
+  try {
+    if (modelsPaused(now)) return null;
+    if ((await spentToday(env.DB, now)) + NEURONS.decision + NEURONS.verdict > DAILY_NEURONS) return null;
+    const dossier: Dossier = {
+      group: request.chat.title ?? undefined,
+      name,
+      username: request.from.username,
+      bio: bio ?? undefined,
+      personalChat,
+      accountYears: Math.round(accountYears(request.from.id, now) * 10) / 10,
+      kind: "none",
+      edited: false,
+      text: "(they are asking to join and have not posted yet)",
+    };
+    const answer = await boundedAudit(env, dossier);
+    await recordSpend(env.DB, NEURONS.decision + NEURONS.verdict, now);
+    await footprint(env, chatId, userId, "verdict", {
+      on: "join_request",
+      targets,
+      timed_out: answer === null,
+      decision: answer?.[0] ?? null,
+      text_model: answer?.[1] ?? null,
+      dossier,
+    }, now).catch((error) => log("footprint_failed", { kind: "join_request_verdict", error: messageOf(error) }));
+    if (!answer) return null;
+    const [decision, verdict] = answer;
+    return decision !== null && decision.p >= 0.9 && verdict !== null && verdict.ad && verdict.confidence >= 0.85
+      ? createStrictChallenge()
+      : null;
+  } catch (error) {
+    log("join_audit_failed", { chat_id: chatId, user_id: userId, error: messageOf(error) });
+    return null;
+  }
+}
+
+// The models must never stall a webhook: after three seconds the normal check is used.
+async function boundedAudit(
+  env: Env,
+  dossier: Dossier,
+): Promise<[Decision | null, ModelVerdict | null] | null> {
+  let resolveTimer!: () => void;
+  const timer = setTimeout(() => resolveTimer(), AUDIT_MS);
+  try {
+    return await Promise.race([
+      Promise.all([decideText(env, forModels(dossier)), judgeText(env, forModels(dossier))]),
+      new Promise<null>((resolve) => {
+        resolveTimer = () => resolve(null);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function footprint(
+  env: Env,
+  chatId: string,
+  userId: string,
+  kind: string,
+  detail: Record<string, unknown>,
+  now: number,
+): Promise<void> {
+  await recordEvent(env.DB, { chatId, userId, kind, detail }, now);
 }
 
 // The person pressed Start in the bot, so it may now message them: reopen every

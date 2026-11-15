@@ -1,48 +1,43 @@
 // Watches groups by behaviour. Every person's activity updates a sketch of how they
-// behave across Kitan groups (trajectory.ts). Newcomers are always reviewed; anyone
-// else is left alone once active and not anomalous (needsReview). Review means the
-// deterministic rules act at once while keyword and model judgements run in the
-// background and are only recorded (shadow mode). Reviewed people leave footprints in
-// `events`; people left alone are not recorded.
+// behave across Kitan groups (trajectory.ts). A member is reviewed only while they have
+// fewer than seven clean messages in the last seven days in that group; after that the
+// group's own life is proof enough (needsReview). Review means the deterministic rules
+// act at once while keyword and model judgements run in the background and are only
+// recorded (shadow mode). Reviewed people leave footprints in `events`; people left
+// alone are not recorded.
 import { type Dossier, NEURONS, decideText, forModels, judgeImage, judgeText, modelsPaused } from "./classify";
 import {
   type Profile,
   chatTitle,
   chatsJoinedSince,
   countOffenses,
-  countingSince,
   creditReply,
   earlierCopies,
   insertOffense,
   labelMember,
   latestJoin,
-  loadForest,
   noteChat,
   judgedSince,
   readProfile,
   recordSpend,
   spentToday,
   writeProfile,
-  modelAge,
   prune,
   readStanding,
   readTrajectory,
   recordEvent,
   recordJoin,
-  saveForest,
-  trainingSketches,
   writeStanding,
 } from "./db";
 import { pickLang, t } from "./i18n";
-import { score, train } from "./iforest";
 import { bannedWords, chatWords, profileWords } from "./lexicon";
 import {
-  ACTIVE_AFTER,
-  NEWCOMER_MS,
   type Target,
   DUPLICATE_WINDOW_MS,
   MIN_DUPLICATE_LENGTH,
   OFFENSE_WINDOW_MS,
+  PROBATION_MESSAGES,
+  PROBATION_WINDOW_MS,
   REPEAT_AT,
   type Review,
   contentHash,
@@ -60,7 +55,7 @@ import {
 } from "./probation";
 import { offerAppeal } from "./appeal";
 import { callTelegram, log, messageOf, sendPermissions } from "./telegram";
-import { type Trajectory, accountYears, features, hasRiskShift, social, step } from "./trajectory";
+import { type Trajectory, accountYears, social, step } from "./trajectory";
 import type { ChatMemberUpdated, Env, Message, PhotoSize, TelegramChat, TelegramUser } from "./types";
 
 // A profile read from Telegram is reused for a week; spam accounts do change their bio.
@@ -70,8 +65,6 @@ const FOOTPRINT_MS = 14 * 24 * 60 * 60 * 1000;
 const EXCERPT = 500;
 // Telegram's mid photo size: same verdicts as 1280 px in bench/, at a quarter of the cost.
 const IMAGE_PX = 320;
-// Isolation forest: 50 trees of 128 rows trains in ~5 ms, within a free-plan cron's CPU.
-const FOREST = { trees: 50, sample: 128, rows: 1000, everyMs: 24 * 60 * 60 * 1000 };
 
 
 export interface Context {
@@ -117,7 +110,8 @@ export async function onMemberUpdate(env: Env, update: ChatMemberUpdated, ctx: C
 async function screenProfile(env: Env, update: ChatMemberUpdated, now: number) {
   const user = update.new_chat_member.user;
   const chatId = String(update.chat.id);
-  const profile = await profileOf(env, user, now, true);
+  // A join request just read the profile, so reuse it there; refresh only a stale one.
+  const profile = await profileOf(env, user, now, false);
   const dossier: Dossier = {
     ...(await dossierOf(env, chatId, user, { profile, joinedAt: now }, now)),
     edited: false,
@@ -143,7 +137,7 @@ async function screenProfile(env: Env, update: ChatMemberUpdated, now: number) {
 
 // The person's profile, from Telegram when Kitan has none, it is a week old, or `fresh` asks;
 // each read from Telegram is also a footprint, so bio changes can be traced.
-async function profileOf(env: Env, user: TelegramUser, now: number, fresh: boolean): Promise<Profile | null> {
+export async function profileOf(env: Env, user: TelegramUser, now: number, fresh: boolean): Promise<Profile | null> {
   const userId = String(user.id);
   const stored = await readProfile(env.DB, userId);
   if (stored && !fresh && now - stored.checked_at < PROFILE_MS) return stored;
@@ -241,31 +235,49 @@ export async function onGroupMessage(env: Env, message: Message, ctx: Context): 
   const answered = repliesTo(message);
   if (answered && !ctx.edited) ctx.background(creditReply(env.DB, String(answered.id), ctx.now));
 
-  const mayBeLeftAlone = trajectory.messages > ACTIVE_AFTER || standing.joinedAt === null;
-  const anomaly = mayBeLeftAlone ? await anomalyScore(env, trajectory, from.id, ctx.now) : null;
-  const review = needsReview(
-    {
-      joinedAt: standing.joinedAt,
-      messages: trajectory.messages,
-      firstAt: trajectory.firstAt,
-      anomaly,
-      riskShift: hasRiskShift(trajectory),
-    },
-    await countingSince(env.DB),
-    ctx.now,
-  );
-  // Admins are never moderated, whatever they post and however new they are. Their message
-  // still feeds the sketch; it just never reaches a rule, a model or a footprint.
+  // Probation is per person and per group: only their own clean messages, only the last week.
+  const recent = standing.recentAts.filter((t) => t > ctx.now - PROBATION_WINDOW_MS);
+  const review = needsReview(recent.length);
+  const firstInChat = !standing.known && !ctx.edited;
+
+  // Admins are never moderated, whatever they post and however new they are. Their clean
+  // messages still count towards probation, so they are not reviewed forever.
   if (review.review && (await isAdmin(env, chatId, from.id))) {
-    await writeStanding(env.DB, chatId, userId, trajectory, !standing.known && !ctx.edited, ctx.now, false, standing.updatedAt);
+    await writeStanding(
+      env.DB,
+      chatId,
+      userId,
+      trajectory,
+      firstInChat,
+      ctx.now,
+      false,
+      standing.updatedAt,
+      ctx.edited ? null : [...recent, ctx.now].slice(-PROBATION_MESSAGES),
+    );
     return;
   }
-  await writeStanding(env.DB, chatId, userId, trajectory, !standing.known && !ctx.edited, ctx.now, review.review, standing.updatedAt);
-  if (!review.review) return;
+
+  // Past probation: no admin lookup, no footprint, no rules, no shadow. Slide the window
+  // only every six hours, so a busy regular costs at most four writes a day.
+  if (!review.review) {
+    const slide = !ctx.edited && recent.length > 0 && ctx.now - recent[0] >= 6 * 60 * 60 * 1000;
+    await writeStanding(
+      env.DB,
+      chatId,
+      userId,
+      trajectory,
+      firstInChat,
+      ctx.now,
+      false,
+      standing.updatedAt,
+      slide ? [...recent.slice(-(PROBATION_MESSAGES - 1)), ctx.now] : null,
+    );
+    return;
+  }
 
   await footprint(env, chatId, userId, ctx.edited ? "edit" : "message", {
     review: review.why,
-    anomaly,
+    recent: recent.length,
     messages: trajectory.messages,
     minutes_since_join: standing.joinedAt === null ? null : Math.round((ctx.now - standing.joinedAt) / 60_000),
     name: displayName(from),
@@ -277,6 +289,19 @@ export async function onGroupMessage(env: Env, message: Message, ctx: Context): 
   }, ctx.now);
 
   const { enforced, seenBefore } = await enforceRules(env, message, from, ctx, trajectory);
+  // A clean message counts towards graduation; deleted spam never does.
+  const clean = !ctx.edited && enforced === null;
+  await writeStanding(
+    env.DB,
+    chatId,
+    userId,
+    trajectory,
+    firstInChat,
+    ctx.now,
+    true,
+    standing.updatedAt,
+    clean ? [...recent, ctx.now].slice(-PROBATION_MESSAGES) : null,
+  );
   // A copy of what they just sent gets the same answer; floods would otherwise cost the most.
   if (!seenBefore) ctx.background(shadow(env, message, from, { ...standing, trajectory }, review, ctx, enforced));
 }
@@ -306,11 +331,6 @@ function repliesTo(message: Message): TelegramUser | null {
   if (!to?.from || to.forum_topic_created !== undefined) return null;
   if (to.from.is_bot || to.from.id === message.from?.id) return null;
   return to.from;
-}
-
-async function anomalyScore(env: Env, trajectory: Trajectory, userId: number, now: number): Promise<number | null> {
-  const forest = await loadForest(env.DB, now);
-  return forest ? Math.round(score(forest, features(trajectory, userId, now)) * 1000) / 1000 : null;
 }
 
 // Deterministic rules for people under review. Returns what was done, for the footprint, and
@@ -461,7 +481,7 @@ async function shadow(
 // their answer could matter, and within the free plan's 10,000 neurons a day: on
 // 2026-11-13 these gates would have cut 612 calls in ten hours to 130. Returns why not.
 const JUDGED_PER_ACCOUNT = 4; // the profile and three distinct messages
-const DAILY_NEURONS = 7000; // leaves room for bench runs under the 10,000 allowance
+export const DAILY_NEURONS = 7000; // leaves room for bench runs under the 10,000 allowance
 
 async function modelsWorthAsking(
   env: Env,
@@ -478,7 +498,7 @@ async function modelsWorthAsking(
     if (s.replies + s.repliedBy + s.stickers > 0) return "sociable";
   }
   if (modelsPaused(now)) return "paused";
-  if ((await judgedSince(env.DB, userId, now - NEWCOMER_MS)) >= JUDGED_PER_ACCOUNT) return "judged_enough";
+  if ((await judgedSince(env.DB, userId, now - PROBATION_WINDOW_MS)) >= JUDGED_PER_ACCOUNT) return "judged_enough";
   const cost = NEURONS.decision + NEURONS.verdict + extra;
   if ((await spentToday(env.DB, now)) + cost > DAILY_NEURONS) return "budget";
   return null;
@@ -524,11 +544,18 @@ async function footprint(env: Env, chatId: string, userId: string, kind: string,
   );
 }
 
-const admins = new Map<string, { admin: boolean; until: number }>();
+const adminCaches = new WeakMap<D1Database, Map<string, { admin: boolean; until: number }>>();
+
+function adminCache(db: D1Database) {
+  let cache = adminCaches.get(db);
+  if (!cache) adminCaches.set(db, (cache = new Map()));
+  return cache;
+}
 
 async function isAdmin(env: Env, chatId: string, userId: number): Promise<boolean> {
+  const cache = adminCache(env.DB);
   const key = `${chatId}:${userId}`;
-  const cached = admins.get(key);
+  const cached = cache.get(key);
   if (cached && cached.until > Date.now()) return cached.admin;
   let member: { status: string };
   try {
@@ -540,7 +567,7 @@ async function isAdmin(env: Env, chatId: string, userId: number): Promise<boolea
     return false;
   }
   const admin = member.status === "creator" || member.status === "administrator";
-  admins.set(key, { admin, until: Date.now() + 10 * 60 * 1000 });
+  cache.set(key, { admin, until: Date.now() + 10 * 60 * 1000 });
   return admin;
 }
 
@@ -609,17 +636,8 @@ async function act(env: Env, method: string, params: Record<string, unknown>): P
 
 // ---------- housekeeping (hourly) ----------
 
-// Retrains the isolation forest once a day on active accounts, the population whose
-// behaviour counts as ordinary, and prunes expired rows.
+// Drops copies, offences, footprints and appeals that are past their retention.
 export async function hourly(env: Env, now: number): Promise<void> {
-  if ((await modelAge(env.DB, now)) >= FOREST.everyMs) {
-    const sketches = await trainingSketches(env.DB, ACTIVE_AFTER, FOREST.rows);
-    if (sketches.length >= FOREST.sample) {
-      const rows = sketches.map((s) => features(s.trajectory, s.userId, now));
-      await saveForest(env.DB, train(rows, { trees: FOREST.trees, sample: FOREST.sample, seed: Math.floor(now / 86_400_000) }), rows.length, now);
-      log("forest_trained", { rows: rows.length });
-    }
-  }
   await prune(env.DB, {
     hashes: now - DUPLICATE_WINDOW_MS,
     offenses: now - OFFENSE_WINDOW_MS,

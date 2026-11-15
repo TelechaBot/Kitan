@@ -1,10 +1,11 @@
-// Diversion targets: where an account is trying to send people. Spam samples are bios
-// and messages from accounts removed on 2026-11-12; the ham are things people say.
+// Probation as pure decisions: the rolling seven-clean-message gate, diversion targets
+// (where an account tries to send people), penalties, and the Python bot's minimal rules.
 import { describe, expect, test } from "bun:test";
 import { bannedWords } from "../src/lexicon";
 import {
   type Judgement,
-  type Standing,
+  PROBATION_MESSAGES,
+  PROBATION_WINDOW_MS,
   diversionTargets,
   isBlocked,
   judge,
@@ -41,7 +42,6 @@ describe("penalties grow with the evidence", () => {
 
 describe("the keyword layer", () => {
   test("the Python bot's chat list, through zero-width padding", () => {
-    // 2026-11-12, "章响哥" accounts, with a zero-width character between letters.
     expect(bannedWords("二道混 ‌招代​收代付啦")).toEqual(["代付"]);
   });
 
@@ -85,90 +85,71 @@ describe("diversion targets", () => {
   });
 });
 
-const NOW = 40 * 24 * 60 * 60 * 1000;
-const COUNTING_SINCE = 10 * 24 * 60 * 60 * 1000;
-
-describe("who is reviewed", () => {
-  test("a high forest score alone never reopens a regular or active member", () => {
-    // The global model was poisoned by one non-social group; its score is telemetry now.
-    const regular: Standing = { joinedAt: null, messages: 3, firstAt: COUNTING_SINCE + 1000, anomaly: 0.99 };
-    expect(needsReview(regular, COUNTING_SINCE, NOW)).toEqual({ review: false, why: "regular" });
-    const active: Standing = { joinedAt: COUNTING_SINCE, messages: 21, firstAt: NOW - 1000, anomaly: 0.99 };
-    expect(needsReview(active, COUNTING_SINCE, NOW)).toEqual({ review: false, why: "active" });
+describe("the rolling seven-message gate", () => {
+  test("the window and the count are seven days and seven clean messages", () => {
+    expect(PROBATION_WINDOW_MS).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(PROBATION_MESSAGES).toBe(7);
   });
 
-  test("their own behaviour shifting does reopen review", () => {
-    const active: Standing = { joinedAt: COUNTING_SINCE, messages: 21, firstAt: NOW - 1000, anomaly: null, riskShift: true };
-    expect(needsReview(active, COUNTING_SINCE, NOW)).toEqual({ review: true, why: "anomalous" });
-    const regular: Standing = { joinedAt: null, messages: 3, firstAt: COUNTING_SINCE + 1000, anomaly: 0.99, riskShift: true };
-    expect(needsReview(regular, COUNTING_SINCE, NOW)).toEqual({ review: true, why: "anomalous" });
-  });
-
-  test("a new joiner is always reviewed, a quiet account too", () => {
-    const newcomer: Standing = { joinedAt: NOW - 86_400_000, messages: 100, firstAt: NOW - 86_400_000, anomaly: null };
-    expect(needsReview(newcomer, COUNTING_SINCE, NOW)).toEqual({ review: true, why: "newcomer" });
-    const quiet: Standing = { joinedAt: COUNTING_SINCE, messages: 3, firstAt: null, anomaly: null };
-    expect(needsReview(quiet, COUNTING_SINCE, NOW)).toEqual({ review: true, why: "quiet" });
+  test("six recent messages still review; the seventh leaves the member alone", () => {
+    expect(needsReview(6)).toEqual({ review: true, why: "probation" });
+    expect(needsReview(7)).toEqual({ review: false, why: "established" });
+    expect(needsReview(0)).toEqual({ review: true, why: "probation" });
   });
 });
 
 describe("what the rules treat as spam", () => {
   const msg = (text: string, extra: Partial<Message> = {}): Message =>
     Object.assign({ message_id: 1, chat: { id: 1 } }, text ? { text } : {}, extra) as Message;
+  const entity = (url: string, type: "url" | "text_link" = "text_link") =>
+    msg("see this", { entities: [{ type, offset: 0, length: 4, url }] });
 
-  test("shared music, art, code and archives are not links", () => {
+  test("ordinary web links are conversation, whatever the host", () => {
     for (const url of [
       "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       "https://youtu.be/dQw4w9WgXcQ",
       "https://www.pixiv.net/artworks/123",
       "https://github.com/owner/repo",
-      "https://exhentai.org/g/123/abc/",
-      "https://e-hentai.org/g/123/abc/",
-      "https://b23.tv/abc",
+      "https://x.example/offer",
+      "https://youtube.com.evil.example/x",
     ]) {
       expect(spamReason(msg(`看看这个 ${url}`))).toBeNull();
     }
   });
 
-  test("a plain forwarded photo or user message is not an ad", () => {
-    const photo: Message = {
-      message_id: 2,
-      chat: { id: 1 },
-      caption: "好图",
-      photo: [{ file_id: "p", width: 320, height: 320 }],
-      forward_origin: { type: "user" },
-    };
-    expect(spamReason(photo)).toBeNull();
+  test("a forwarded post or an inline bot without buttons is not an ad", () => {
+    expect(spamReason(msg("好图", { forward_origin: { type: "channel" } }))).toBeNull();
+    expect(spamReason(msg("好图", { forward_origin: { type: "user" } }))).toBeNull();
+    expect(spamReason(msg("转来的", { via_bot: { username: "some_inline_bot" } }))).toBeNull();
   });
 
-  test("a slash command that names a bot is not a bot promo", () => {
+  test("a slash command or a mention inside a sentence is not a bot promo", () => {
     expect(spamReason(msg("/setu@kmuav2bot"))).toBeNull();
     expect(spamReason(msg("/setu@kmuav2bot", { entities: [{ type: "bot_command", offset: 0, length: 15 }] }))).toBeNull();
+    expect(spamReason(msg("这个 bot 是群主的吗 @SmartVerifyBot"))).toBeNull();
   });
 
-  test("Telegram links, unknown hosts and look-alike domains still count", () => {
+  test("Telegram and WhatsApp links count, however they are written", () => {
     expect(spamReason(msg("join t.me/+abc"))).toBe("link");
-    expect(spamReason(msg("https://x.example/offer"))).toBe("link");
-    expect(spamReason(msg("https://youtube.com.evil.example/x"))).toBe("link");
+    expect(spamReason(msg("join t.me/spam"))).toBe("link");
+    expect(spamReason(msg("https://t.me/spam"))).toBe("link");
+    expect(spamReason(msg("write wa.me/123456"))).toBe("link");
+    expect(spamReason(msg("open tg://resolve?domain=x"))).toBe("link");
+    expect(spamReason(entity("t.me/+abc"))).toBe("link");
   });
 
-  test("benign media with ad words is still caught, and so is a bot handle or a channel forward", () => {
-    expect(spamReason(msg("日入过万 https://www.youtube.com/watch?v=x"))).toBe("link");
+  test("invite and affiliate tags in a link entity count", () => {
+    expect(spamReason(entity("https://example.com/?start=abc"))).toBe("link");
+    expect(spamReason(entity("https://example.com/?aff=1", "url"))).toBe("link");
+    expect(spamReason(entity("https://example.com/startapp"))).toBe("link");
+  });
+
+  test("a listed word, a bare bot handle, a mention flood and a link button", () => {
+    expect(spamReason(msg("可约"))).toBe("keyword");
     expect(spamReason(msg("@BSGJUU_bot"))).toBe("bot_promo");
-    expect(spamReason(msg("free money", { forward_origin: { type: "channel" } }))).toBe("forward");
-  });
-
-  test("scheme-less url entities to public media are not links", () => {
-    expect(spamReason(msg("看看这个", { entities: [{ type: "text_link", offset: 0, length: 4, url: "youtu.be/abc" }] }))).toBeNull();
-    expect(
-      spamReason(msg("shorts", { entities: [{ type: "text_link", offset: 0, length: 6, url: "youtube.com/shorts/123" }] })),
-    ).toBeNull();
-    // The chat platforms are still links however they are written.
-    expect(spamReason(msg("join", { entities: [{ type: "text_link", offset: 0, length: 4, url: "t.me/+abc" }] }))).toBe("link");
-  });
-
-  test("forwarding a person's public video is not an ad", () => {
-    expect(spamReason(msg("https://www.youtube.com/watch?v=x", { forward_origin: { type: "user" } }))).toBeNull();
-    expect(spamReason(msg("加v：abc_12345", { forward_origin: { type: "user" } }))).toBe("forward");
+    expect(spamReason(msg("@alice_x @bobby_y @carol_z @dave_w"))).toBe("mentions");
+    const buttons = { reply_markup: { inline_keyboard: [[{ text: "join", url: "https://t.me/+abc" }]] } };
+    expect(spamReason(msg("福利", buttons))).toBe("inline_bot");
+    expect(spamReason(msg("福利", { ...buttons, via_bot: { username: "inline" } }))).toBe("inline_bot");
   });
 });

@@ -18,6 +18,40 @@ export interface Call {
   params: Record<string, any>;
 }
 
+// A strict challenge's public question, solved the way a person would.
+export function answerFor(question: string): number {
+  const match = /^(\d+)\s*([+-])\s*(\d+)$/.exec(question);
+  if (!match) throw new Error(`unexpected math question: ${question}`);
+  return match[2] === "+" ? Number(match[1]) + Number(match[3]) : Number(match[1]) - Number(match[3]);
+}
+
+interface PublicStep {
+  kind: string;
+  question?: string;
+}
+
+interface VerifyBody {
+  done?: boolean;
+  step?: PublicStep;
+}
+
+// Reads the current step from a Mini App response, validating the shape it trusts.
+export function readStep(body: unknown): PublicStep | undefined {
+  if (!body || typeof body !== "object" || !("step" in body) || !body.step || typeof body.step !== "object") return undefined;
+  const candidate = body.step;
+  if (!("kind" in candidate) || typeof candidate.kind !== "string") return undefined;
+  return {
+    kind: candidate.kind,
+    question: "question" in candidate && typeof candidate.question === "string" ? candidate.question : undefined,
+  };
+}
+
+export function readVerify(body: unknown): VerifyBody {
+  if (!body || typeof body !== "object") return {};
+  const done = "done" in body && typeof body.done === "boolean" ? body.done : undefined;
+  return { done, step: readStep(body) };
+}
+
 // Enough of D1's prepare/bind/first/all/run/batch for the Worker.
 function d1(db: Database): D1Database {
   const statement = (sql: string, args: unknown[]) => ({
@@ -151,7 +185,7 @@ export class World {
   }
 
   // A join request; a queryId makes it arrive on the guard-bot path.
-  requestJoin(userId: number, chatId: number, opts: { queryId?: string; lang?: string } = {}): Promise<Response> {
+  requestJoin(userId: number, chatId: number, opts: { queryId?: string; lang?: string; bio?: string } = {}): Promise<Response> {
     return this.hook({
       chat_join_request: {
         chat: { id: chatId, title: `chat${chatId}` },
@@ -159,6 +193,7 @@ export class World {
         user_chat_id: userId,
         date: 0,
         query_id: opts.queryId,
+        bio: opts.bio,
       },
     });
   }
@@ -256,25 +291,36 @@ export class World {
     return params.toString();
   }
 
-  // Opens the Mini App and submits a check, the way the page does. Returns the HTTP status.
+  // Opens the Mini App and submits every step, the way the page does. Returns the HTTP status.
   async completeCheck(userId: number, chatId: number): Promise<number> {
     const attempt = this.latestAttempt(userId, chatId);
     const data = attempt.query_id
       ? await this.initData(userId, { chat_join_request_query_id: attempt.query_id })
       : await this.initData(userId);
     const body = { initData: data, token: attempt.token ?? undefined };
-    await this.post("/api/open", body);
-    const status = (await this.post("/api/verify", { ...body, turnstileToken: "t", solveMs: 1500 })).status;
-    // Telegram reports the approval as the person joining, admitted by Kitan.
-    if (status === 200) await this.join(userId, chatId, { id: 123, is_bot: true, username: "test_bot" });
-    return status;
+    const opened = await this.post("/api/open", body);
+    if (!opened.ok) return opened.status;
+    let step = readStep(await opened.json());
+    for (let i = 0; i < 4; i++) {
+      const extra = step?.kind === "math" ? { answer: answerFor(step.question!) } : { turnstileToken: "t" };
+      const response = await this.post("/api/verify", { ...body, ...extra, solveMs: 1500 });
+      if (response.status !== 200) return response.status;
+      const result = readVerify(await response.json());
+      if (result.done !== false) {
+        // Telegram reports the approval as the person joining, admitted by Kitan.
+        await this.join(userId, chatId, { id: 123, is_bot: true, username: "test_bot" });
+        return 200;
+      }
+      step = result.step;
+    }
+    return 500;
   }
 
   expire(at: number): Promise<void> {
     return expirePending(this.env, at);
   }
 
-  // What the cron does on the hour: training the forest and pruning.
+  // What the cron does on the hour: pruning expired rows.
   hourly(): Promise<void> {
     return hourly(this.env, Date.now());
   }

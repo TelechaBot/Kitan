@@ -3,21 +3,12 @@
 // records enough to reconstruct each case. Whether models catch them is measured
 // by bench/, against the real models; the model here is a stand-in.
 import { beforeEach, expect, test } from "bun:test";
-import { trainingSketches } from "../src/db";
 import { noticeInviteLinks } from "../src/notice";
-import { empty, step } from "../src/trajectory";
 import { World } from "./harness";
 
-// An ordinary active account's sketch: 30 short messages a few hours apart.
-function sketch(seed: number) {
-  let t = empty();
-  for (let i = 0; i < 30; i++) {
-    t = step(t, { kind: "message", at: i * (3 + (seed % 5)) * 3_600_000, newChat: i === 0, link: false, mention: false, forward: false, media: false, chars: 10 + seed % 40 });
-  }
-  return t;
-}
-
 const GROUP = -1001;
+const OTHER = -2002;
+const DAY = 24 * 60 * 60 * 1000;
 // "Neutron Verify" in the screenshots is Kitan itself: these accounts passed the check.
 const KITAN = { id: 123, is_bot: true, username: "test_bot" };
 let w: World;
@@ -45,7 +36,7 @@ test("passed Kitan's check, then a covert adult-services pitch: the decision lea
   await w.join(22, GROUP, KITAN, { first_name: "mugabula", last_name: "twaha" });
   await w.say(22, GROUP, "新人一枚，不太会说话，只会哈哈哈");
   await w.say(22, GROUP, "现在全国夜场都要倒闭了 我们女生赚钱越来越难了");
-  expect(w.callsTo("deleteMessage")).toHaveLength(0); // rules miss it: no link, button or mention
+  expect(w.callsTo("deleteMessage")).toHaveLength(0); // rules miss it: no diversion link, button or mention
   expect(w.events(22, "join")[0].detail.approved_by).toBe("bot:@test_bot");
   const [, pitch] = w.events(22, "verdict").filter((v) => v.detail.on === "message");
   expect(pitch.detail.decision.p).toBeCloseTo(0.9, 2);
@@ -80,9 +71,9 @@ test("a flood whose own text points elsewhere is banned, though the profile is b
   expect(w.events(51, "action")[0].detail).toMatchObject({ rule: "repeated", action: "burn", score: 5, pointsElsewhere: true });
 });
 
-test("a link's own target is not counted twice", async () => {
+test("a Telegram link's own target is not counted twice", async () => {
   await w.join(52, GROUP, KITAN);
-  await w.say(52, GROUP, "the docs are at https://example.org/guide");
+  await w.say(52, GROUP, "the docs are at t.me/guide");
   expect(w.events(52, "action")[0].detail).toMatchObject({ rule: "link", action: "mute", score: 1, pointsElsewhere: false });
 });
 
@@ -92,7 +83,6 @@ test("a flood with nowhere to send people, or from someone others answer, is onl
   expect(w.callsTo("restrictChatMember")).toHaveLength(1);
   expect(w.callsTo("banChatMember")).toHaveLength(0);
 
-  w.bios.set(45, "博客 https://example.org");
   await w.join(45, GROUP, KITAN);
   const id = await w.say(45, GROUP, "求助");
   await w.say(46, GROUP, "怎么了", { reply_to_message: { message_id: id, from: { id: 45 } } });
@@ -157,11 +147,11 @@ test("rarely, an invite link that brings mostly ads earns its owner one quiet no
     });
   for (let i = 0; i < 12; i++) {
     await viaLink(600 + i, GROUP, "Leah baby");
-    if (i < 10) await w.say(600 + i, GROUP, "日赚五百 https://t.me/+abc");
+    if (i < 10) await w.say(600 + i, GROUP, "日赚五百 t.me/spam");
   }
   for (let i = 0; i < 9; i++) {
-    await viaLink(700 + i, -2003, "小🐯");
-    await w.say(700 + i, -2003, "日赚五百 https://t.me/+abc");
+    await viaLink(700 + i, OTHER, "小🐯");
+    await w.say(700 + i, OTHER, "日赚五百 t.me/spam");
   }
   w.admins = [{ id: 900, status: "creator" }, { id: 901 }];
   w.calls = [];
@@ -171,7 +161,7 @@ test("rarely, an invite link that brings mostly ads earns its owner one quiet no
   expect(notes[0].params.text).toContain('"Leah baby", made by @an_admin: 12 joined, 10 removed or muted');
 
   w.calls = [];
-  await noticeInviteLinks(w.env, Date.now() + 24 * 60 * 60 * 1000);
+  await noticeInviteLinks(w.env, Date.now() + DAY);
   expect(w.callsTo("sendMessage")).toHaveLength(0); // not again within 30 days
 });
 
@@ -241,112 +231,78 @@ test("photos are read at Telegram's ~320 px size", async () => {
   expect(w.callsTo("getFile").map((c) => c.params.file_id)).toEqual(["m"]);
 });
 
-const LINK = "see https://t.me/x";
-const WEEK = 7 * 24 * 60 * 60 * 1000;
+const recentOf = (userId: number, chatId: number): number[] => {
+  const row = w.db
+    .query("SELECT recent_ats FROM speakers WHERE chat_id = ? AND user_id = ?")
+    .get(String(chatId), String(userId)) as { recent_ats: string } | null;
+  return row ? (JSON.parse(row.recent_ats) as number[]) : [];
+};
 
-// Ages someone's join in every group, as if `ms` had passed.
-function age(userId: number, ms: number) {
-  w.db.run("UPDATE speakers SET joined_at = joined_at - ? WHERE user_id = ?", [ms, String(userId)]);
-}
-
-// A one-tree forest that sends everyone to a leaf of `leaf` rows: 1 scores ~0.92 (anomalous), 127 ~0.46.
-function forestScoring(leaf: number) {
-  const body = JSON.stringify({ sample: 128, trees: [{ nodes: [[0, 1e15, 1, 2], [-1, leaf], [-1, 128 - leaf]] }] });
-  w.db.run("INSERT INTO models (name, trained_at, rows, body) VALUES ('trajectory_iforest', ?, 128, ?)", [Date.now(), body]);
-}
-
-test("a newcomer is reviewed however much they post: no posting out of review", async () => {
-  await w.join(28, GROUP, KITAN);
-  for (let i = 0; i < 25; i++) await w.say(28, GROUP, `hi ${i}`);
-  await w.say(28, GROUP, LINK);
-  expect(w.callsTo("deleteMessage")).toHaveLength(1);
-  expect(w.events(28, "message").at(-1)?.detail.review).toBe("newcomer");
-});
-
-test("after a week, someone active across Kitan groups is left alone, even posting a link", async () => {
-  forestScoring(127);
-  await w.join(29, GROUP, KITAN);
-  for (let i = 0; i < 21; i++) await w.say(29, GROUP, `hi ${i}`);
-  age(29, WEEK + 60_000);
-  const recorded = w.events(29).length;
-  await w.say(29, GROUP, LINK);
+test("seven clean messages in a group end review there, and the next ad is left alone", async () => {
+  await w.join(64, GROUP, KITAN);
+  for (let i = 0; i < 7; i++) await w.say(64, GROUP, `hello ${i}`);
+  expect(recentOf(64, GROUP)).toHaveLength(7);
+  const recorded = w.events(64).length;
+  w.calls = [];
+  await w.say(64, GROUP, "cheap followers t.me/spam");
   expect(w.callsTo("deleteMessage")).toHaveLength(0);
-  expect(w.events(29)).toHaveLength(recorded); // left alone: not even recorded
+  expect(w.callsTo("restrictChatMember")).toHaveLength(0);
+  expect(w.events(64)).toHaveLength(recorded); // past review: nothing is recorded
 });
 
-test("an active member whose behaviour turns anomalous is reviewed again", async () => {
-  // Not the global forest: the account's own recent-vs-usual mix is the change point.
-  await w.join(30, GROUP, KITAN);
-  for (let i = 0; i < 21; i++) await w.say(30, GROUP, `hi ${i}`);
-  age(30, WEEK + 60_000);
-  // One ordinary link is not a shift; it is neither reviewed nor acted on.
-  await w.say(30, GROUP, LINK);
-  expect(w.callsTo("deleteMessage")).toHaveLength(0);
-  expect(w.events(30, "message")).toHaveLength(21);
-  // Consecutive spam links are: the sketch notices and the rules act.
-  await w.say(30, GROUP, "see https://t.me/x1");
-  await w.say(30, GROUP, "see https://t.me/x2");
-  expect(w.callsTo("deleteMessage").length).toBeGreaterThan(0);
-  expect(w.events(30, "message").at(-1)?.detail).toMatchObject({ review: "anomalous" });
-  expect(w.events(30, "action").at(-1)?.detail).toMatchObject({ rule: "link" });
+test("deleted spam does not count towards graduation", async () => {
+  await w.join(65, GROUP, KITAN);
+  for (let i = 0; i < 7; i++) await w.say(65, GROUP, "join t.me/+abc");
+  expect(w.callsTo("deleteMessage")).toHaveLength(7);
+  expect(recentOf(65, GROUP)).toEqual([]);
+  await w.say(65, GROUP, "hello");
+  expect(w.events(65, "message").at(-1)?.detail.recent).toBe(0);
 });
 
-test("a quiet account past its first week is still reviewed", async () => {
-  await w.join(33, GROUP, KITAN);
-  await w.say(33, GROUP, "hi");
-  age(33, WEEK + 60_000);
-  await w.say(33, GROUP, LINK);
+test("the gate is per group: seven clean messages elsewhere do not shield a new group", async () => {
+  await w.join(66, GROUP, KITAN);
+  await w.join(66, OTHER, KITAN);
+  for (let i = 0; i < 7; i++) await w.say(66, GROUP, `hello ${i}`);
+  w.calls = [];
+  await w.say(66, OTHER, "cheap followers t.me/spam");
   expect(w.callsTo("deleteMessage")).toHaveLength(1);
-  expect(w.events(33, "message").at(-1)?.detail.review).toBe("quiet");
 });
 
-test("the hourly job trains the forest on active accounts once a day", async () => {
-  for (let u = 0; u < 130; u++) {
-    w.db.run("INSERT INTO trajectories (user_id, messages, updated_at, body) VALUES (?, 30, 0, ?)", [
-      String(5e9 + u * 1e6),
-      JSON.stringify(sketch(u)),
-    ]);
-  }
-  await w.hourly();
-  const model = w.db.query("SELECT rows FROM models WHERE name = 'trajectory_iforest'").get() as { rows: number } | null;
-  expect(model?.rows).toBe(130);
-});
-
-test("training samples are balanced per group, deduplicated and free of offenders", async () => {
-  const g1: number[] = [];
-  const g2: number[] = [];
-  const g3: number[] = [];
-  let uid = 2_000_000;
-  const add = (chat: string, group: number[], count: number) => {
-    for (let i = 0; i < count; i++) {
-      const id = uid++;
-      group.push(id);
-      w.db.run("INSERT INTO trajectories (user_id, messages, updated_at, body) VALUES (?, 30, 0, ?)", [
-        String(id),
-        JSON.stringify(sketch(id)),
-      ]);
-      w.db.run("INSERT INTO speakers (chat_id, user_id) VALUES (?, ?)", [chat, String(id)]);
-    }
-  };
-  add("g1", g1, 70);
-  add("g2", g2, 60);
-  add("g3", g3, 55);
-  // People who speak in several groups must not be counted more than once.
-  for (const id of g1.slice(0, 10)) w.db.run("INSERT INTO speakers (chat_id, user_id) VALUES ('g2', ?)", [String(id)]);
-  const offender = g1[0];
-  w.db.run("INSERT INTO offenses (user_id, chat_id, reason, score, at) VALUES (?, 'g1', 'link', 1, ?)", [
-    String(offender),
-    Date.now(),
+test("the window rolls: messages older than a week no longer end review", async () => {
+  await w.join(67, GROUP, KITAN);
+  for (let i = 0; i < 7; i++) await w.say(67, GROUP, `hello ${i}`);
+  const old = Date.now() - 8 * DAY;
+  w.db.run("UPDATE speakers SET recent_ats = ? WHERE chat_id = ? AND user_id = ?", [
+    JSON.stringify(Array(7).fill(old)),
+    String(GROUP),
+    "67",
   ]);
+  w.calls = [];
+  await w.say(67, GROUP, "cheap followers t.me/spam");
+  expect(w.callsTo("deleteMessage")).toHaveLength(1);
+});
 
-  const sample = await trainingSketches(w.env.DB, 20, 1000);
-  const ids = sample.map((s) => s.userId);
-  const g1Only = g1.slice(10);
-  expect(sample.length).toBeGreaterThanOrEqual(128); // enough for the forest: the window path, not the fallback
-  expect(sample.length).toBeLessThanOrEqual(150); // at most 50 from each of the three groups
-  expect(new Set(ids).size).toBe(ids.length); // one row per account across groups
-  expect(ids).not.toContain(offender);
-  expect(ids.filter((id) => g1Only.includes(id)).length).toBeLessThanOrEqual(50); // one group cannot dominate
+test("an ordinary web link or a plain forward is not a rule, though the message is recorded", async () => {
+  await w.say(61, GROUP, "看看这个 https://www.youtube.com/watch?v=x");
+  await w.say(61, GROUP, "https://exhentai.org/g/1/abc/");
+  await w.say(61, GROUP, "", {
+    caption: "好图",
+    photo: [{ file_id: "p", width: 320, height: 320 }],
+    forward_origin: { type: "user" },
+  });
+  expect(w.callsTo("deleteMessage")).toHaveLength(0);
+  expect(w.callsTo("restrictChatMember")).toHaveLength(0);
+  expect(w.callsTo("banChatMember")).toHaveLength(0);
+  expect(w.events(61, "message")).toHaveLength(3);
+});
+
+test("the hourly job prunes what retention allows", async () => {
+  const old = Date.now() - 40 * DAY;
+  w.db.run("INSERT INTO offenses (user_id, chat_id, reason, score, at) VALUES ('1', 'g', 'link', 1, ?)", [old]);
+  w.db.run("INSERT INTO events (at, chat_id, user_id, kind, detail) VALUES (?, 'g', '1', 'message', '{}')", [old]);
+  await w.hourly();
+  expect(w.db.query("SELECT count(*) AS n FROM offenses").get()).toEqual({ n: 0 });
+  expect(w.db.query("SELECT count(*) AS n FROM events").get()).toEqual({ n: 0 });
 });
 
 test("the profile is read at join: bio and who admitted them", async () => {
@@ -391,17 +347,25 @@ test("join, leave and pin notices are not counted as anything a member said", as
   expect(w.db.query("SELECT messages FROM trajectories WHERE user_id = '37'").get()).toEqual({ messages: 0 });
 });
 
-test("link-button ads from a bot and a channel identity are removed; an active member's never are", async () => {
+test("link-button ads from a bot, a channel and a member are removed; an established member's never are", async () => {
   const buttons = { reply_markup: { inline_keyboard: [[{ text: "进群领福利", url: "https://t.me/+abc" }]] } };
   await w.say(31, GROUP, "福利群", buttons, { is_bot: true, username: "promo_bot" });
   await w.hook({
     message: { message_id: 900, chat: { id: GROUP, type: "supergroup" }, sender_chat: { id: -100555, title: "福利频道" }, from: { id: 136817688, is_bot: true }, text: "看这里", ...buttons },
   });
   await w.say(32, GROUP, "推荐", { ...buttons, via_bot: { username: "some_inline_bot" } });
-  expect(w.callsTo("deleteMessage")).toHaveLength(2);
+  expect(w.callsTo("deleteMessage")).toHaveLength(3);
   expect(w.callsTo("banChatMember").map((c) => c.params.user_id)).toEqual([31]);
   expect(w.callsTo("banChatSenderChat").map((c) => c.params.sender_chat_id)).toEqual([-100555]);
-  expect(w.events(32)).toHaveLength(0); // not on probation: not even recorded
+  expect(w.events(32, "action")[0].detail.rule).toBe("inline_bot");
+
+  // Once a member has seven clean messages here, a button no longer touches them.
+  for (let i = 0; i < 7; i++) await w.say(63, GROUP, `hello ${i}`);
+  const recorded = w.events(63).length;
+  w.calls = [];
+  await w.say(63, GROUP, "推荐", { ...buttons, via_bot: { username: "some_inline_bot" } });
+  expect(w.callsTo("deleteMessage")).toHaveLength(0);
+  expect(w.events(63)).toHaveLength(recorded);
 });
 
 test("admins and the group's own channel posts keep their buttons", async () => {
@@ -432,28 +396,6 @@ test("a human admin is never moderated, however new or spammy they look", async 
   expect(w.callsTo("banChatMember")).toHaveLength(0);
   expect(w.events(60)).toHaveLength(recorded); // not even recorded
   expect(w.db.query("SELECT count(*) AS n FROM offenses WHERE user_id = '60'").get()).toEqual({ n: 0 });
-});
-
-test("a regular member sharing ordinary links is never moderated, and their first message is stored at once", async () => {
-  forestScoring(1); // the poisoned global model would call anyone anomalous
-  await w.say(61, GROUP, "看看这个 https://www.youtube.com/watch?v=x");
-  await w.say(61, GROUP, "https://exhentai.org/g/1/abc/");
-  await w.say(61, GROUP, "", {
-    caption: "好图",
-    photo: [{ file_id: "p", width: 320, height: 320 }],
-    forward_origin: { type: "user" },
-  });
-  expect(w.callsTo("deleteMessage")).toHaveLength(0);
-  expect(w.callsTo("restrictChatMember")).toHaveLength(0);
-  expect(w.callsTo("banChatMember")).toHaveLength(0);
-  expect(w.events(61)).toHaveLength(0); // left alone: not even recorded
-
-  // The first message of a regular is written immediately, so firstAt and chats survive an isolate.
-  const row = w.db.query("SELECT body FROM trajectories WHERE user_id = '61'").get() as { body: string } | null;
-  expect(row).not.toBeNull();
-  const stored = JSON.parse(row!.body);
-  expect(stored).toMatchObject({ messages: 1, chats: 1 });
-  expect(stored.firstAt).toBeGreaterThan(0);
 });
 
 test("a slash command naming a bot is not a bot promotion", async () => {

@@ -2,8 +2,7 @@
 // converted to typed states by the pure codec below; `save` writes a step only
 // if the row still has the status the step started from, so two workers
 // racing on one attempt cannot both apply.
-import type { Attempt, DeclineReason, Delivery, NewAttempt } from "./attempt";
-import type { Forest } from "./iforest";
+import type { Attempt, ChallengeState, DeclineReason, Delivery, NewAttempt } from "./attempt";
 import { type Trajectory, empty, step } from "./trajectory";
 
 interface AttemptRow {
@@ -21,6 +20,7 @@ interface AttemptRow {
   decided_at: number | null;
   error: string | null;
   misses: number;
+  challenge: string | null;
 }
 
 // ---------- codec (pure) ----------
@@ -36,6 +36,7 @@ function decode(row: AttemptRow): Attempt {
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     misses: row.misses,
+    challenge: decodeChallenge(row.challenge),
   };
   const decidedAt = row.decided_at ?? row.created_at;
   switch (row.status) {
@@ -50,6 +51,17 @@ function decode(row: AttemptRow): Attempt {
       return { ...base, status: row.status, decidedAt, error: row.error ?? "" };
     case "declined":
       return { ...base, status: "declined", decidedAt, reason: row.error as DeclineReason };
+  }
+}
+
+// A corrupt challenge must not lock anyone out: treat it as the normal check.
+function decodeChallenge(value: string | null): ChallengeState | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as ChallengeState;
+    return Array.isArray(parsed.steps) && typeof parsed.index === "number" && parsed.math ? parsed : null;
+  } catch {
+    return null;
   }
 }
 
@@ -71,6 +83,7 @@ function encode(a: NewAttempt) {
           ? a.reason
           : null,
     message_id: a.delivery.kind === "dm" ? a.delivery.messageId : null,
+    challenge: a.challenge ? JSON.stringify(a.challenge) : null,
   };
 }
 
@@ -98,8 +111,8 @@ export async function insertAttempt(
   const row = await db
     .prepare(
       `INSERT OR IGNORE INTO attempts
-         (chat_id, chat_title, user_id, delivery, query_id, token, status, created_at, expires_at, lols, error, decided_at, misses)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (chat_id, chat_title, user_id, delivery, query_id, token, status, created_at, expires_at, lols, error, decided_at, misses, challenge)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING *`,
     )
     .bind(
@@ -116,6 +129,7 @@ export async function insertAttempt(
       e.error,
       e.decided_at,
       a.misses,
+      e.challenge,
     )
     .first<AttemptRow>();
   return row ? decode(row) : null;
@@ -135,10 +149,20 @@ export async function save(db: D1Database, from: Attempt, next: Attempt): Promis
   const e = encode(next);
   const row = await db
     .prepare(
-      `UPDATE attempts SET status = ?, expires_at = ?, decided_at = ?, error = ?, message_id = ?
+      `UPDATE attempts SET status = ?, expires_at = ?, decided_at = ?, error = ?, message_id = ?, challenge = ?
        WHERE id = ? AND status = ? RETURNING id`,
     )
-    .bind(e.status, e.expires_at, e.decided_at, e.error, e.message_id, from.id, from.status)
+    .bind(e.status, e.expires_at, e.decided_at, e.error, e.message_id, e.challenge, from.id, from.status)
+    .first();
+  return row !== null;
+}
+
+// Moves a strict challenge to its next step, but only while the attempt is still open.
+// False when another request already advanced it or the attempt expired.
+export async function saveChallenge(db: D1Database, id: number, challenge: ChallengeState): Promise<boolean> {
+  const row = await db
+    .prepare(`UPDATE attempts SET challenge = ? WHERE id = ? AND status = 'pending' RETURNING id`)
+    .bind(JSON.stringify(challenge), id)
     .first();
   return row !== null;
 }
@@ -301,23 +325,49 @@ export async function writeProfile(db: D1Database, userId: string, p: Profile): 
 
 // ---------- probation ----------
 
+function decodeRecent(value: string | null | undefined): number[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((t): t is number => typeof t === "number") : [];
+  } catch {
+    return [];
+  }
+}
+
 // Everything a group message needs about its sender, in one query: whether Kitan knows
-// them in this group, when it saw them join, and their behaviour sketch.
+// them in this group, when it saw them join, their behaviour sketch, and when their
+// clean messages here arrived.
 export async function readStanding(
   db: D1Database,
   chatId: string,
   userId: string,
-): Promise<{ known: boolean; joinedAt: number | null; groups: number; trajectory: Trajectory; updatedAt: number | null }> {
+): Promise<{
+  known: boolean;
+  joinedAt: number | null;
+  groups: number;
+  trajectory: Trajectory;
+  updatedAt: number | null;
+  recentAts: number[];
+}> {
   const row = await db
     .prepare(
       `SELECT (SELECT 1 FROM speakers WHERE chat_id = ?1 AND user_id = ?2) AS known,
               (SELECT joined_at FROM speakers WHERE chat_id = ?1 AND user_id = ?2) AS joined_at,
+              (SELECT recent_ats FROM speakers WHERE chat_id = ?1 AND user_id = ?2) AS recent_ats,
               (SELECT count(*) FROM speakers WHERE user_id = ?2) AS groups,
               (SELECT body FROM trajectories WHERE user_id = ?2) AS body,
               (SELECT updated_at FROM trajectories WHERE user_id = ?2) AS updated_at`,
     )
     .bind(chatId, userId)
-    .first<{ known: number | null; joined_at: number | null; groups: number; body: string | null; updated_at: number | null }>();
+    .first<{
+      known: number | null;
+      joined_at: number | null;
+      recent_ats: string | null;
+      groups: number;
+      body: string | null;
+      updated_at: number | null;
+    }>();
   return {
     known: Boolean(row?.known),
     joinedAt: row?.joined_at ?? null,
@@ -325,6 +375,7 @@ export async function readStanding(
     groups: Math.max(1, (row?.groups ?? 0) + (row?.known ? 0 : 1)),
     trajectory: sketchCache(db).get(userId)?.t ?? (row?.body ? (JSON.parse(row.body) as Trajectory) : empty()),
     updatedAt: row?.updated_at ?? null,
+    recentAts: decodeRecent(row?.recent_ats),
   };
 }
 
@@ -365,8 +416,9 @@ function sketchWrite(db: D1Database, userId: string, t: Trajectory, now: number)
     .bind(userId, t.messages, now, JSON.stringify(t));
 }
 
-// Stores the updated sketch (at once when `urgent`, otherwise see SKETCH_WRITE_MS), and the
-// first time someone speaks in a group, remembers them there.
+// Stores the updated sketch (at once when `urgent`, otherwise see SKETCH_WRITE_MS), the
+// first time someone speaks in a group remembers them there, and updates the clean
+// message times that decide probation when the caller supplies them.
 export async function writeStanding(
   db: D1Database,
   chatId: string,
@@ -376,10 +428,18 @@ export async function writeStanding(
   now: number,
   urgent: boolean,
   lastWritten: number | null = null,
+  recentAts: number[] | null = null,
 ): Promise<void> {
   const writes = [];
   if (keepSketch(db, userId, trajectory, now, urgent, lastWritten ?? 0)) writes.push(sketchWrite(db, userId, trajectory, now));
   if (firstInChat) writes.push(db.prepare(`INSERT OR IGNORE INTO speakers (chat_id, user_id) VALUES (?, ?)`).bind(chatId, userId));
+  if (recentAts) {
+    writes.push(
+      db
+        .prepare(`UPDATE speakers SET recent_ats = ? WHERE chat_id = ? AND user_id = ?`)
+        .bind(JSON.stringify(recentAts), chatId, userId),
+    );
+  }
   if (writes.length) await db.batch(writes);
 }
 
@@ -402,14 +462,15 @@ export async function creditReply(db: D1Database, userId: string, now: number): 
   if (keepSketch(db, userId, t, now, false, lastWritten)) await sketchWrite(db, userId, t, now).run();
 }
 
-// A member joined, by any route. Rejoining makes them new again.
+// A member joined, by any route. Rejoining makes them new again: the clean messages that
+// would have ended probation here no longer count.
 export async function recordJoin(db: D1Database, chatId: string, userId: string, trajectory: Trajectory, now: number) {
   keepSketch(db, userId, trajectory, now, true);
   await db.batch([
     db
       .prepare(
-        `INSERT INTO speakers (chat_id, user_id, joined_at) VALUES (?, ?, ?)
-         ON CONFLICT (chat_id, user_id) DO UPDATE SET joined_at = excluded.joined_at`,
+        `INSERT INTO speakers (chat_id, user_id, joined_at, recent_ats) VALUES (?, ?, ?, '[]')
+         ON CONFLICT (chat_id, user_id) DO UPDATE SET joined_at = excluded.joined_at, recent_ats = '[]'`,
       )
       .bind(chatId, userId, now),
     db
@@ -577,74 +638,6 @@ export async function judgedSince(db: D1Database, userId: string, since: number)
     .bind(userId, since)
     .first<{ n: number }>();
   return row?.n ?? 0;
-}
-
-// ---------- models ----------
-
-const modelCache = new WeakMap<D1Database, { forest: Forest | null; until: number }>();
-
-// The current isolation forest, re-read at most hourly per Worker instance.
-export async function loadForest(db: D1Database, now: number): Promise<Forest | null> {
-  const cached = modelCache.get(db);
-  if (cached && cached.until > now) return cached.forest;
-  const row = await db.prepare(`SELECT body FROM models WHERE name = 'trajectory_iforest'`).first<{ body: string }>();
-  const forest = row ? (JSON.parse(row.body) as Forest) : null;
-  modelCache.set(db, { forest, until: now + 60 * 60 * 1000 });
-  return forest;
-}
-
-export async function modelAge(db: D1Database, now: number): Promise<number> {
-  const row = await db.prepare(`SELECT trained_at FROM models WHERE name = 'trajectory_iforest'`).first<{ trained_at: number }>();
-  return row ? now - row.trained_at : Infinity;
-}
-
-export async function saveForest(db: D1Database, forest: Forest, rows: number, now: number): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO models (name, trained_at, rows, body) VALUES ('trajectory_iforest', ?, ?, ?)
-       ON CONFLICT (name) DO UPDATE SET trained_at = excluded.trained_at, rows = excluded.rows, body = excluded.body`,
-    )
-    .bind(now, rows, JSON.stringify(forest))
-    .run();
-}
-
-// A random sample of active accounts' sketches: what ordinary behaviour looks like.
-// Sampling globally let one large non-social group (牛仔资本) supply 95% of the accounts,
-// so ordinary chat looked anomalous. Take at most 50 per group instead, and never train on
-// accounts Kitan has already acted against. When `speakers` cannot supply the rows the forest
-// needs (young deployment, or sketches written before speakers existed), fall back to the
-// plain trajectory sample.
-const TRAIN_PER_GROUP = 50;
-const TRAIN_FLOOR = 128; // iforest.ts trains on 128 rows; fewer cannot produce a model
-
-export async function trainingSketches(db: D1Database, minMessages: number, limit: number) {
-  const { results } = await db
-    .prepare(
-      `SELECT user_id, max(body) AS body FROM (
-         SELECT t.user_id, t.body,
-                ROW_NUMBER() OVER (PARTITION BY s.chat_id ORDER BY random()) AS rn
-         FROM speakers s JOIN trajectories t ON t.user_id = s.user_id
-         WHERE t.messages > ?1
-           AND NOT EXISTS (SELECT 1 FROM offenses o WHERE o.user_id = t.user_id)
-       ) WHERE rn <= ?2
-       GROUP BY user_id
-       ORDER BY random() LIMIT ?3`,
-    )
-    .bind(minMessages, TRAIN_PER_GROUP, limit)
-    .all<{ user_id: string; body: string }>();
-  if (results.length >= Math.min(limit, TRAIN_FLOOR)) {
-    return results.map((r) => ({ userId: Number(r.user_id), trajectory: JSON.parse(r.body) as Trajectory }));
-  }
-  const fallback = await db
-    .prepare(
-      `SELECT user_id, body FROM trajectories
-       WHERE messages > ?1
-         AND NOT EXISTS (SELECT 1 FROM offenses o WHERE o.user_id = trajectories.user_id)
-       ORDER BY random() LIMIT ?2`,
-    )
-    .bind(minMessages, limit)
-    .all<{ user_id: string; body: string }>();
-  return fallback.results.map((r) => ({ userId: Number(r.user_id), trajectory: JSON.parse(r.body) as Trajectory }));
 }
 
 export async function chatsJoinedSince(db: D1Database, userId: string, since: number): Promise<string[]> {

@@ -2,7 +2,7 @@
 // Whole user journeys and adversaries live in simulation.test.ts.
 import { beforeEach, expect, test } from "bun:test";
 import { MESSAGES } from "../src/i18n";
-import { ORIGIN, World } from "./harness";
+import { ORIGIN, World, answerFor, readStep, readVerify } from "./harness";
 
 const USER = 42;
 const CHAT = -100;
@@ -26,6 +26,8 @@ test("operator endpoints need the setup key", async () => {
 test("guard path: Telegram opens the Mini App, the page shows the group, approval answers the query", async () => {
   await w.requestJoin(USER, CHAT, { queryId: "Q1" });
   expect(w.calls).toEqual([
+    // The profile is read before the check, so an ad bio can be audited first.
+    { method: "getChat", params: { chat_id: USER } },
     { method: "sendChatJoinRequestWebApp", params: { chat_join_request_query_id: "Q1", web_app_url: `${ORIGIN}/` } },
   ]);
   const data = await w.initData(USER, { chat_join_request_query_id: "Q1" });
@@ -48,7 +50,7 @@ test("a redelivered guard query is handled once", async () => {
 test("DM path: the button carries a token, approval cleans up the message", async () => {
   await w.requestJoin(USER, CHAT);
   const token = w.latestAttempt(USER, CHAT).token;
-  expect(w.calls[0].params.reply_markup.inline_keyboard[0][0].web_app.url).toBe(`${ORIGIN}/?token=${token}`);
+  expect(w.callsTo("sendMessage")[0].params.reply_markup.inline_keyboard[0][0].web_app.url).toBe(`${ORIGIN}/?token=${token}`);
   expect(await w.completeCheck(USER, CHAT)).toBe(200);
   const joinFlow = ["sendMessage", "approveChatJoinRequest", "declineChatJoinRequest", "deleteMessage"];
   expect(w.methods().filter((m) => joinFlow.includes(m))).toEqual(["sendMessage", "approveChatJoinRequest", "deleteMessage"]);
@@ -56,8 +58,91 @@ test("DM path: the button carries a token, approval cleans up the message", asyn
 
 test("the DM speaks the requester's language", async () => {
   await w.requestJoin(USER, CHAT, { lang: "zh-hans" });
-  expect(w.calls[0].params.text).toContain(`谢谢你申请加入「⁨chat${CHAT}⁩」`);
-  expect(w.calls[0].params.reply_markup.inline_keyboard[0][0].text).toBe("开始验证");
+  const dm = w.callsTo("sendMessage")[0];
+  expect(dm.params.text).toContain(`谢谢你申请加入「⁨chat${CHAT}⁩」`);
+  expect(dm.params.reply_markup.inline_keyboard[0][0].text).toBe("开始验证");
+});
+
+test("an ad bio escalates before admission to two Turnstile checks and a sum, in a shuffled order", async () => {
+  w.decision = () => 0.95;
+  w.model = () => ({ ad: true, confidence: 0.9, kind: "diversion", reason: "invite in the bio" });
+  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "私我 t.me/+abc" });
+  expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
+  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ on: "join_request", decision: { p: 0.95 } });
+
+  const data = await w.initData(USER, { chat_join_request_query_id: "Q1" });
+  const opened = await w.post("/api/open", { initData: data });
+  expect(opened.status).toBe(200);
+  let step = readStep(await opened.json());
+  expect(step).toBeDefined();
+  const kinds: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    expect(step).toBeDefined();
+    kinds.push(step!.kind);
+    if (step!.kind === "math") {
+      // A wrong sum is refused with a fresh question, not a dead end.
+      const wrong = await w.post("/api/verify", { initData: data, answer: 1_000_000, solveMs: 900 });
+      expect(wrong.status).toBe(400);
+      const fresh = readStep(await wrong.json());
+      expect(fresh?.kind).toBe("math");
+      const right = await w.post("/api/verify", { initData: data, answer: answerFor(fresh!.question!), solveMs: 900 });
+      expect(right.status).toBe(200);
+      const result = readVerify(await right.json());
+      if (result.done !== false) break;
+      step = result.step;
+    } else {
+      const response = await w.post("/api/verify", { initData: data, turnstileToken: "t", solveMs: 900 });
+      expect(response.status).toBe(200);
+      const result = readVerify(await response.json());
+      if (result.done !== false) break;
+      step = result.step;
+    }
+  }
+  expect(kinds.filter((kind) => kind === "cf")).toHaveLength(2);
+  expect(kinds.filter((kind) => kind === "math")).toHaveLength(1);
+  expect(w.latestAttempt(USER, CHAT).status).toBe("approved");
+  expect(w.calls.at(-1)).toEqual({
+    method: "answerChatJoinRequestQuery",
+    params: { chat_join_request_query_id: "Q1", result: "approve" },
+  });
+});
+
+test("the audit reads the profile when the request has no bio", async () => {
+  w.bios.set(USER, "最新项目 公群 https://t.me/+abc");
+  w.decision = () => 0.97;
+  w.model = () => ({ ad: true, confidence: 0.95, kind: "diversion", reason: "ad profile" });
+  await w.requestJoin(USER, CHAT, { queryId: "Q1" });
+  expect(w.callsTo("getChat").length).toBeGreaterThan(0);
+  expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
+});
+
+test("a clean bio keeps the ordinary single check", async () => {
+  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "here for the art" });
+  expect(w.latestAttempt(USER, CHAT).challenge).toBeNull();
+  expect(w.aiCalls).toHaveLength(0);
+  const data = await w.initData(USER, { chat_join_request_query_id: "Q1" });
+  const opened = await w.post("/api/open", { initData: data });
+  expect(readStep(await opened.json())).toBeUndefined();
+  const passed = await w.post("/api/verify", { initData: data, turnstileToken: "t" });
+  expect(passed.status).toBe(200);
+  expect(readVerify(await passed.json()).done).toBeUndefined();
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "approved", challenge: null });
+});
+
+test("a spent model budget fails open, never at the door", async () => {
+  w.decision = () => 0.99;
+  w.model = () => ({ ad: true, confidence: 0.99, kind: "diversion", reason: "ad" });
+  w.db.run("INSERT INTO spend (hour, neurons) VALUES (?, 7000)", [Math.floor(Date.now() / 3_600_000)]);
+  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "私我 t.me/+abc" });
+  expect(w.latestAttempt(USER, CHAT).challenge).toBeNull();
+  expect(w.aiCalls).toHaveLength(0);
+});
+
+test("both signals must be confident: an ad verdict alone does not escalate", async () => {
+  w.decision = () => 0.95;
+  w.model = () => ({ ad: true, confidence: 0.5, kind: "diversion", reason: "not sure" });
+  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "私我 t.me/+abc" });
+  expect(w.latestAttempt(USER, CHAT).challenge).toBeNull();
 });
 
 test("every language has every message", () => {

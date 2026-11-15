@@ -1,44 +1,23 @@
-// Probation as pure decisions. Spam accounts must post to pay for themselves,
-// so a new or silent member's first messages are judged by what that post looks
-// like, and a repeat burns the account in every group Kitan serves. People who are
-// active in a group are never judged, whatever they post.
+// Probation as pure decisions. A member is reviewed only while they have fewer than
+// seven clean messages in the last seven days *in that group*; after that the group's
+// own life is proof enough, and Kitan leaves them alone. The deterministic rules are
+// the Python bot's smallest set: a diversion link, a mention flood, a bare bot handle,
+// a link button, a listed word, or a copy.
 import { bannedWords } from "./lexicon";
 import type { Message } from "./types";
 
-// Someone who joined a group less than this ago is new there and always reviewed, however
-// much they post: otherwise an account could post its way out of review in our own groups.
-export const NEWCOMER_MS = 7 * 24 * 60 * 60 * 1000;
-// More messages than this across Kitan groups makes someone active.
-export const ACTIVE_AFTER = 20;
-// An isolation-forest score at or above this marks behaviour as anomalous (≈0.5 is ordinary).
-export const ANOMALY_AT = 0.65;
-// Cold start: Kitan began counting at deploy, so everyone's count was 0. Someone Kitan never
-// saw join who spoke within this long of that is presumed an old regular, not a quiet account.
-export const QUIET_MS = 7 * 24 * 60 * 60 * 1000;
+// Probation ends after this many clean messages, all within this rolling window.
+export const PROBATION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+export const PROBATION_MESSAGES = 7;
 export const OFFENSE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-export interface Standing {
-  joinedAt: number | null; // when Kitan last saw them join this group; null if never
-  messages: number; // across all Kitan groups, including this one
-  firstAt: number | null; // their first message Kitan counted, in any group
-  anomaly: number | null; // isolation-forest score of their behaviour; null without a model
-  riskShift?: boolean; // their own recent behaviour jumped away from their usual mix
+export type Review = { review: true; why: "probation" } | { review: false; why: "established" };
+
+// Whether a member's recent clean messages in this group still leave them under review.
+export function needsReview(recentInWindow: number): Review {
+  return recentInWindow < PROBATION_MESSAGES ? { review: true, why: "probation" } : { review: false, why: "established" };
 }
 
-export type Review = { review: true; why: "newcomer" | "quiet" | "anomalous" } | { review: false; why: "active" | "regular" };
-
-// Newcomers are always reviewed. Anyone else is left alone only when active across Kitan
-// groups (or an old regular from before counting) and their own behaviour has not shifted.
-// The global forest score is kept for measurement but no longer decides: one non-social
-// group supplying most training rows made ordinary regulars look anomalous.
-export function needsReview(s: Standing, countingSince: number, now: number): Review {
-  if (s.joinedAt !== null && now - s.joinedAt < NEWCOMER_MS) return { review: true, why: "newcomer" };
-  const shifted = s.riskShift === true;
-  if (s.messages > ACTIVE_AFTER) return shifted ? { review: true, why: "anomalous" } : { review: false, why: "active" };
-  const regular = s.joinedAt === null && s.firstAt !== null && s.firstAt - countingSince < QUIET_MS;
-  if (regular) return shifted ? { review: true, why: "anomalous" } : { review: false, why: "regular" };
-  return { review: true, why: "quiet" };
-}
 export const DUPLICATE_WINDOW_MS = 15 * 60 * 1000;
 // The same text this many times within DUPLICATE_WINDOW_MS in one group is a flood:
 // a live account posted "最新项目" every 1–3 minutes for hours. People do repeat
@@ -47,100 +26,30 @@ export const REPEAT_AT = 4;
 // Shorter texts ("hi", "666") are too common to count as the same message across groups.
 export const MIN_DUPLICATE_LENGTH = 10;
 
-const LINK = /(https?:\/\/|t\.me\/|telegram\.me\/|tg:\/\/|wa\.me\/)/i;
-const LINK_TOKEN = /(?:https?:\/\/|t\.me\/|telegram\.me\/|tg:\/\/|wa\.me\/)[^\s<>()]+/gi;
-// Public content, media and code people share in chat. A link there is conversation, not an
-// ad; the deterministic rule acts only on links that leave Telegram, hide their target, or
-// arrive with ad words.
-const BENIGN_DOMAINS = [
-  "youtube.com", "youtu.be", "pixiv.net", "pximg.net", "github.com", "gist.github.com",
-  "bilibili.com", "b23.tv", "x.com", "twitter.com", "exhentai.org", "e-hentai.org",
-  "nhentai.net", "danbooru.donmai.us", "gelbooru.com", "wikipedia.org", "arxiv.org",
-  "reddit.com", "imgur.com", "nicovideo.jp", "steampowered.com", "steamcommunity.com",
-  "stackoverflow.com",
-];
+// The only links the rules act on: places inside Telegram or WhatsApp, or a link that
+// carries an invite/affiliate tag. Ordinary web links are conversation.
+const DIVERSION_LINK = /(?:t\.me\/|telegram\.me\/|tg:\/\/|wa\.me\/)/i;
+const TRACKED_LINK = /(?:\?start=|\?aff=|\/startapp\b)/i;
 
-function hostMatches(host: string, domain: string): boolean {
-  return host === domain || host.endsWith(`.${domain}`);
-}
-
-function trimUrl(url: string): string {
-  return url.replace(/[.,;:!?，。；：！？"'”’]+$/, "");
-}
-
-// Telegram and WhatsApp links always point somewhere inside chat platforms; never benign.
-function telegramOrWhatsApp(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === "tg:") return true;
-    const host = parsed.hostname.toLowerCase();
-    return hostMatches(host, "t.me") || hostMatches(host, "telegram.me") || hostMatches(host, "wa.me");
-  } catch {
-    // Written without a scheme ("t.me/+abc"), which URL cannot parse.
-    return /^(?:t\.me|telegram\.me|wa\.me)\//i.test(url);
-  }
-}
-
-const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
-// A Telegram url entity may omit the scheme ("youtu.be/abc"); a bare word or a phone
-// number does not look like a host.
-const SCHEMELESS_HOST = /^[a-z0-9.-]+\.[a-z]{2,}(?:[/?#:]|$)/i;
-
-function httpHost(url: string): string | null {
-  let candidate = url;
-  if (!HAS_SCHEME.test(url)) {
-    // Chat-platform links have their own rule; do not give them a host here.
-    if (/^(?:t\.me|telegram\.me|wa\.me)\//i.test(url)) return null;
-    if (!SCHEMELESS_HOST.test(url)) return null;
-    candidate = `https://${url}`;
-  }
-  try {
-    const parsed = new URL(candidate);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.hostname.toLowerCase() : null;
-  } catch {
-    return null; // unknown shape: treat as suspicious, as before
-  }
-}
-
-function benignPublicUrl(url: string): boolean {
-  const host = httpHost(url);
-  return host !== null && BENIGN_DOMAINS.some((domain) => hostMatches(host, domain));
-}
-
-// Every URL a message carries: what its text shows, and what link entities point at. A
-// link entity that hides its target without a URL cannot be checked, and counts as a link.
-function messageLinks(message: Message): { urls: string[]; unverifiable: boolean } {
-  const text = messageText(message);
-  const urls: string[] = [];
-  for (const match of text.matchAll(LINK_TOKEN)) urls.push(trimUrl(match[0]));
-  let unverifiable = false;
-  for (const [entities, source] of [
-    [message.entities ?? [], message.text ?? ""],
-    [message.caption_entities ?? [], message.caption ?? ""],
-  ] as const) {
-    for (const entity of entities) {
-      if (entity.type !== "url" && entity.type !== "text_link") continue;
-      if (entity.url) {
-        urls.push(trimUrl(entity.url));
-      } else if (entity.offset !== undefined && entity.length !== undefined) {
-        const visible = source.slice(entity.offset, entity.offset + entity.length);
-        if (visible) urls.push(trimUrl(visible));
-        else unverifiable = true;
-      } else {
-        unverifiable = true;
-      }
-    }
-  }
-  return { urls, unverifiable };
-}
 const MENTION = /@[a-zA-Z0-9_]{3,}/g;
 const BOT_MENTION = /@[a-zA-Z0-9_]{2,}bot\b/i;
 const BOT_MENTION_ALL = /@[a-zA-Z0-9_]{2,}bot\b/gi;
 
+// A link entity's URL is the target even when the visible text hides it.
+function diversionLink(message: Message): boolean {
+  if (DIVERSION_LINK.test(messageText(message))) return true;
+  const entities = [...(message.entities ?? []), ...(message.caption_entities ?? [])];
+  return entities.some(
+    (e) =>
+      (e.type === "url" || e.type === "text_link") &&
+      Boolean(e.url) &&
+      (DIVERSION_LINK.test(e.url!) || TRACKED_LINK.test(e.url!)),
+  );
+}
+
 export type SpamReason =
   | "link"
   | "mentions"
-  | "forward"
   | "inline_bot"
   | "bot_promo"
   | "keyword"
@@ -166,11 +75,10 @@ export interface Judgement {
 }
 
 // The penalty grows with the evidence, as no rule is sure. How much each shape says on
-// its own: people share links and forwards; a bare bot handle or a flood rarely comes
-// from a person. A target on the profile is what an ad needs, so it weighs most.
+// its own: a link may be shared as chat; a bare bot handle or a flood rarely comes from
+// a person. A target on the profile is what an ad needs, so it weighs most.
 const WEIGHT: Record<SpamReason, number> = {
   link: 1,
-  forward: 1,
   mentions: 2,
   inline_bot: 2,
   keyword: 2,
@@ -194,9 +102,17 @@ export function ruleOf(j: Pick<Judgement, "reason" | "duplicateElsewhere" | "rep
 
 // Rules whose evidence is the target itself: a link, handles, buttons. For the others a
 // target in the message's own text is extra evidence, as one on the profile is.
-const TARGET_IS_THE_RULE: ReadonlySet<SpamReason> = new Set(["link", "mentions", "bot_promo", "inline_bot"]);
+const TARGET_IS_THE_RULE: Readonly<Record<SpamReason, boolean>> = {
+  link: true,
+  mentions: true,
+  bot_promo: true,
+  inline_bot: true,
+  keyword: false,
+  repeated: false,
+  cross_group_duplicate: false,
+};
 export function messageTargetCounts(reason: SpamReason): boolean {
-  return !TARGET_IS_THE_RULE.has(reason);
+  return !TARGET_IS_THE_RULE[reason];
 }
 
 export function judge(j: Judgement): Verdict {
@@ -216,16 +132,7 @@ export function isBlocked(bans: number): boolean {
 export function spamReason(message: Message): SpamReason | null {
   const text = messageText(message);
   const entities = [...(message.entities ?? []), ...(message.caption_entities ?? [])];
-  const words = bannedWords(text);
-  const { urls, unverifiable } = messageLinks(message);
-  const linkEntity = entities.some((e) => e.type === "url" || e.type === "text_link");
-  if (LINK.test(text) || linkEntity) {
-    // Shared public content is chat, not advertising. Any Telegram/WhatsApp link, hidden
-    // target, unparseable URL or ad word keeps the link rule.
-    const onlyBenign =
-      urls.length > 0 && !unverifiable && words.length === 0 && urls.every((u) => !telegramOrWhatsApp(u) && benignPublicUrl(u));
-    if (!onlyBenign) return "link";
-  }
+  if (diversionLink(message)) return "link";
   if ((text.match(MENTION) ?? []).length >= 4) return "mentions";
   // Pointing at a bot keeps the destination inside Telegram, where link filters do not look.
   // A promo is little more than the handle ("@BSGJUU_bot"); people mention a bot inside a
@@ -239,29 +146,15 @@ export function spamReason(message: Message): SpamReason | null {
   ) {
     return "bot_promo";
   }
-  // A forwarded channel post, a quote, a story, or a forward that carries somewhere to go
-  // or ad words. Public content someone forwards (a video, a picture, a repo) is still just
-  // content: only targets Telegram does not police, or that are not ordinary public links,
-  // make a forward an ad.
-  const origin = (message.forward_origin as { type?: string } | undefined)?.type;
-  const forwarded = Boolean(message.forward_origin || message.external_reply || message.story);
-  const pointsOut = diversionTargets({ message: text }).some(
-    (t) => strong(t) && !(t.kind === "link" && !telegramOrWhatsApp(t.value) && benignPublicUrl(t.value)),
-  );
-  if (
-    forwarded &&
-    (message.external_reply || message.story || origin === "channel" || pointsOut || words.length > 0)
-  ) {
-    return "forward";
-  }
-  if (message.via_bot || message.reply_markup) return "inline_bot";
+  // People cannot attach these themselves; they come from bots, inline bots or channel
+  // posts, and in a group they are the shape of an ad.
+  if (hasLinkButton(message)) return "inline_bot";
   // The keyword layer, as in the Python bot: ads and offers that need no model.
-  if (words.length > 0) return "keyword";
+  if (bannedWords(text).length > 0) return "keyword";
   return null;
 }
 
-// A button that opens a link. People cannot attach these themselves; they come from
-// bots, inline bots, or channel posts, and in a group they are the shape of an ad.
+// A button that opens a link.
 export function hasLinkButton(message: Message): boolean {
   return (message.reply_markup?.inline_keyboard ?? []).some((row) => row.some((b) => b.url || b.login_url));
 }

@@ -129,8 +129,8 @@ test("a farm account that buys Turnstile solves, then advertises in two groups",
   // Each offense weighs more: a link alone is 3 minutes, the next one 6 hours, the third a ban.
   await w.say(7, A, "Earn $500/day, DM me t.me/quickcash");
   expect(actionsOn(w, 7)).toEqual([`restrictChatMember@${A}`]);
-  await w.say(7, B, "日赚五百", { forward_origin: { type: "channel" } });
-  await w.say(7, A, "DM me t.me/quickcash2");
+  await w.say(7, B, "日赚五百 t.me/quickcash2");
+  await w.say(7, A, "DM me t.me/quickcash3");
   expect(w.events(7, "action").map((a) => `${a.detail.action}:${a.detail.score}`)).toEqual(["mute:1", "mute:3", "burn:5"]);
   expect(w.callsTo("banChatMember").map((c) => c.params.chat_id).sort()).toEqual([String(A), String(B)]);
 
@@ -168,7 +168,7 @@ test("cost: a real newcomer shares a link, is muted for 3 minutes, and lifts it 
   await w.requestJoin(10, A);
   await w.completeCheck(10, A);
   w.calls = [];
-  await w.say(10, A, "the docs are at https://example.org/guide");
+  await w.say(10, A, "the docs are at t.me/guide");
   const mute = w.callsTo("restrictChatMember")[0].params;
   expect(mute.until_date * 1000 - Date.now()).toBeLessThan(3 * 60_000 + 5_000);
   expect(w.methods()).not.toContain("banChatMember");
@@ -195,24 +195,25 @@ test("cost: a real newcomer shares a link, is muted for 3 minutes, and lifts it 
 
   // Once in 30 days: the next mute has to be waited out, or lifted by an admin.
   expect(await w.appeal(10, token)).toBe(410);
-  await w.say(10, A, "and the repo is https://example.org/repo");
+  await w.say(10, A, "and the repo is t.me/repo");
   const next = w.callsTo("sendMessage").at(-1)!.params.reply_markup.inline_keyboard[0][0].url.split("start=")[1];
   expect(await w.appeal(10, next)).toBe(403);
   record("COST newcomer posting a link", "muted 3 min, told why privately, lifted it by passing the check");
 });
 
-test("a spam account that stays quiet past its first week, then advertises", async () => {
+test("a spam account that stays quiet for a week, then advertises", async () => {
   const w = new World();
   await w.requestJoin(11, A);
   await w.completeCheck(11, A);
   w.db.run("UPDATE speakers SET joined_at = joined_at - ? WHERE user_id = '11'", [8 * DAY]);
   w.calls = [];
+  // Age does not end probation: only seven clean messages in the last seven days do.
   await w.say(11, A, "cheap followers t.me/spam");
   expect(w.methods()).toContain("restrictChatMember");
   record("spammer patient for a week", "still under review while quiet; muted");
 });
 
-test("gap: a spam account that farms ordinary chat for a week, then advertises", async () => {
+test("gap: a spam account that farms seven ordinary messages, then advertises", async () => {
   const w = new World();
   await w.requestJoin(13, A);
   await w.completeCheck(13, A);
@@ -221,16 +222,21 @@ test("gap: a spam account that farms ordinary chat for a week, then advertises",
   w.calls = [];
   await w.say(13, A, "cheap followers t.me/spam");
   expect(w.calls).toHaveLength(0);
-  // One ad after ordinary chat is not a shape jump; a consecutive second one would trip the
-  // per-account change point (trajectory.ts hasRiskShift) and reopen review.
-  record("GAP farmer: 21 messages then one ad", "not caught; a second consecutive ad is");
+  // Seven clean messages ended probation here, so Kitan leaves the group's own regular alone.
+  record("GAP farmer: 7 clean messages then an ad", "not caught; the group already accepted them");
 });
 
-test("members who joined before Kitan are never touched", async () => {
+test("a member from before Kitan is left alone once their seven clean messages are in", async () => {
   const w = new World();
   await w.say(12, A, "old-timer sharing https://example.org");
+  expect(w.callsTo("deleteMessage")).toHaveLength(0);
+  expect(w.callsTo("restrictChatMember")).toHaveLength(0);
+  for (let i = 0; i < 6; i++) await w.say(12, A, `hello ${i}`);
+  w.calls = [];
+  await w.say(12, A, "t.me/whatever");
   expect(w.calls).toHaveLength(0);
-  record("member from before Kitan", "never moderated");
+  expect(w.events(12, "message")).toHaveLength(7);
+  record("member from before Kitan", "reviewed for 7 clean messages, then left alone");
 });
 
 afterAll(() => {

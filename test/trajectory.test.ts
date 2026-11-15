@@ -1,8 +1,6 @@
-// The trajectory sketch and the isolation forest on synthetic accounts. Synthetic data
-// shows the mechanism works, not how it does on real groups; that is what replay on
-// production footprints measures.
+// The trajectory sketch on synthetic accounts. Synthetic data shows the mechanism works,
+// not how it does on real groups; that is what replay on production footprints measures.
 import { describe, expect, test } from "bun:test";
-import { score, train } from "../src/iforest";
 import { type Activity, FEATURES, type Trajectory, empty, features, step } from "../src/trajectory";
 
 const HOUR = 3_600_000;
@@ -57,19 +55,3 @@ describe("trajectory sketch", () => {
   });
 });
 
-describe("isolation forest", () => {
-  test("is reproducible from the same rows and seed", () => {
-    const rows = Array.from({ length: 50 }, (_, i) => [i % 7, i % 3]);
-    expect(score(train(rows, { seed: 3 }), [1, 1])).toBe(score(train(rows, { seed: 3 }), [1, 1]));
-  });
-
-  test("a farmed account scores above every ordinary person it was trained on", () => {
-    const now = T0 + 30 * 24 * HOUR;
-    const people = Array.from({ length: 200 }, (_, i) => features(play(person(i + 1)), 2e9 + i * 2e7, now));
-    const forest = train(people, { seed: 7 });
-    const ordinary = people.map((p) => score(forest, p)).sort((a, b) => a - b);
-    const farm = score(forest, features(play(farmed()), 8.9e9, now));
-    expect(farm).toBeGreaterThan(0.6);
-    expect(farm).toBeGreaterThan(ordinary[Math.floor(ordinary.length * 0.99)]);
-  });
-});

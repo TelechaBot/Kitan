@@ -17,6 +17,65 @@ interface Base {
   createdAt: number;
   expiresAt: number;
   misses: number; // recent checks this person let lapse in this group (see patience)
+  // A profile the audit flagged gets two Turnstile checks and one arithmetic question,
+  // shuffled; null is the ordinary single Turnstile check.
+  challenge: ChallengeState | null;
+}
+
+export type StepKind = "cf" | "math";
+
+// One strict check's progress. `steps` is fixed at creation, so the client can be told
+// only the current step; `index` moves forward under an atomic write in db.ts.
+export interface ChallengeState {
+  steps: StepKind[];
+  index: number;
+  math: { question: string; answer: number };
+}
+
+// What the Mini App is told about the current step. Never the answer or future steps.
+export interface PublicStep {
+  kind: StepKind;
+  index: number;
+  total: number;
+  question?: string;
+}
+
+// Two Turnstile checks and one sum, in every shuffled order.
+const STRICT_STEPS: StepKind[][] = [
+  ["cf", "cf", "math"],
+  ["cf", "math", "cf"],
+  ["math", "cf", "cf"],
+];
+
+// a and b are 10..49; subtraction keeps the larger first so the answer is never negative.
+export function newMathQuestion(): { question: string; answer: number } {
+  const bytes = new Uint32Array(3);
+  crypto.getRandomValues(bytes);
+  const a = 10 + (bytes[0] % 40);
+  const b = 10 + (bytes[1] % 40);
+  if (bytes[2] % 2 === 0) {
+    const high = Math.max(a, b);
+    const low = Math.min(a, b);
+    return { question: `${high} - ${low}`, answer: high - low };
+  }
+  return { question: `${a} + ${b}`, answer: a + b };
+}
+
+export function createStrictChallenge(): ChallengeState {
+  const bytes = new Uint32Array(1);
+  crypto.getRandomValues(bytes);
+  return {
+    steps: STRICT_STEPS[bytes[0] % STRICT_STEPS.length].slice(),
+    index: 0,
+    math: newMathQuestion(),
+  };
+}
+
+export function publicStep(c: ChallengeState): PublicStep {
+  const kind = c.steps[c.index];
+  return kind === "math"
+    ? { kind, index: c.index, total: c.steps.length, question: c.math.question }
+    : { kind, index: c.index, total: c.steps.length };
 }
 
 // Waiting states have a deadline like pending ones, because a join request
@@ -81,6 +140,7 @@ export interface Intake {
   lols: boolean | null;
   misses: number;
   at: number;
+  challenge?: ChallengeState | null;
 }
 
 // The first state of a new join request: declined at the door, or pending, which
@@ -95,6 +155,7 @@ export function intake(input: Intake): { attempt: NewAttempt; effects: JoinEffec
     expiresAt:
       input.at + patience(input.delivery.kind === "guard" ? GUARD_TTL_MS : DM_TTL_MS, CHECK_CAP_MS, input.misses),
     misses: input.misses,
+    challenge: input.challenge ?? null,
   };
   const reason: DeclineReason | null = input.blocked ? "kitan_blocklist" : input.lols ? "lols_banned" : null;
   return reason
@@ -167,8 +228,8 @@ export function openForUser(a: Attempt, at: number): Refusal | null {
 }
 
 function toPending(a: Attempt): Attempt {
-  const { id, chatId, chatTitle, userId, delivery, createdAt, expiresAt, misses } = a;
-  return { id, chatId, chatTitle, userId, delivery, createdAt, expiresAt, misses, status: "pending" };
+  const { id, chatId, chatTitle, userId, delivery, createdAt, expiresAt, misses, challenge } = a;
+  return { id, chatId, chatTitle, userId, delivery, createdAt, expiresAt, misses, challenge, status: "pending" };
 }
 
 function ok(next: Attempt, ...effects: JoinEffect[]): Step {

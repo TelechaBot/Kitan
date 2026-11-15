@@ -8,7 +8,10 @@ import {
   type Intake,
   type JoinEvent,
   WAIT_TTL_MS,
+  createStrictChallenge,
   intake,
+  newMathQuestion,
+  publicStep,
   step,
 } from "../src/attempt";
 
@@ -57,6 +60,62 @@ describe("intake", () => {
 
   test("an unreachable lols does not decline anyone", () => {
     expect(admit({ lols: null }).attempt.status).toBe("pending");
+  });
+});
+
+describe("strict challenges", () => {
+  const ORDERS = ["cf,cf,math", "cf,math,cf", "math,cf,cf"];
+
+  test("every strict check is two Turnstile steps and one sum, in one of three orders", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const c = createStrictChallenge();
+      expect(c.index).toBe(0);
+      expect(c.steps).toHaveLength(3);
+      expect(c.steps.filter((s) => s === "cf")).toHaveLength(2);
+      expect(c.steps.filter((s) => s === "math")).toHaveLength(1);
+      seen.add(c.steps.join(","));
+    }
+    expect([...seen].sort()).toEqual(ORDERS);
+  });
+
+  test("the arithmetic question is a real sum or difference with the answer kept", () => {
+    for (let i = 0; i < 100; i++) {
+      const q = newMathQuestion();
+      const match = /^(\d+) ([+-]) (\d+)$/.exec(q.question);
+      expect(match).not.toBeNull();
+      const [, left, sign, right] = match!;
+      const a = Number(left);
+      const b = Number(right);
+      expect(a).toBeGreaterThanOrEqual(10);
+      expect(a).toBeLessThanOrEqual(49);
+      expect(b).toBeGreaterThanOrEqual(10);
+      expect(b).toBeLessThanOrEqual(49);
+      if (sign === "-") expect(a).toBeGreaterThanOrEqual(b);
+      expect(q.answer).toBe(sign === "-" ? a - b : a + b);
+    }
+  });
+
+  test("the public step names only the current step and never the answer", () => {
+    const c = createStrictChallenge();
+    const first = publicStep(c);
+    expect(first).toMatchObject({ index: 0, total: 3 });
+    expect(["cf", "math"]).toContain(first.kind);
+    expect(JSON.stringify(first)).not.toContain("answer");
+    expect(JSON.stringify(first)).not.toContain("steps");
+
+    c.index = 2;
+    const last = publicStep(c);
+    expect(last).toMatchObject({ index: 2, total: 3 });
+    if (last.kind === "math") expect(last.question).toBe(c.math.question);
+    else expect(last.question).toBeUndefined();
+    expect(JSON.stringify(last)).not.toContain("answer");
+  });
+
+  test("intake carries the strict challenge, or null for the ordinary check", () => {
+    const strict = createStrictChallenge();
+    expect(admit({ challenge: strict }).attempt.challenge).toEqual(strict);
+    expect(admit().attempt.challenge).toBeNull();
   });
 });
 

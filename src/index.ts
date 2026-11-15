@@ -1,7 +1,7 @@
-import { type Attempt, type Refusal, openForUser } from "./attempt";
+import { type Attempt, type ChallengeState, type Refusal, newMathQuestion, openForUser, publicStep } from "./attempt";
 import { constantTimeEqual, verifyInitData } from "./crypto";
 import { checkAppeal, isAppealToken, passAppeal, startAppeal } from "./appeal";
-import { type Appeal, chatTitle, chatsSeen, findAttempt, markAppealOpened, markOpened, recordAppealTry, recordTry, recordTurnstileError } from "./db";
+import { type Appeal, chatTitle, chatsSeen, findAttempt, markAppealOpened, markOpened, recordAppealTry, recordTry, recordTurnstileError, saveChallenge } from "./db";
 import { pickLang, t } from "./i18n";
 import { advance, expirePending, onJoinRequest, resumeFor } from "./join";
 import { type Context, hourly, onGroupMessage, onMemberUpdate } from "./moderation";
@@ -147,6 +147,7 @@ interface ClientBody {
   initData?: string;
   token?: string;
   turnstileToken?: string;
+  answer?: unknown;
   solveMs?: number;
 }
 
@@ -202,7 +203,11 @@ async function handleOpen(request: Request, env: Env): Promise<Response> {
   }
   const attempt = await attemptFor(env, body, data);
   await markOpened(env.DB, attempt.id, now);
-  return json({ chat_title: attempt.chatTitle, expires_at: attempt.expiresAt });
+  return json({
+    chat_title: attempt.chatTitle,
+    expires_at: attempt.expiresAt,
+    ...(attempt.challenge ? { step: publicStep(attempt.challenge) } : {}),
+  });
 }
 
 async function handleVerify(request: Request, env: Env, hostname: string): Promise<Response> {
@@ -225,6 +230,9 @@ async function handleVerify(request: Request, env: Env, hostname: string): Promi
 
   const attempt = await attemptFor(env, body, data);
   await recordTry(env.DB, attempt.id, now, solveMs);
+  const challenge = attempt.challenge;
+  if (challenge) return verifyStep(env, attempt, challenge, body, passed, now);
+
   const failure = await passed();
   if (failure) {
     await recordTurnstileError(env.DB, attempt.id, failure);
@@ -232,6 +240,53 @@ async function handleVerify(request: Request, env: Env, hostname: string): Promi
     throw new HttpError(400, "The check failed. Try again.");
   }
 
+  await approveAttempt(env, attempt, now);
+  log("join_approved", { chat_id: attempt.chatId, user_id: attempt.userId, delivery: attempt.delivery.kind });
+  return json({ ok: true });
+}
+
+// One step of a strict check: a Turnstile solve or the sum, then the next step or approval.
+// Only the current step is looked at, so a token spent on an earlier one is no use here.
+async function verifyStep(
+  env: Env,
+  attempt: Attempt,
+  challenge: ChallengeState,
+  body: ClientBody,
+  passed: () => Promise<string | null>,
+  now: number,
+): Promise<Response> {
+  const kind = challenge.steps[challenge.index];
+  if (kind === "cf") {
+    const failure = await passed();
+    if (failure) {
+      await recordTurnstileError(env.DB, attempt.id, failure);
+      log("turnstile_failed", { attempt: attempt.id, error: failure });
+      throw new HttpError(400, "The check failed. Try again.");
+    }
+  } else {
+    const raw = String(body.answer ?? "").trim();
+    const numeric = /^-?\d+$/.test(raw) ? Number(raw) : Number.NaN;
+    if (numeric !== challenge.math.answer) {
+      // A wrong sum gets a fresh question, so a guess cannot be replayed.
+      const updated: ChallengeState = { ...challenge, math: newMathQuestion() };
+      if (!(await saveChallenge(env.DB, attempt.id, updated))) throw refusal("closed");
+      log("math_failed", { attempt: attempt.id });
+      return json({ error: "The check failed. Try again.", step: publicStep(updated) }, 400);
+    }
+  }
+
+  if (challenge.index + 1 < challenge.steps.length) {
+    const next: ChallengeState = { ...challenge, index: challenge.index + 1 };
+    if (!(await saveChallenge(env.DB, attempt.id, next))) throw refusal("closed");
+    return json({ ok: true, done: false, step: publicStep(next) });
+  }
+
+  await approveAttempt(env, attempt, now);
+  log("join_approved", { chat_id: attempt.chatId, user_id: attempt.userId, delivery: attempt.delivery.kind });
+  return json({ ok: true, done: true });
+}
+
+async function approveAttempt(env: Env, attempt: Attempt, now: number): Promise<void> {
   const outcome = await advance(env, attempt, { type: "verified", at: now });
   if (!outcome.ok) throw refusal(outcome.reason);
   if (outcome.error !== undefined) {
@@ -242,8 +297,6 @@ async function handleVerify(request: Request, env: Env, hostname: string): Promi
       ? new HttpError(410, "This request is no longer available.")
       : new HttpError(502, "Telegram is unavailable. Try again.");
   }
-  log("join_approved", { chat_id: attempt.chatId, user_id: attempt.userId, delivery: attempt.delivery.kind });
-  return json({ ok: true });
 }
 
 // ---------- Operator endpoints ----------

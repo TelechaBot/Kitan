@@ -1,6 +1,8 @@
-// The Mini App. One flat screen inside Telegram: which group, the Turnstile
-// widget, one status line. Colors come from Telegram's theme variables; the
-// retry action is Telegram's native MainButton.
+// The Mini App. One flat screen inside Telegram: which group, the check, and a status
+// line. A strict check walks two Turnstile widgets and one sum in a shuffled order, so
+// the same screen swaps between them without ever showing two widgets or reusing a
+// spent token. Colors come from Telegram's theme variables; the retry action is
+// Telegram's native MainButton.
 import { MESSAGES, selectLang } from "./i18n";
 
 const MESSAGES_JSON = JSON.stringify(MESSAGES).replace(/</g, "\\u003c");
@@ -63,6 +65,30 @@ export function renderPage(siteKey: string): string {
   .lede { margin: 0; color: var(--muted); font-size: 14px; text-wrap: pretty; }
   .check { display: flex; flex-direction: column; gap: var(--space-3); }
   #widget:empty { display: none; }
+  .math { display: flex; flex-direction: column; gap: var(--space-3); }
+  .question { margin: 0; font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  #math-form { display: flex; gap: var(--space-2); }
+  #math-input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-3);
+    font: inherit;
+    color: var(--fg);
+    background: transparent;
+    border: 1px solid var(--muted);
+    border-radius: 10px;
+  }
+  #math-input:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; }
+  #math-submit {
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    font-weight: 600;
+    color: var(--bg);
+    background: var(--fg);
+    border: 0;
+    border-radius: 10px;
+  }
+  #math-submit:disabled { opacity: .6; }
   .status {
     display: flex;
     align-items: flex-start;
@@ -92,6 +118,14 @@ export function renderPage(siteKey: string): string {
   </div>
   <div class="check">
     <div id="widget"></div>
+    <div class="math" id="math" hidden>
+      <p class="lede" id="math-lede"></p>
+      <p class="question" id="math-question"></p>
+      <form id="math-form">
+        <input id="math-input" type="text" inputmode="numeric" autocomplete="off" pattern="-?[0-9]*" required>
+        <button id="math-submit" type="submit"></button>
+      </form>
+    </div>
     <p class="status" id="status-line" role="status" aria-live="polite">
       <svg id="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
@@ -120,6 +154,7 @@ export function renderPage(siteKey: string): string {
       ? (chat ? named(M.appealTitle, chat) : M.appealTitleGeneric)
       : (chat ? named(M.title, chat) : M.titleGeneric),
     expires: (t) => M.expires.replace("{t}", t),
+    stepOf: (n, total) => M.stepOf.replace("{n}", String(n)).replace("{total}", String(total)),
   }, appeal ? { lede: M.appealLede, success: M.unmuted, expired: M.appealNone, done: M.unmuted } : {});
 
   const ICONS = {
@@ -129,18 +164,28 @@ export function renderPage(siteKey: string): string {
   };
 
   const app = document.getElementById("app");
+  const widgetHost = document.getElementById("widget");
+  const mathBox = document.getElementById("math");
+  const mathForm = document.getElementById("math-form");
+  const mathInput = document.getElementById("math-input");
+  const mathQuestion = document.getElementById("math-question");
+  const mathSubmit = document.getElementById("math-submit");
   const statusEl = document.getElementById("status");
   const icon = document.getElementById("icon");
   const meta = document.getElementById("meta");
+  let step = null;
   let turnstileToken = "";
   let widgetId = null;
+  let widgetRendered = false;
+  let turnstileReady = false;
+  let turnstileFailed = false;
   let openedAt = Date.now();
   let solveMs = null;
   let expiresAt = 0;
   let submitting = false;
 
-  // The Turnstile widget reports its own progress; the status line only speaks
-  // for what this page owns: loading, submitting, success, errors.
+  // The check reports its own progress; the status line only speaks for what this page
+  // owns: loading, submitting, success, errors, and which step is next.
   function show(state, text) {
     app.dataset.state = state;
     statusEl.textContent = text;
@@ -158,19 +203,28 @@ export function renderPage(siteKey: string): string {
     else tg.MainButton.hide();
   }
 
+  function stepText() {
+    return step ? T.stepOf(step.index + 1, step.total) : "";
+  }
+
+  function hideChecks() {
+    widgetHost.hidden = true;
+    mathBox.hidden = true;
+  }
+
   // Terminal: nothing on this page can fix it.
   function block(text) {
     show("blocked", text);
     retryButton(false);
     meta.hidden = true;
     expiresAt = 0;
-    document.getElementById("widget").hidden = true;
+    hideChecks();
     document.getElementById("lede").hidden = true;
   }
 
-  // The widget's token is spent once submitted; hide it until the user retries.
+  // The widget's token is spent once submitted; hide the check until the user retries.
   function fail(text) {
-    document.getElementById("widget").hidden = true;
+    hideChecks();
     show("error", text);
     haptic("error");
     retryButton(true);
@@ -202,42 +256,51 @@ export function renderPage(siteKey: string): string {
     return { ok: response.ok, status: response.status, body };
   }
 
-  async function submit() {
-    if (submitting || !turnstileToken) return;
-    submitting = true;
-    retryButton(false);
-    show("loading", T.sending);
-    try {
-      const result = await api("/api/verify", { turnstileToken, solveMs });
-      if (result.ok) {
-        show("success", T.success);
-        haptic("success");
-        meta.hidden = true;
-        expiresAt = 0;
-        setTimeout(() => tg.close(), 1500);
-        return;
-      }
-      const error = errorFor(result.status);
-      if (error.terminal) block(error.text);
-      else fail(error.text);
-    } catch {
-      fail(T.offline);
-    } finally {
-      submitting = false;
-    }
-  }
-
   function resetWidget() {
     turnstileToken = "";
     if (window.turnstile && widgetId !== null) window.turnstile.reset(widgetId);
   }
 
-  function retry() {
-    retryButton(false);
-    if (!window.turnstile) { location.reload(); return; }
-    document.getElementById("widget").hidden = false;
-    show("waiting", "");
-    resetWidget();
+  // Show the Turnstile widget, rendering it once; later visits reset the same widget,
+  // so no second widget is ever created and no spent token survives.
+  function ensureWidget() {
+    if (app.dataset.state === "blocked") return;
+    mathBox.hidden = true;
+    widgetHost.hidden = false;
+    if (!turnstileReady) {
+      if (turnstileFailed) fail(T.loadFailed);
+      return;
+    }
+    if (!widgetRendered) {
+      renderWidget();
+      widgetRendered = true;
+    } else {
+      resetWidget();
+      show("waiting", stepText());
+    }
+  }
+
+  function showMath(next, warning) {
+    widgetHost.hidden = true;
+    mathBox.hidden = false;
+    document.getElementById("math-lede").textContent = T.mathLede;
+    mathQuestion.textContent = next.question + " = ?";
+    mathInput.value = "";
+    mathInput.placeholder = T.mathPlaceholder;
+    mathSubmit.textContent = T.mathSubmit;
+    show(warning ? "error" : "waiting", warning ? warning + " (" + T.stepOf(next.index + 1, next.total) + ")" : T.stepOf(next.index + 1, next.total));
+    mathInput.focus();
+  }
+
+  function applyStep(next, warning) {
+    step = next || null;
+    if (!step) {
+      show("waiting", "");
+      ensureWidget();
+      return;
+    }
+    if (step.kind === "math") showMath(step, warning);
+    else ensureWidget();
   }
 
   function renderWidget() {
@@ -251,10 +314,67 @@ export function renderPage(siteKey: string): string {
         submit();
       },
       "error-callback": () => { fail(T.loadFailed); return true; },
-      "expired-callback": () => { turnstileToken = ""; show("waiting", ""); },
+      "expired-callback": () => { turnstileToken = ""; show("waiting", stepText()); },
     });
-    show("waiting", "");
+    show("waiting", stepText());
   }
+
+  async function submit() {
+    if (submitting) return;
+    const math = Boolean(step && step.kind === "math");
+    const answer = math ? mathInput.value.trim() : "";
+    if (math ? !answer : !turnstileToken) return;
+    submitting = true;
+    retryButton(false);
+    mathSubmit.disabled = true;
+    show("loading", T.sending);
+    // A Turnstile token is single-use: drop it before the request so a stray callback
+    // cannot submit it twice.
+    const payload = math ? { answer, solveMs } : { turnstileToken, solveMs };
+    if (!math) turnstileToken = "";
+    try {
+      const result = await api("/api/verify", payload);
+      if (result.ok && result.body.done === false && result.body.step) {
+        haptic("success");
+        applyStep(result.body.step);
+        return;
+      }
+      if (result.ok) {
+        show("success", T.success);
+        haptic("success");
+        meta.hidden = true;
+        expiresAt = 0;
+        setTimeout(() => tg.close(), 1500);
+        return;
+      }
+      if (result.status === 400 && result.body.step) {
+        // A wrong sum: the server sent a fresh question, so ask again in place.
+        haptic("error");
+        applyStep(result.body.step, T.failed);
+        return;
+      }
+      const error = errorFor(result.status);
+      if (error.terminal) block(error.text);
+      else fail(error.text);
+    } catch {
+      fail(T.offline);
+    } finally {
+      submitting = false;
+      mathSubmit.disabled = false;
+    }
+  }
+
+  function retry() {
+    retryButton(false);
+    if (step && step.kind === "math") { applyStep(step); return; }
+    if (!window.turnstile) { location.reload(); return; }
+    ensureWidget();
+  }
+
+  mathForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submit();
+  });
 
   if (!tg || !tg.initData) {
     document.getElementById("title").textContent = T.title("");
@@ -275,16 +395,21 @@ export function renderPage(siteKey: string): string {
       expiresAt = result.body.expires_at || 0;
       tick();
       setInterval(tick, 1000);
+      applyStep(result.body.step || null);
     }).catch(() => fail(T.offline));
 
     const script = document.createElement("script");
     script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
     script.onload = () => {
       if (app.dataset.state === "blocked") return;
+      turnstileReady = true;
       openedAt = Date.now();
-      renderWidget();
+      if (!step || step.kind === "cf") ensureWidget();
     };
-    script.onerror = () => fail(T.loadFailed);
+    script.onerror = () => {
+      turnstileFailed = true;
+      if (!step || step.kind === "cf") fail(T.loadFailed);
+    };
     document.head.append(script);
   }
 </script>

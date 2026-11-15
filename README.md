@@ -23,7 +23,8 @@ bot approves the request. If they do nothing, the bot declines it, and they can
 ask to join again. Each time they come back within a week they get three times
 as long (15 minutes, then 45, up to 6 hours), so someone who missed the message
 is not hurried, while bulk accounts, which rarely ask twice, keep the short
-limit.
+limit. Most people see one Cloudflare check; a profile that looks like an ad
+may instead get two checks and a simple sum (see below).
 
 ### If someone gets no message
 
@@ -70,25 +71,44 @@ is the account itself, about US$0.89 each
 so Kitan makes each spam attempt cost an account:
 
 - **Before the check**, Kitan declines accounts listed by
-  [lols.bot](https://lols.bot) and accounts it has blocked itself.
-- **For 7 days after joining**, Kitan reviews every message from a new member,
-  however many they post, whoever let them in: Kitan, another bot, an admin or
-  an invite link. After that, Kitan keeps reviewing an account until it has
-  sent more than 20 messages across Kitan groups. Edited messages are checked
-  again, since spam accounts often post a greeting and edit it into an ad. A
-  message with a link that leaves Telegram or arrives with ad words (ordinary
-  public links to video, art, code or papers are chat, not ads), four or more
-  @mentions, a forwarded channel post, an inline-bot button, little more than a
-  bot's @handle, a word from the earlier Kitan's ad list (such as 代收代付 or
-  看我主页), or nothing but an offer such as "可约"
-  is deleted, and so is the fourth copy of the same text or contact card
-  within 15 minutes in one group. How long the sender is muted depends on the
-  evidence, since no rule is certain:
+  [lols.bot](https://lols.bot) and accounts it has blocked itself. For everyone
+  else it reads the profile: when the name, bio or profile channel points
+  people somewhere (an invite link, an @handle, a WeChat or QQ id, "see my
+  profile"), two Workers AI models judge whether the account is advertising.
+  A high-confidence yes — the decision at least 0.9, and the written verdict
+  an ad at confidence 0.85 — makes the check stricter: **two Cloudflare
+  Turnstile checks and one simple arithmetic question, in a shuffled order**.
+  A wrong sum gets a fresh question; only that step is ever checked, so a
+  token spent on an earlier one is no use. Any model error, a 3-second
+  timeout, or a spent daily model budget falls back to the ordinary single
+  Turnstile check, so a slow model never turns a person away.
+- **Inside a group**, Kitan reviews only non-admin members with **fewer than
+  seven clean messages in the last seven days in that group**. A message counts
+  only when Kitan did not delete it, and an edited message never counts, so
+  spam cannot buy its way out. Once a member reaches seven clean messages
+  there, Kitan leaves them alone completely: no rule, no model, no footprint.
+  Rejoining the group resets the count, and the clock is per group.
+- The rules are the Python bot's smallest set. A message is deleted when it:
+  - carries a Telegram or WhatsApp link (`t.me/`, `telegram.me/`, `tg://`,
+    `wa.me/`) in its text or a link entity, or a link entity carrying
+    `?start=`, `?aff=` or `/startapp`;
+  - has four or more @mentions;
+  - is little more than a bot's @handle (a slash command naming a bot, or a
+    handle inside a sentence, is not);
+  - carries an inline link button;
+  - contains a word from the earlier Kitan's ad list (not words people use in
+    ordinary talk), or nothing but an offer such as "可约";
+  - is the fourth copy of the same text or contact card within 15 minutes in
+    one group, or the same text posted in two groups.
+
+  Ordinary web links — video, art, code, papers, news, personal sites — and
+  plain forwards are conversation, not advertisements. How long the sender is
+  muted depends on the evidence, since no rule is certain:
 
   | evidence | points |
   |---|---|
-  | a link or a forward | 1 |
-  | four @mentions, an inline-bot button, or a listed word | 2 |
+  | a Telegram/WhatsApp or tagged link | 1 |
+  | four @mentions, a link button, or a listed word | 2 |
   | little more than a bot's @handle, or a flood | 3 |
   | the name, bio or a shared contact card points people somewhere | +2 |
   | someone in Kitan's groups has talked with them | −1 |
@@ -97,26 +117,20 @@ so Kitan makes each spam attempt cost an account:
   1 point mutes for 3 minutes, 2 for an hour, 3 for 6 hours, 4 for a day.
   5 or more bans the account from every group where it is still new, removes
   its messages there, and blocks it from joining any Kitan group for 30 days.
-  A newcomer's first link costs 3 minutes; a flood from an account whose bio is
-  an invite link is a ban. A muted member is told privately why and until
-  when, with a button that opens the bot and offers the same check as at the
-  door; passing it lifts the mute at once. This works once per account in 30
-  days, and the offence still counts towards the next penalty. A ban has no
-  such way back; a group admin can lift one in the group settings.
-- **Active members are left alone**, whatever they post, unless their own
-  activity shifts: a burst of links, forwards or @mentions after a run of
-  ordinary chat (from the account's fifth message on) opens review again. The
-  isolation forest is still retrained daily and its score recorded, but one
-  noisy group can skew it, so it no longer decides. Members who were in a group
-  before Kitan and spoke in its first week count as active.
+  A newcomer's first diversion link costs 3 minutes; a flood from an account
+  whose bio is an invite link is a ban. A muted member is told privately why
+  and until when, with a button that opens the bot and offers the same check
+  as at the door; passing it lifts the mute at once. This works once per
+  account in 30 days, and the offence still counts towards the next penalty.
+  A ban has no such way back; a group admin can lift one in the group settings.
 - **Group admins are never moderated**: their messages still feed the
-  behaviour sketch, but no rule, model or footprint acts on them.
+  behaviour sketch and their clean messages still count towards probation,
+  but no rule, model or footprint acts on them.
 - **The same text posted in two groups** within 15 minutes is a ban outright.
-- **Anyone who is not an admin** loses a message that carries a link button.
-  A bot or a channel posting one is banned from the group; a member is banned
-  on the second time.
+- **Anyone under review** who sends a message with a link button loses it. A
+  bot or a channel posting one is banned from the group.
 
-Language and image models also read the name, username, bio and profile
+Language and image models still read the name, username, bio and profile
 channel of each member under review, with each new message (and the preview of
 a photo or video), but only to record what they would have done: they do not
 act until their false positives on real newcomers are measured (see `bench/`).
@@ -184,7 +198,8 @@ it; otherwise it uses private messages.
 
 For each join request, Kitan stores the group, the user ID, which way the check
 was delivered, when the page was opened, how many tries it took, how long the
-check took, any error, and the result. If an approved member later leaves or is
+check took, any error, the result, and — for a strict check — which steps it
+had and how far the person got. If an approved member later leaves or is
 banned, Kitan records the time. For each mute it keeps, for 30 days, which rule
 and score caused it, and whether and how fast the member passed the check to
 lift it.
@@ -193,22 +208,26 @@ For each account, Kitan keeps a summary of its activity across Kitan groups:
 counts and averages of when and how often it posts and what share of its
 messages carry links, mentions, forwards or media, and how many of its messages
 answered someone, were answered, or were stickers, but no message text. It
-also notes which groups it has spoken or joined in, and when it joined. For
-each group, Kitan keeps its title, public handle and when it was last seen.
+also notes which groups it has spoken or joined in, when it joined, and the
+times of its clean messages that count towards probation there (at most seven
+per group, and one write per six hours once probation has ended). For each
+group, Kitan keeps its title, public handle and when it was last seen.
 
-For members under review, Kitan keeps their profile: name, username, bio,
-profile channel, whether they have a photo or Premium, and their language,
-read from Telegram when they join or are first reviewed and again after a week.
-It also keeps a record for 14 days so an incident can be traced afterwards: how
-they joined and who let them in, the first 500 characters of each message and
-edit, what kind of message it was, the name on a shared contact card (not its
-phone number), and what each check concluded and did. It also keeps a hash of
-each message for 15 minutes and each offence for 30 days. Messages from active
-members are not stored.
+For people who ask to join and for members under review, Kitan keeps their
+profile: name, username, bio, profile channel, whether they have a photo or
+Premium, and their language, read from Telegram when they ask to join, when
+they join, or at first review, and again after a week. It also keeps a record
+for 14 days so an incident can be traced afterwards: how they joined and who
+let them in, the first 500 characters of each message and edit, what kind of
+message it was, the name on a shared contact card (not its phone number), and
+what each check concluded and did. It also keeps a hash of each message for 15
+minutes and each offence for 30 days. Messages from members past probation are
+not stored.
 
 To check the shared spam list, Kitan sends the requester's Telegram user ID to
-lols.bot. The names, bios, messages and photos of members under review are sent
-to Cloudflare Workers AI for the model checks. To see a summary, or one person's trail:
+lols.bot. The names, bios and profile channels of join requesters whose
+profile points somewhere, and the names, bios, messages and photos of members
+under review, are sent to Cloudflare Workers AI for the model checks. To see a summary, or one person's trail:
 
 ```shell
 bunx wrangler d1 execute kitan --remote --command \
