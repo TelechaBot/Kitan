@@ -116,11 +116,12 @@ test("the models are asked only when their answer could matter, and within the d
   for (const text of ["一", "二", "三", "四"]) await w.say(48, GROUP, text);
   expect(w.events(48, "verdict").map((v) => v.detail.skipped ?? "asked")).toEqual(["asked", "asked", "asked", "asked", "judged_enough"]);
 
-  // Near the day's allowance, nothing more is asked, and an unread profile is not acted on.
+  // Near the day's allowance, nothing more is asked; a profile that points somewhere but
+  // could not be read is held for the strict check, as at the door.
   w.db.run("UPDATE spend SET neurons = 6999");
   w.bios.set(49, "公群 https://t.me/+abc");
   await w.join(49, GROUP);
-  expect(w.events(49, "verdict")[0].detail).toMatchObject({ verdict: "unknown", missing: ["text"], action: null });
+  expect(w.events(49, "verdict")[0].detail).toMatchObject({ verdict: "suspect", missing: ["text"], action: "hold" });
 });
 
 test("an offer with nowhere to point is the keyword layer's: muted without asking a model", async () => {

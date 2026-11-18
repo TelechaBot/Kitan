@@ -16,7 +16,7 @@ import {
 } from "./db";
 import { pickLang, t } from "./i18n";
 import { advance, expirePending, onJoinRequest, resumeFor } from "./join";
-import { type Context, hourly, onGroupMessage, onMemberUpdate } from "./moderation";
+import { type Context, hourly, onGroupMessage, onMemberUpdate, sweepHolds } from "./moderation";
 import { noticeInviteLinks, notifyAdmins } from "./notice";
 import { renderPage } from "./page";
 import { botUsername, callTelegram, isGone, log, messageOf } from "./telegram";
@@ -84,6 +84,7 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     const now = Date.now();
     await expirePending(env, now);
+    await sweepHolds(env, now);
     const at = new Date(now);
     if (at.getUTCMinutes() === 0) await hourly(env, now);
     // Once a day, at 17:00 in China where most groups are, while owners are awake.

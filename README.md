@@ -77,25 +77,26 @@ so Kitan makes each spam attempt cost an account:
   per model): the keyword list (`bannedWords`) on the name, username, bio and
   channel, a Workers AI text model when they point somewhere, and an image
   model on the avatar. The audit ends in one of three answers:
-  - **ad** — a keyword match, a confident text verdict (decision ≥ 0.9 and
-    written verdict at confidence ≥ 0.85) or a confident avatar verdict
-    (≥ 0.9). The request is declined, and the person is told why in a private
+  - **ad** — a confident text verdict (decision ≥ 0.9 and written verdict at
+    confidence ≥ 0.85) or a confident avatar verdict (≥ 0.9). The request is
+    declined, and the person is told why in a private
     message and that asking again gets a longer check. Asking again within a
     week gets the **strict check: two Cloudflare Turnstile checks and one
     simple sum, in a shuffled order**. A wrong sum gets a fresh question; only
     the current step is ever checked, so a token spent on an earlier one is no
     use.
-  - **unknown** — a model the profile needed did not answer (error, timeout,
-    or the day's model budget is spent). The strict check: an unread profile
-    is not a clean one.
+  - **suspect** — weaker evidence: a keyword match alone, or a model the
+    profile needed did not answer (error, timeout, or the day's model budget is
+    spent). The strict check: neither is proof of an ad, nor of a person.
   - **clean** — the ordinary single Turnstile check.
 - **People who join directly** (an open group, an invite link, another bot's
   check) never meet the door, so Kitan audits their profile when they join, with
-  the keyword list and the text model (not the avatar, for the budget). An ad
-  profile is removed from the group without a ban; joining again within a week
-  keeps them muted for up to a week, with a private notice whose button opens
-  the strict check, and passing it lifts the mute. People Kitan admitted were
-  audited at the door, and people an admin added or approved are left alone.
+  the keyword list and the text model (not the avatar, for the budget). Anything
+  short of clean is **held**: muted, told privately why, and given the strict
+  check; not passed within 10 minutes, they are removed from the group (not
+  banned) and may join again. There is no first decline here, because a removed
+  member cannot be told why. People Kitan admitted were audited at the door, and
+  people an admin added or approved are left alone.
 - **Inside a group**, Kitan reviews only non-admin members with **fewer than
   seven clean messages in the last seven days in that group**. A message counts
   only when Kitan did not delete it, and an edited message never counts, so

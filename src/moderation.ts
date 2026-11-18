@@ -27,7 +27,8 @@ import {
   readTrajectory,
   recordEvent,
   recordTurnedAway,
-  turnedAwaySince,
+  claimHold,
+  holdsDue,
   recordJoin,
   revokeRecentAt,
   writeStanding,
@@ -58,13 +59,15 @@ import {
   strong,
 } from "./probation";
 import { offerAppeal } from "./appeal";
-import { AD_REPEAT_MS, createStrictChallenge } from "./attempt";
-import { DAILY_NEURONS, auditProfile } from "./screen";
+import { createStrictChallenge } from "./attempt";
+import { DAILY_NEURONS, auditProfile, directDoor } from "./screen";
 import { callTelegram, log, messageOf, sendPermissions } from "./telegram";
 import { type Trajectory, accountYears, social, step } from "./trajectory";
 import type { ChatMemberUpdated, Env, Message, PhotoSize, TelegramChat, TelegramUser } from "./types";
 
-// How long a direct joiner with an ad profile stays muted unless they pass the strict check.
+// A held direct joiner has this long to pass the strict check before removal; the mute
+// itself lasts AD_HOLD_MS, so a removal that fails (no ban right) still leaves them silent.
+const HOLD_CHECK_MS = 10 * 60 * 1000;
 const AD_HOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
 // A profile read from Telegram is reused for a week; spam accounts do change their bio.
@@ -118,8 +121,10 @@ export async function onMemberUpdate(env: Env, update: ChatMemberUpdated, ctx: C
 // Direct joiners (an open group, an invite link, another bot's check) never met Kitan's door,
 // so their profile is audited here, where "say nothing, the profile is the ad" accounts sit.
 // Kitan's own approvals were audited at the door; a person an admin added or approved is
-// vouched for. An ad profile is removed (it may join again); joining again within a week
-// keeps them muted until they pass the strict check, mirroring a declined join request.
+// vouched for. An ad or suspect profile is held: muted, told privately why, and given the
+// strict check; not passed within HOLD_CHECK_MS, they are removed (not banned) by sweepHolds.
+// Unlike a join request there is no first decline, because a removed member cannot be told
+// why: the notice must reach them while they are still in the group.
 async function screenProfile(env: Env, update: ChatMemberUpdated, now: number) {
   const user = update.new_chat_member.user;
   const chatId = String(update.chat.id);
@@ -135,29 +140,16 @@ async function screenProfile(env: Env, update: ChatMemberUpdated, now: number) {
   // The text model only: avatars of every direct joiner would cost ~3,800 neurons a day
   // (255 joiners with a photo a day, 2026-11-13..18), more than half the daily budget.
   const audit = await auditProfile(env, dossier, null, now);
-  let action: string | null = null;
-  if (audit.verdict === "ad" && !(await isAdmin(env, chatId, user.id))) {
-    action = (await turnedAwaySince(env.DB, chatId, userId, now - AD_REPEAT_MS))
-      ? await holdForCheck(env, chatId, user, now)
-      : await turnAway(env, chatId, userId, now);
-  }
+  const held = directDoor(audit.verdict) === "hold" && !(await isAdmin(env, chatId, user.id));
+  const action = held ? await hold(env, chatId, user, now) : null;
   // A verdict without a model answer does not count towards JUDGED_PER_ACCOUNT (judgedSince).
   const skipped = audit.decision === null && audit.text_model === null ? "no_model" : undefined;
   await footprint(env, chatId, userId, "verdict", { on: "profile", ...audit, skipped, action, dossier }, Date.now());
 }
 
-// Removes them without a ban, so they can come back, and remembers it.
-async function turnAway(env: Env, chatId: string, userId: string, now: number): Promise<string> {
-  await act(env, "banChatMember", { chat_id: chatId, user_id: userId });
-  await act(env, "unbanChatMember", { chat_id: chatId, user_id: userId, only_if_banned: true });
-  await recordTurnedAway(env.DB, chatId, userId, "join", now);
-  await footprint(env, chatId, userId, "action", { rule: "ad_profile", action: "kick" }, now);
-  log("ad_profile_removed", { chat_id: chatId, user_id: userId });
-  return "kick";
-}
-
-// Back within a week: muted until they pass the strict check, which the private notice links to.
-async function holdForCheck(env: Env, chatId: string, user: TelegramUser, now: number): Promise<string> {
+async function hold(env: Env, chatId: string, user: TelegramUser, now: number): Promise<string> {
+  const kickAt = now + HOLD_CHECK_MS;
+  // Muted for longer than the hold, so a failed removal still leaves them silent.
   const until = now + AD_HOLD_MS;
   await act(env, "restrictChatMember", {
     chat_id: chatId,
@@ -168,7 +160,7 @@ async function holdForCheck(env: Env, chatId: string, user: TelegramUser, now: n
   });
   const button = await offerAppeal(
     env,
-    { chatId, userId: String(user.id), rule: "ad_profile", score: 0, until, lang: user.language_code, challenge: createStrictChallenge() },
+    { chatId, userId: String(user.id), rule: "ad_profile", score: 0, until, lang: user.language_code, challenge: createStrictChallenge(), kickAt },
     now,
   ).catch((error) => {
     log("appeal_offer_failed", { error: messageOf(error) });
@@ -180,9 +172,22 @@ async function holdForCheck(env: Env, chatId: string, user: TelegramUser, now: n
     ephemeral_message_parameters: { receiver_user_id: user.id },
     ...(button ? { reply_markup: { inline_keyboard: [[button]] } } : {}),
   });
-  await footprint(env, chatId, String(user.id), "action", { rule: "ad_profile", action: "mute", until }, now);
+  await footprint(env, chatId, String(user.id), "action", { rule: "ad_profile", action: "hold", kick_at: kickAt }, now);
   log("ad_profile_held", { chat_id: chatId, user_id: user.id });
-  return "mute";
+  return "hold";
+}
+
+// Removes held joiners who did not pass the strict check in time; they may join again, and
+// a join request from them within a week gets the strict check rather than a decline.
+export async function sweepHolds(env: Env, now: number): Promise<void> {
+  for (const due of await holdsDue(env.DB, now)) {
+    if (!(await claimHold(env.DB, due.token, now))) continue;
+    await act(env, "banChatMember", { chat_id: due.chatId, user_id: due.userId });
+    await act(env, "unbanChatMember", { chat_id: due.chatId, user_id: due.userId, only_if_banned: true });
+    await recordTurnedAway(env.DB, due.chatId, due.userId, "join", now);
+    await footprint(env, due.chatId, due.userId, "action", { rule: "ad_profile", action: "kick" }, now);
+    log("ad_profile_removed", { chat_id: due.chatId, user_id: due.userId });
+  }
 }
 
 // The person's profile, from Telegram when Kitan has none, it is a week old, or `fresh` asks;

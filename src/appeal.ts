@@ -22,7 +22,16 @@ export function isAppealToken(token: string | undefined): token is string {
 // bot's username can be read to link to it.
 export async function offerAppeal(
   env: Env,
-  mute: { chatId: string; userId: string; rule: string; score: number; until: number; lang: string | undefined; challenge?: ChallengeState },
+  mute: {
+    chatId: string;
+    userId: string;
+    rule: string;
+    score: number;
+    until: number;
+    lang: string | undefined;
+    challenge?: ChallengeState;
+    kickAt?: number;
+  },
   now: number,
 ): Promise<{ text: string; url: string } | null> {
   const token = PREFIX + [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -35,6 +44,7 @@ export async function offerAppeal(
     createdAt: now,
     until: mute.until,
     challenge: mute.challenge ?? null,
+    kickAt: mute.kickAt ?? null,
   });
   const bot = await botUsername(env).catch(() => null);
   return bot ? { text: t(pickLang(mute.lang), "unmuteButton"), url: `https://t.me/${bot}?start=${token}` } : null;
@@ -45,8 +55,12 @@ export type AppealRefusal = "none" | "used";
 // Whether this person may use this appeal now.
 export async function checkAppeal(env: Env, token: string, userId: number, now: number): Promise<Appeal | AppealRefusal> {
   const appeal = await findAppeal(env.DB, token);
-  if (!appeal || appeal.userId !== String(userId) || appeal.passedAt !== null || appeal.until <= now) return "none";
-  if ((await appealsPassedSince(env.DB, appeal.userId, now - WINDOW_MS)) > 0) return "used";
+  if (!appeal || appeal.userId !== String(userId) || appeal.passedAt !== null || appeal.kickedAt !== null || appeal.until <= now) {
+    return "none";
+  }
+  // The once-in-30-days limit guards the ordinary check, which an ad account can pass; the
+  // strict check of a hold is the door itself.
+  if (!appeal.challenge && (await appealsPassedSince(env.DB, appeal.userId, now - WINDOW_MS)) > 0) return "used";
   return appeal;
 }
 

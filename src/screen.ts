@@ -44,14 +44,23 @@ export interface Answers {
 }
 
 // Ad on either model's confident answer, at the thresholds production measured with no false
-// positive; unknown when a model the profile needed did not answer.
-export function screening(a: Answers): { verdict: Screening; missing: ("text" | "avatar")[] } {
+// positive. A listed word alone is suspect, not ad: "需要邀请链接的请私聊" on a fan group's
+// owner matched 私密群, and that person had to lift a mute (2026-11). So is a needed model
+// that did not answer.
+export function screening(a: Answers & { lexicon: number }): { verdict: Screening; missing: ("text" | "avatar")[] } {
   const textAd = a.decision !== null && a.decision.p >= 0.9 && a.text !== null && a.text.ad && a.text.confidence >= 0.85;
   const avatarAd = a.avatar !== null && a.avatar.ad && a.avatar.confidence >= 0.9;
   const missing: ("text" | "avatar")[] = [];
   if (a.needText && (a.decision === null || a.text === null)) missing.push("text");
   if (a.needAvatar && a.avatar === null) missing.push("avatar");
-  return { verdict: textAd || avatarAd ? "ad" : missing.length > 0 ? "unknown" : "clean", missing };
+  const verdict = textAd || avatarAd ? "ad" : a.lexicon > 0 || missing.length > 0 ? "suspect" : "clean";
+  return { verdict, missing };
+}
+
+// A direct joiner cannot be declined or told why after removal, so anything short of clean is
+// held: muted, told privately, given the strict check, removed if it is not passed in time.
+export function directDoor(verdict: Screening): "hold" | "allow" {
+  return verdict === "clean" ? "allow" : "hold";
 }
 
 export async function auditProfile(env: Env, dossier: Dossier, avatarId: string | null, now: number): Promise<ProfileAudit> {
@@ -61,10 +70,9 @@ export async function auditProfile(env: Env, dossier: Dossier, avatarId: string 
     value: t.value.slice(0, 80),
   }));
   const none = { lexicon, targets, missing: [], decision: null, text_model: null, avatar_model: null };
-  if (lexicon.length > 0) return { ...none, verdict: "ad" };
   const needText = targets.some(strong);
   const needAvatar = avatarId !== null;
-  if (!needText && !needAvatar) return { ...none, verdict: "clean" };
+  if (!needText && !needAvatar) return { ...none, ...screening({ needText, needAvatar, decision: null, text: null, avatar: null, lexicon: lexicon.length }) };
 
   const spent = modelsPaused(now) ? Number.POSITIVE_INFINITY : await spentToday(env.DB, now);
   const textCost = NEURONS.decision + NEURONS.verdict;
@@ -78,7 +86,8 @@ export async function auditProfile(env: Env, dossier: Dossier, avatarId: string 
   ]);
   const cost = (askText ? textCost : 0) + (askAvatar ? NEURONS.image : 0);
   if (cost > 0) await recordSpend(env.DB, cost, now);
-  return { ...none, ...screening({ needText, needAvatar, decision, text, avatar }), decision, text_model: text, avatar_model: avatar };
+  const verdict = screening({ needText, needAvatar, decision, text, avatar, lexicon: lexicon.length });
+  return { ...none, ...verdict, decision, text_model: text, avatar_model: avatar };
 }
 
 async function bounded<T>(work: Promise<T | null>): Promise<T | null> {

@@ -593,12 +593,14 @@ export interface Appeal {
   openedAt: number | null;
   passedAt: number | null;
   challenge: ChallengeState | null; // null: one Turnstile check
+  kickAt: number | null; // a hold: removed from the group then unless passed
+  kickedAt: number | null;
 }
 
-export async function insertAppeal(db: D1Database, a: Omit<Appeal, "openedAt" | "passedAt">): Promise<void> {
+export async function insertAppeal(db: D1Database, a: Omit<Appeal, "openedAt" | "passedAt" | "kickedAt">): Promise<void> {
   await db
-    .prepare(`INSERT INTO appeals (token, chat_id, user_id, rule, score, created_at, until, challenge) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(a.token, a.chatId, a.userId, a.rule, a.score, a.createdAt, a.until, a.challenge ? JSON.stringify(a.challenge) : null)
+    .prepare(`INSERT INTO appeals (token, chat_id, user_id, rule, score, created_at, until, challenge, kick_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(a.token, a.chatId, a.userId, a.rule, a.score, a.createdAt, a.until, a.challenge ? JSON.stringify(a.challenge) : null, a.kickAt)
     .run();
 }
 
@@ -616,13 +618,16 @@ export async function findAppeal(db: D1Database, token: string): Promise<Appeal 
         openedAt: row.opened_at,
         passedAt: row.passed_at,
         challenge: decodeChallenge(row.challenge),
+        kickAt: row.kick_at ?? null,
+        kickedAt: row.kicked_at ?? null,
       }
     : null;
 }
 
+// Passed appeals of the ordinary check only: the strict check stands on its own.
 export async function appealsPassedSince(db: D1Database, userId: string, since: number): Promise<number> {
   const row = await db
-    .prepare(`SELECT count(*) AS n FROM appeals WHERE user_id = ? AND passed_at > ?`)
+    .prepare(`SELECT count(*) AS n FROM appeals WHERE user_id = ? AND passed_at > ? AND challenge IS NULL`)
     .bind(userId, since)
     .first<{ n: number }>();
   return row?.n ?? 0;
@@ -650,8 +655,32 @@ export async function saveAppealChallenge(db: D1Database, token: string, challen
 
 // Marks the appeal passed once; false if it already was.
 export async function markAppealPassed(db: D1Database, token: string, now: number): Promise<boolean> {
-  const result = await db.prepare(`UPDATE appeals SET passed_at = ? WHERE token = ? AND passed_at IS NULL`).bind(now, token).run();
+  const result = await db
+    .prepare(`UPDATE appeals SET passed_at = ? WHERE token = ? AND passed_at IS NULL AND kicked_at IS NULL`)
+    .bind(now, token)
+    .run();
   return (result.meta.changes ?? 0) > 0;
+}
+
+// Holds past their deadline, not passed and not yet removed.
+export async function holdsDue(db: D1Database, now: number): Promise<{ token: string; chatId: string; userId: string }[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT token, chat_id, user_id FROM appeals
+       WHERE kick_at IS NOT NULL AND kick_at <= ? AND kicked_at IS NULL AND passed_at IS NULL LIMIT 50`,
+    )
+    .bind(now)
+    .all<{ token: string; chat_id: string; user_id: string }>();
+  return results.map((r) => ({ token: r.token, chatId: r.chat_id, userId: r.user_id }));
+}
+
+// Claims a due hold for removal; false if it was passed or claimed meanwhile.
+export async function claimHold(db: D1Database, token: string, now: number): Promise<boolean> {
+  const row = await db
+    .prepare(`UPDATE appeals SET kicked_at = ? WHERE token = ? AND kicked_at IS NULL AND passed_at IS NULL RETURNING token`)
+    .bind(now, token)
+    .first();
+  return row !== null;
 }
 
 // ---------- model budget ----------

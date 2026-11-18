@@ -123,25 +123,7 @@ The one ham the written verdict flags is a member asking for help with a cloud s
 they had recommended to a friend, named in the message; with 12 ham accounts, a 0/12 rate still allows a true
 rate of up to ~25%, so these numbers are a direction, not a licence to act.
 
-## Simulation on production, 2026-11-18
+## Door benchmark
 
-`simulate.ts` replays the footprints through the profile audit's decision
-(`screening` in `src/screen.ts`) and the join rules, with the answers the models
-actually gave and no new model calls:
-
-```shell
-bun bench/replay.ts export ~/.cache/kitan-bench/prod && bun bench/simulate.ts
-```
-
-Over 5.8 days (5,096 join requests, 4,449 direct joins):
-
-- Join requests: 327 would be declined as ad profiles at the first request, 3
-  of which had passed the strict check and got in (all three ads, kicked by
-  admins). 37 people who passed the ordinary check would have had the strict one
-  because the 4-second audit had not finished; with 20 seconds most of those
-  audits should finish, so this is an upper bound on that cost.
-- Direct joins: 1,147 would be removed at once and 41 muted on a second join;
-  none of the 1,188 later talked with anyone, and admins had kicked 95 of them
-  by hand. Of the 3,173 joins judged clean, admins kicked 465: silent accounts
-  with no bio and no target, which no profile audit can tell from a person.
-
+Who gets into a group is scored separately, on production cases with independent labels,
+against the previous policy as a baseline: see [BASELINE.md](BASELINE.md) and `door.ts`.

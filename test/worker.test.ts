@@ -149,7 +149,7 @@ test("a spent model budget gives a profile that points somewhere the strict chec
   expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "pending" });
   expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
   expect(w.aiCalls).toHaveLength(0);
-  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ verdict: "unknown", missing: ["text"] });
+  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ verdict: "suspect", missing: ["text"] });
 });
 
 test("a model that errors is unknown, not clean", async () => {
@@ -167,18 +167,38 @@ test("both signals must be confident: an ad verdict alone does not decline", asy
   expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "pending", challenge: null });
 });
 
-test("a profile matching the keyword list is declined without asking a model", async () => {
+test("a listed word alone is suspect: the strict check, not a decline; with a confident model, a decline", async () => {
   await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "日入过万 私我" });
-  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "declined", error: "ad_profile" });
-  expect(w.aiCalls).toHaveLength(0);
-  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ on: "join_request", lexicon: ["日入过万"], verdict: "ad" });
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "pending" });
+  expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
+  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ on: "join_request", lexicon: ["日入过万"], verdict: "suspect" });
+
+  w.decision = () => 0.95;
+  w.model = () => ({ ad: true, confidence: 0.9, kind: "direct", reason: "money offer" });
+  await w.requestJoin(43, CHAT, { queryId: "Q2", bio: "日入过万 私我" });
+  expect(w.latestAttempt(43, CHAT)).toMatchObject({ status: "declined", error: "ad_profile" });
+});
+
+test("a fan group's owner who asks people to DM for the invite is not turned away", async () => {
+  // 2026-11: this bio matched 私密群 and its owner, a regular, had to lift a mute.
+  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "赛马娘群已更改为私密群组，需要邀请链接的请私聊，但是入群有验证题。" });
+  expect(w.latestAttempt(USER, CHAT).status).toBe("pending");
 });
 
 test("betting 'inside tips' names are on the keyword list, however they are spaced", async () => {
   await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "足球，篮 球*一手内-幕" });
-  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "declined", error: "ad_profile" });
+  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ lexicon: ["一手内幕"], verdict: "suspect" });
+  expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
   await w.requestJoin(43, CHAT, { queryId: "Q2" });
-  expect(w.latestAttempt(43, CHAT).status).toBe("pending");
+  expect(w.latestAttempt(43, CHAT)).toMatchObject({ status: "pending", challenge: null });
+});
+
+test("a bare domain in the bio points somewhere, so the models read it", async () => {
+  w.decision = () => 0.97;
+  w.model = () => ({ ad: true, confidence: 0.95, kind: "direct", reason: "ad agency site" });
+  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "黑鹰广告合作官方网站： heiying.co" });
+  expect(w.events(USER, "verdict")[0].detail.targets).toEqual([{ kind: "link", in: "bio", value: "heiying.co" }]);
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "declined", error: "ad_profile" });
 });
 
 test("an ad avatar is declined even with a clean bio; an ordinary avatar is not", async () => {

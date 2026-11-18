@@ -43,7 +43,9 @@ test("a person misses the DM, asks again, and gets more time", async () => {
   await w.requestJoin(2, A);
   const second = w.latestAttempt(2, A);
   expect(second.misses).toBe(1);
-  expect(second.expires_at - second.created_at).toBe(15 * 60 * 1000);
+  // The limit runs from when screening ends, a few milliseconds after the request.
+  expect(second.expires_at - second.created_at).toBeGreaterThanOrEqual(15 * 60 * 1000);
+  expect(second.expires_at - second.created_at).toBeLessThan(15 * 60 * 1000 + 5_000);
   expect(await w.completeCheck(2, A)).toBe(200);
   record("person who misses the DM", "declined after 5 min; asks again with 15 min and passes");
 });
@@ -288,40 +290,60 @@ test("the audit cannot finish (the avatar model times out): the strict check, no
   };
   await w.requestJoin(22, A, { queryId: "Q22" });
   expect(JSON.parse(w.latestAttempt(22, A).challenge).steps).toHaveLength(3);
-  expect(w.events(22, "verdict")[0].detail).toMatchObject({ verdict: "unknown", missing: ["avatar"] });
+  expect(w.events(22, "verdict")[0].detail).toMatchObject({ verdict: "suspect", missing: ["avatar"] });
   record("audit could not finish (model down)", "strict check instead of the ordinary one");
 });
 
-test("an ad account joins an open group and says nothing: removed at once, may come back", async () => {
+test("an ad account joins an open group and says nothing: held, then removed when it does not pass", async () => {
   // 2026-11-18, "s大 p胖": same bio, joined 小米玩机交流群 directly at 00:33; Kitan judged the
   // profile an ad and did nothing; an admin kicked it at 07:30.
   const w = new World();
   adModels(w);
   w.bios.set(23, INVITE_BIO);
   await w.join(23, A);
-  expect(actionsOn(w, 23)).toEqual([`banChatMember@${A}`, `unbanChatMember@${A}`]);
+  expect(actionsOn(w, 23)).toEqual([`restrictChatMember@${A}`]);
+  await w.expire(Date.now() + 9 * 60_000);
+  expect(w.callsTo("banChatMember")).toHaveLength(0);
+  await w.expire(Date.now() + 11 * 60_000);
+  expect(actionsOn(w, 23)).toEqual([`restrictChatMember@${A}`, `banChatMember@${A}`, `unbanChatMember@${A}`]);
   expect(w.callsTo("unbanChatMember")[0].params.only_if_banned).toBe(true);
-  expect(w.events(23, "action")[0].detail).toMatchObject({ rule: "ad_profile", action: "kick" });
-  record("silent ad account via open group", "removed on joining (not banned)");
+  expect(w.events(23, "action").map((a) => a.detail.action)).toEqual(["hold", "kick"]);
+  await w.expire(Date.now() + 60 * 60_000);
+  expect(w.callsTo("banChatMember")).toHaveLength(1); // removed once
+
+  // It asks to join instead: that counts as asking again, so the strict check, not a decline.
+  await w.requestJoin(23, A, { bio: INVITE_BIO });
+  expect(JSON.parse(w.latestAttempt(23, A).challenge).steps).toHaveLength(3);
+  record("silent ad account via open group", "muted, told why; removed after 10 min; a later request gets the strict check");
 });
 
-test("cost: an ad-looking profile joins an open group twice: muted the second time, lifts it with the strict check", async () => {
+test("cost: a person with an ad-looking bio joins an open group, passes the strict check in time, and stays", async () => {
   const w = new World();
   adModels(w);
   w.bios.set(24, INVITE_BIO);
-  await w.join(24, A);
-  await w.memberUpdate(24, A, "left", { id: 24, username: "self" });
-  w.calls = [];
   await w.join(24, A, { id: 24 }, { language_code: "zh-hans" });
-  expect(actionsOn(w, 24)).toEqual([`restrictChatMember@${A}`]);
   const notice = w.callsTo("sendMessage").find((c) => c.params.ephemeral_message_parameters)!.params;
-  expect(notice.text).toContain("两次人机验证和一道算术题");
+  expect(notice.text).toContain("10 分钟内");
   const token = (notice.reply_markup.inline_keyboard[0][0].url as string).split("start=")[1];
+  // An ordinary appeal used this month does not stand in the way of the strict one.
+  w.db.run("INSERT INTO appeals (token, chat_id, user_id, rule, score, created_at, until, passed_at) VALUES ('uold', 'x', '24', 'link', 1, ?, ?, ?)", [Date.now() - 1000, Date.now(), Date.now() - 500]);
   const lifted = await w.appealSteps(24, token);
   expect(lifted.status).toBe(200);
   expect(lifted.kinds.sort()).toEqual(["cf", "cf", "math"]);
   expect(w.callsTo("restrictChatMember").at(-1)!.params.permissions.can_send_messages).toBe(true);
-  record("COST ad-looking profile, joins twice", "removed, then muted with a strict check to lift it");
+  await w.expire(Date.now() + 11 * 60_000);
+  expect(w.callsTo("banChatMember")).toHaveLength(0);
+  record("COST person with an ad-looking bio, open group", "muted, told why, passed the strict check in time, stays");
+});
+
+test("a held joiner removed for not passing cannot lift anything afterwards", async () => {
+  const w = new World();
+  adModels(w);
+  w.bios.set(27, INVITE_BIO);
+  await w.join(27, A);
+  const token = (w.callsTo("sendMessage").find((c) => c.params.ephemeral_message_parameters)!.params.reply_markup.inline_keyboard[0][0].url as string).split("start=")[1];
+  await w.expire(Date.now() + 11 * 60_000);
+  expect(await w.appeal(27, token)).toBe(410);
 });
 
 test("someone an admin added is left alone, whatever their bio", async () => {

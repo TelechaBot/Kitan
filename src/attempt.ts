@@ -9,9 +9,11 @@ export type Delivery =
 // ad_profile: the profile reads as an ad; asking again within AD_REPEAT_MS gets the strict check.
 export type DeclineReason = "kitan_blocklist" | "lols_banned" | "ad_profile";
 
-// What the profile audit concluded. "unknown": a model the profile needed did not answer
-// (timeout, error, spent budget); that is not evidence of a person, so it gets the strict check.
-export type Screening = "ad" | "unknown" | "clean";
+// What the profile audit concluded, by the weight of the evidence. "ad": a model is confident.
+// "suspect": weaker evidence (a listed word alone), or a model the profile needed did not
+// answer (timeout, error, spent budget), which is not evidence of a person either. A suspect
+// gets the strict check; only an ad is turned away.
+export type Screening = "ad" | "suspect" | "clean";
 
 interface Base {
   id: number;

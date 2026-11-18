@@ -179,6 +179,9 @@ export interface Target {
 const TARGETS: [TargetKind, RegExp][] = [
   ["invite", /(?:t\.me|telegram\.me)\/(?:\+|joinchat\/)[\w-]+/gi],
   ["link", /(?:https?:\/\/|t\.me\/|telegram\.me\/|tg:\/\/|wa\.me\/)[^\s，。]+/gi],
+  // A bare domain is a link too: "黑鹰广告合作官方网站： heiying.co" (2026-11, a dozen accounts).
+  // Only TLDs that ads use, so "Node.js" or "v1.2" are not one; never the part after an @.
+  ["link", /(?<![@\w.-])(?:[a-z0-9-]+\.)+(?:com|net|org|cc|co|ai|io|xyz|top|vip|me|app|site|shop|club|live|link|pro|info|cn|hk|tw|us|in|to|gg|ly)(?![\w-])(?:\/[^\s，。]*)?/gi],
   ["handle", /@[a-z][a-z0-9_]{3,31}/gi],
   ["wechat", /(?:微信|威信|薇信|v信|vx|wx|weixin|加v|\+v)[:：\s]*[a-z][\w-]{5,19}/gi],
   ["qq", /(?:qq|扣扣|企鹅)[:：\s]*\d{5,11}/gi],

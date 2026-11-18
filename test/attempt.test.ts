@@ -152,7 +152,7 @@ describe("screening", () => {
   });
 
   test("an audit that could not finish gets the strict check: unread is not clean", () => {
-    const result = screened(attempt, "unknown");
+    const result = screened(attempt, "suspect");
     expect(result.ok && result.next.challenge?.steps).toHaveLength(3);
   });
 

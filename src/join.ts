@@ -98,7 +98,7 @@ export async function onJoinRequest(
   background(screen(env, attempt, request, reach, now));
 }
 
-// Audits the requester's profile and moves the attempt on. Any failure is "unknown", which
+// Audits the requester's profile and moves the attempt on. Any failure is "suspect", which
 // gets the strict check: a request is never let through on the ordinary check unread.
 async function screen(env: Env, attempt: Attempt, request: ChatJoinRequest, reach: Reach, now: number): Promise<void> {
   const { chatId, userId } = attempt;
@@ -118,7 +118,7 @@ async function screen(env: Env, attempt: Attempt, request: ChatJoinRequest, reac
   } catch (error) {
     log("join_audit_failed", { chat_id: chatId, user_id: userId, error: messageOf(error) });
   }
-  const verdict: Screening = audit?.verdict ?? "unknown";
+  const verdict: Screening = audit?.verdict ?? "suspect";
   const repeat = verdict === "ad" && (await turnedAwaySince(env.DB, chatId, userId, now - AD_REPEAT_MS));
   const at = Date.now();
   const outcome = await advance(env, attempt, { type: "screened", verdict, repeat, strict: createStrictChallenge(), at }, reach);
