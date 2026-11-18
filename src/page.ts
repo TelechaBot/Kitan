@@ -238,7 +238,8 @@ export function renderPage(siteKey: string): string {
     meta.hidden = false;
   }
 
-  function errorFor(status) {
+  function errorFor(status, body) {
+    if (status === 403 && body && body.reason === "ad_profile") return { text: M.adRejected, terminal: true };
     if (status === 404 || status === 410) return { text: T.expired, terminal: true };
     if (status === 403 && appeal) return { text: T.appealUsed, terminal: true };
     if (status === 409) return { text: T.done, terminal: true };
@@ -353,7 +354,7 @@ export function renderPage(siteKey: string): string {
         applyStep(result.body.step, T.failed);
         return;
       }
-      const error = errorFor(result.status);
+      const error = errorFor(result.status, result.body);
       if (error.terminal) block(error.text);
       else fail(error.text);
     } catch {
@@ -390,7 +391,7 @@ export function renderPage(siteKey: string): string {
     show("loading", T.loading);
 
     api("/api/open", {}).then((result) => {
-      if (!result.ok) { block(errorFor(result.status).text); return; }
+      if (!result.ok) { block(errorFor(result.status, result.body).text); return; }
       if (result.body.chat_title) document.getElementById("title").textContent = T.title(result.body.chat_title);
       expiresAt = result.body.expires_at || 0;
       tick();

@@ -15,8 +15,8 @@ import {
   saveChallenge,
 } from "./db";
 import { pickLang, t } from "./i18n";
-import { advance, expirePending, onJoinRequest, resumeFor } from "./join";
-import { type Context, hourly, onGroupMessage, onMemberUpdate, sweepHolds } from "./moderation";
+import { advance, expirePending, onJoinRequest, rejectedOnRecheck, resumeFor } from "./join";
+import { type Context, hourly, onGroupMessage, onMemberUpdate, removedOnRecheck, sweepHolds } from "./moderation";
 import { noticeInviteLinks, notifyAdmins } from "./notice";
 import { renderPage } from "./page";
 import { botUsername, callTelegram, isGone, log, messageOf } from "./telegram";
@@ -30,10 +30,14 @@ class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly reason?: string, // machine-readable, for the page to pick its text
   ) {
     super(message);
   }
 }
+
+// Passed the check, but the finished audit reads the profile as an ad.
+const AD_PROFILE = () => new HttpError(403, "This profile looks like an ad.", "ad_profile");
 
 export default {
   async fetch(request: Request, env: Env, execution: ExecutionContext): Promise<Response> {
@@ -74,7 +78,7 @@ export default {
       }
     } catch (error) {
       if (error instanceof HttpError) {
-        return json({ error: error.message }, error.status);
+        return json({ error: error.message, ...(error.reason ? { reason: error.reason } : {}) }, error.status);
       }
       log("request_failed", { route, error: messageOf(error) });
       return json({ error: "internal error" }, 500);
@@ -245,7 +249,10 @@ async function handleVerify(request: Request, env: Env, hostname: string): Promi
           if (!(await saveAppealChallenge(env.DB, appeal.token, next))) throw new HttpError(409, "Already lifted.");
         },
         turnstileFailed: async (error) => log("turnstile_failed", { appeal: appeal.token, error }),
-        finish: lift,
+        finish: async () => {
+          if (appeal.challenge?.recheck && (await removedOnRecheck(env, appeal, data.user, now))) throw AD_PROFILE();
+          await lift();
+        },
       });
     }
     const failure = await passed();
@@ -270,6 +277,7 @@ async function handleVerify(request: Request, env: Env, hostname: string): Promi
         log("turnstile_failed", { attempt: attempt.id, error });
       },
       finish: async () => {
+        if (challenge.recheck && (await rejectedOnRecheck(env, attempt, data.user, now))) throw AD_PROFILE();
         await approveAttempt(env, attempt, now);
         log("join_approved", { chat_id: attempt.chatId, user_id: attempt.userId, delivery: attempt.delivery.kind });
       },

@@ -34,7 +34,7 @@ export async function offerAppeal(
   },
   now: number,
 ): Promise<{ text: string; url: string } | null> {
-  const token = PREFIX + [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const token = newToken();
   await insertAppeal(env.DB, {
     token,
     chatId: mute.chatId,
@@ -48,6 +48,26 @@ export async function offerAppeal(
   });
   const bot = await botUsername(env).catch(() => null);
   return bot ? { text: t(pickLang(mute.lang), "unmuteButton"), url: `https://t.me/${bot}?start=${token}` } : null;
+}
+
+// An ad profile's removal, due at kickAt (moderation.ts sweepHolds). Stored as an appeal no
+// one is offered, so the one sweep removes both these and held members who did not pass.
+export async function scheduleRemoval(env: Env, r: { chatId: string; userId: string; kickAt: number }, now: number): Promise<void> {
+  await insertAppeal(env.DB, {
+    token: newToken(),
+    chatId: r.chatId,
+    userId: r.userId,
+    rule: "ad_profile",
+    score: 0,
+    createdAt: now,
+    until: r.kickAt,
+    challenge: null,
+    kickAt: r.kickAt,
+  });
+}
+
+function newToken(): string {
+  return PREFIX + [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export type AppealRefusal = "none" | "used";

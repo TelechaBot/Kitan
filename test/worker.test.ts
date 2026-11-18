@@ -63,7 +63,7 @@ test("the DM speaks the requester's language", async () => {
   expect(dm.params.reply_markup.inline_keyboard[0][0].text).toBe("开始验证");
 });
 
-test("an ad bio is declined with a reason first; asking again gets two Turnstile checks and a sum, shuffled", async () => {
+test("an ad bio is declined with the reason every time it asks; no check is offered", async () => {
   w.decision = () => 0.95;
   w.model = () => ({ ad: true, confidence: 0.9, kind: "diversion", reason: "invite in the bio" });
   await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "私我 t.me/+abc", lang: "zh-hans" });
@@ -74,11 +74,16 @@ test("an ad bio is declined with a reason first; asking again gets two Turnstile
   expect(told).toBeGreaterThanOrEqual(0);
   expect(w.methods().indexOf("answerChatJoinRequestQuery")).toBeGreaterThan(told);
   expect(w.callsTo("sendMessage")[0].params).toMatchObject({ chat_id: USER });
-  expect(w.callsTo("sendMessage")[0].params.text).toContain("再申请一次");
+  expect(w.callsTo("sendMessage")[0].params.text).toContain("修改后重新申请");
   expect(w.callsTo("answerChatJoinRequestQuery")[0].params).toEqual({ chat_join_request_query_id: "Q1", result: "decline" });
-  expect(w.callsTo("sendChatJoinRequestWebApp")).toHaveLength(0);
 
   await w.requestJoin(USER, CHAT, { queryId: "Q2", bio: "私我 t.me/+abc" });
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "declined", error: "ad_profile" });
+  expect(w.callsTo("sendChatJoinRequestWebApp")).toHaveLength(0);
+});
+
+test("a suspect profile gets two Turnstile checks and a sum, in a shuffled order", async () => {
+  await w.requestJoin(USER, CHAT, { queryId: "Q2", bio: "日入过万" });
   expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "pending" });
   expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
 
@@ -150,6 +155,30 @@ test("a spent model budget gives a profile that points somewhere the strict chec
   expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
   expect(w.aiCalls).toHaveLength(0);
   expect(w.events(USER, "verdict")[0].detail).toMatchObject({ verdict: "suspect", missing: ["text"] });
+});
+
+test("an audit left incomplete is finished before approval: an ad is refused even after passing", async () => {
+  w.decision = () => 0.99;
+  w.model = () => ({ ad: true, confidence: 0.99, kind: "diversion", reason: "ad" });
+  w.db.run("INSERT INTO spend (hour, neurons) VALUES (?, 7000)", [Math.floor(Date.now() / 3_600_000)]);
+  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "私我 t.me/+abc" });
+  expect(JSON.parse(w.latestAttempt(USER, CHAT).challenge).recheck).toBe(true);
+  // The budget frees up while they solve the check; the finished audit reads an ad.
+  w.db.run("DELETE FROM spend");
+  w.bios.set(USER, "私我 t.me/+abc");
+  expect(await w.completeCheck(USER, CHAT)).toBe(403);
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "declined", error: "ad_profile" });
+  expect(w.callsTo("answerChatJoinRequestQuery").at(-1)!.params.result).toBe("decline");
+  expect(w.events(USER, "verdict").at(-1)!.detail).toMatchObject({ on: "recheck", verdict: "ad" });
+});
+
+test("an incomplete audit that finishes clean lets the person in", async () => {
+  w.db.run("INSERT INTO spend (hour, neurons) VALUES (?, 7000)", [Math.floor(Date.now() / 3_600_000)]);
+  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "my blog https://example.org" });
+  w.db.run("DELETE FROM spend");
+  w.bios.set(USER, "my blog https://example.org");
+  expect(await w.completeCheck(USER, CHAT)).toBe(200);
+  expect(w.latestAttempt(USER, CHAT).status).toBe("approved");
 });
 
 test("a model that errors is unknown, not clean", async () => {

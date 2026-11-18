@@ -20,7 +20,7 @@ Each policy sees only what Kitan saw then, including the model answers it actual
 
 | outcome | request door | direct door |
 |---|---|---|
-| turned away | declined | (not used: a removed member cannot be told why) |
+| turned away | declined, told why | muted, told why, removed a minute later |
 | challenged | strict check (two Turnstile, one sum) | held: muted, strict check, removed after 10 min |
 | allowed | ordinary check | nothing |
 
@@ -41,9 +41,9 @@ cases with the exact McNemar test on the spam where they disagree.
 
 ## Baseline: commit 249e6c2 vs current, 2026-11-12 – 2026-11-18
 
-423 requests declined before the audit (lols.bot, blocklist) are left out: every policy here declines them.
+424 requests declined before the audit (lols.bot, blocklist) are left out: every policy here declines them.
 
-### Join requests: 4707 cases; spam 39 (lols 29, admin 10); ham 27 (hand 9, talked 18)
+### Join requests: 4735 cases; spam 39 (lols 29, admin 10); ham 27 (hand 9, talked 18)
 
 | policy | spam turned away | spam turned away or challenged | ham turned away | ham challenged |
 |---|---|---|---|---|
@@ -51,9 +51,9 @@ cases with the exact McNemar test on the spam where they disagree.
 | current | 5.1% [1.4–16.9] (2/39) | 79.5% [64.5–89.2] (31/39) | 0.0% [0.0–12.5] (0/27) | 25.9% [13.2–44.7] (7/27) |
 
 Spam stopped only by current: 25; only by baseline 249e6c2: 0; exact McNemar p = 6.0e-8.
-872 of these cases needed a model that was not asked or did not answer then; the current policy counts them as suspect, so its challenge rates are upper bounds.
+873 of these cases needed a model that was not asked or did not answer then; the current policy counts them as suspect, so its challenge rates are upper bounds.
 
-### Join requests, every needed model answer on record: 3835 cases; spam 10 (lols 8, admin 2); ham 20 (hand 9, talked 11)
+### Join requests, every needed model answer on record: 3862 cases; spam 10 (lols 8, admin 2); ham 20 (hand 9, talked 11)
 
 | policy | spam turned away | spam turned away or challenged | ham turned away | ham challenged |
 |---|---|---|---|---|
@@ -63,29 +63,31 @@ Spam stopped only by current: 25; only by baseline 249e6c2: 0; exact McNemar p =
 Spam stopped only by current: 0; only by baseline 249e6c2: 0; exact McNemar p = 1.0.
 
 
-### Direct joins: 4453 cases; spam 866 (hand 32, admin 558, lols 22, ban 254); ham 59 (hand 12, talked 47)
+### Direct joins: 4487 cases; spam 867 (hand 33, admin 558, lols 22, ban 254); ham 59 (hand 12, talked 47)
 
 | policy | spam turned away | spam turned away or challenged | ham turned away | ham challenged |
 |---|---|---|---|---|
-| baseline 249e6c2 | 0.0% [0.0–0.4] (0/866) | 0.0% [0.0–0.4] (0/866) | 0.0% [0.0–6.1] (0/59) | 0.0% [0.0–6.1] (0/59) |
-| current | 0.0% [0.0–0.4] (0/866) | 35.1% [32.0–38.3] (304/866) | 0.0% [0.0–6.1] (0/59) | 0.0% [0.0–6.1] (0/59) |
+| baseline 249e6c2 | 0.0% [0.0–0.4] (0/867) | 0.0% [0.0–0.4] (0/867) | 0.0% [0.0–6.1] (0/59) | 0.0% [0.0–6.1] (0/59) |
+| current | 28.0% [25.1–31.1] (243/867) | 35.2% [32.1–38.4] (305/867) | 0.0% [0.0–6.1] (0/59) | 0.0% [0.0–6.1] (0/59) |
 
-Spam stopped only by current: 304; only by baseline 249e6c2: 0; exact McNemar p = 6.1e-92.
+Spam stopped only by current: 305; only by baseline 249e6c2: 0; exact McNemar p = 3.1e-92.
 130 of these cases needed a model that was not asked or did not answer then; the current policy counts them as suspect, so its challenge rates are upper bounds.
 
-### Direct joins, every needed model answer on record: 4323 cases; spam 827 (hand 27, admin 547, lols 22, ban 231); ham 59 (hand 12, talked 47)
+### Direct joins, every needed model answer on record: 4357 cases; spam 828 (hand 28, admin 547, lols 22, ban 231); ham 59 (hand 12, talked 47)
 
 | policy | spam turned away | spam turned away or challenged | ham turned away | ham challenged |
 |---|---|---|---|---|
-| baseline 249e6c2 | 0.0% [0.0–0.5] (0/827) | 0.0% [0.0–0.5] (0/827) | 0.0% [0.0–6.1] (0/59) | 0.0% [0.0–6.1] (0/59) |
-| current | 0.0% [0.0–0.5] (0/827) | 32.0% [29.0–35.3] (265/827) | 0.0% [0.0–6.1] (0/59) | 0.0% [0.0–6.1] (0/59) |
+| baseline 249e6c2 | 0.0% [0.0–0.5] (0/828) | 0.0% [0.0–0.5] (0/828) | 0.0% [0.0–6.1] (0/59) | 0.0% [0.0–6.1] (0/59) |
+| current | 29.3% [26.3–32.5] (243/828) | 32.1% [29.0–35.4] (266/828) | 0.0% [0.0–6.1] (0/59) | 0.0% [0.0–6.1] (0/59) |
 
-Spam stopped only by current: 265; only by baseline 249e6c2: 0; exact McNemar p = 3.4e-80.
+Spam stopped only by current: 266; only by baseline 249e6c2: 0; exact McNemar p = 1.7e-80.
 
 ## Reading it
 
-- **The direct door is where the change is**: 35% of labelled ad accounts that came in
-  directly are now held (before: none), and no labelled person was. Of the ads still let
+- **The direct door is where the change is**: 28% of labelled ad accounts that came in
+  directly are now removed outright and 35% removed or held (before: none), and no
+  labelled person was either. An ad profile is turned away at both doors whatever check
+  it could pass: a check proves a person, not an honest one. Of the ads still let
   in, most have no bio and no link, which a profile audit cannot tell from a person; they
   are left to the message rules.
 - **At the request door the check itself stops most ads** (they never finish it), so few

@@ -35,8 +35,8 @@ function arrive(overrides: Partial<Intake> = {}) {
   return { attempt: { ...first.attempt, id: 1 } as Attempt, effects: first.effects };
 }
 
-function screened(a: Attempt, verdict: Screening, repeat = false, at = T0) {
-  return step(a, { type: "screened", verdict, repeat, strict: createStrictChallenge(), at });
+function screened(a: Attempt, verdict: Screening, recheck = false, at = T0) {
+  return step(a, { type: "screened", verdict, recheck, strict: createStrictChallenge(), at });
 }
 
 // A request whose audit came back with `verdict` at T0; declined requests stay as they arrived.
@@ -138,27 +138,34 @@ describe("strict challenges", () => {
 describe("screening", () => {
   const { attempt } = arrive();
 
-  test("an ad profile asking for the first time is told why and declined, in that order", () => {
+  test("an ad profile is told why and declined, in that order, with no check offered", () => {
     const result = screened(attempt, "ad");
     expect(result.ok && result.next).toMatchObject({ status: "declined", reason: "ad_profile" });
     expect(result.ok && result.effects).toEqual([{ type: "notify_ad" }, { type: "answer", result: "decline" }]);
   });
 
-  test("an ad profile asking again gets the strict check, not another decline", () => {
-    const result = screened(attempt, "ad", true);
-    expect(result.ok && result.next.status).toBe("pending");
-    expect(result.ok && result.next.challenge?.steps).toHaveLength(3);
-    expect(result.ok && result.effects).toEqual([{ type: "challenge" }]);
+  test("a suspect gets the strict check; an incomplete audit marks it to be finished before approval", () => {
+    const plain = screened(attempt, "suspect");
+    expect(plain.ok && plain.next.challenge?.steps).toHaveLength(3);
+    expect(plain.ok && plain.next.challenge?.recheck).toBeUndefined();
+    const recheck = screened(attempt, "suspect", true);
+    expect(recheck.ok && recheck.next.challenge?.recheck).toBe(true);
   });
 
-  test("an audit that could not finish gets the strict check: unread is not clean", () => {
-    const result = screened(attempt, "suspect");
-    expect(result.ok && result.next.challenge?.steps).toHaveLength(3);
-  });
-
-  test("a clean profile gets the ordinary check, even after an earlier ad decline", () => {
-    const result = screened(attempt, "clean", true);
+  test("a clean profile gets the ordinary check", () => {
+    const result = screened(attempt, "clean");
     expect(result.ok && result.next.challenge).toBeNull();
+  });
+
+  test("passing the check does not undo a finished audit that reads the profile as an ad", () => {
+    const pending = screened(attempt, "suspect", true);
+    const rejected = pending.ok ? step(pending.next, { type: "rejected", at: T0 + 1_000 }) : pending;
+    expect(rejected.ok && rejected.next).toMatchObject({ status: "declined", reason: "ad_profile" });
+    expect(rejected.ok && rejected.effects).toEqual([{ type: "notify_ad" }, { type: "answer", result: "decline" }]);
+    // Only an open check can be rejected: not one already approved, nor one past its deadline.
+    const approved = pending.ok ? step(pending.next, { type: "verified", at: T0 + 1 }) : pending;
+    expect(approved.ok && step(approved.next, { type: "rejected", at: T0 + 2 }).ok).toBe(false);
+    expect(pending.ok && step(pending.next, { type: "rejected", at: T0 + DM_TTL_MS + 1 }).ok).toBe(false);
   });
 
   test("the check's time limit starts when screening ends, not when the request came in", () => {

@@ -57,13 +57,21 @@ export function screening(a: Answers & { lexicon: number }): { verdict: Screenin
   return { verdict, missing };
 }
 
-// A direct joiner cannot be declined or told why after removal, so anything short of clean is
-// held: muted, told privately, given the strict check, removed if it is not passed in time.
-export function directDoor(verdict: Screening): "hold" | "allow" {
-  return verdict === "clean" ? "allow" : "hold";
+// The direct door, by the same evidence as a join request. An ad is removed (told why first,
+// while they can still read it), with no check to undo it: a check proves a person, not an
+// honest one. A suspect is held: muted, told privately, given the strict check, and removed
+// if it is not passed in time.
+export function directDoor(verdict: Screening): "remove" | "hold" | "allow" {
+  return verdict === "ad" ? "remove" : verdict === "suspect" ? "hold" : "allow";
 }
 
-export async function auditProfile(env: Env, dossier: Dossier, avatarId: string | null, now: number): Promise<ProfileAudit> {
+export async function auditProfile(
+  env: Env,
+  dossier: Dossier,
+  avatarId: string | null,
+  now: number,
+  timeoutMs = MODEL_TIMEOUT_MS,
+): Promise<ProfileAudit> {
   const lexicon = bannedWords([dossier.name, dossier.username, dossier.bio, dossier.personalChat].filter(Boolean).join(" "));
   const targets = diversionTargets({ name: dossier.name, bio: dossier.bio, channel: dossier.personalChat }).map((t) => ({
     ...t,
@@ -80,9 +88,9 @@ export async function auditProfile(env: Env, dossier: Dossier, avatarId: string 
   const askAvatar = needAvatar && spent + (askText ? textCost : 0) + NEURONS.image <= DAILY_NEURONS;
   const view = forModels(dossier);
   const [decision, text, avatar] = await Promise.all([
-    askText ? bounded(decideText(env, view)) : null,
-    askText ? bounded(judgeText(env, view)) : null,
-    askAvatar && avatarId ? bounded(judgeAvatar(env, avatarId, view)) : null,
+    askText ? bounded(decideText(env, view), timeoutMs) : null,
+    askText ? bounded(judgeText(env, view), timeoutMs) : null,
+    askAvatar && avatarId ? bounded(judgeAvatar(env, avatarId, view), timeoutMs) : null,
   ]);
   const cost = (askText ? textCost : 0) + (askAvatar ? NEURONS.image : 0);
   if (cost > 0) await recordSpend(env.DB, cost, now);
@@ -90,13 +98,13 @@ export async function auditProfile(env: Env, dossier: Dossier, avatarId: string 
   return { ...none, ...verdict, decision, text_model: text, avatar_model: avatar };
 }
 
-async function bounded<T>(work: Promise<T | null>): Promise<T | null> {
+async function bounded<T>(work: Promise<T | null>, timeoutMs: number): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
     return await Promise.race([
       work.catch(() => null),
       new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), MODEL_TIMEOUT_MS);
+        timer = setTimeout(() => resolve(null), timeoutMs);
       }),
     ]);
   } finally {

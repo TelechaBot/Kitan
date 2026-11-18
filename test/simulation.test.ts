@@ -262,22 +262,18 @@ test("an ad account asks to join: told why and declined, and it does not ask aga
   record("ad account via join request", "told why, declined; never challenged");
 });
 
-test("cost: a person whose bio looks like an ad is declined once, asks again, and passes the strict check", async () => {
+test("cost: a person whose bio looks like an ad is declined with the reason, fixes the bio, and gets in", async () => {
   const w = new World();
   adModels(w);
   await w.requestJoin(21, A, { bio: "我的群 https://t.me/+myfriends 欢迎", lang: "zh-hans" });
   expect(w.latestAttempt(21, A).status).toBe("declined");
-  const reason = w.callsTo("sendMessage")[0].params.text as string;
-  expect(reason).toContain("再申请一次");
+  expect(w.callsTo("sendMessage")[0].params.text as string).toContain("修改后重新申请");
 
-  await w.requestJoin(21, A, { bio: "我的群 https://t.me/+myfriends 欢迎" });
-  const second = w.latestAttempt(21, A);
-  expect(second.status).toBe("pending");
-  expect(JSON.parse(second.challenge).steps).toHaveLength(3);
+  // The way back is the profile, audited afresh, not a check.
+  await w.requestJoin(21, A, { bio: "喜欢摄影和猫" });
+  expect(w.latestAttempt(21, A)).toMatchObject({ status: "pending", challenge: null });
   expect(await w.completeCheck(21, A)).toBe(200);
-  await w.say(21, A, "谢谢，我是来问问题的");
-  expect(w.methods()).not.toContain("restrictChatMember");
-  record("COST person with a link in the bio", "declined once with the reason; second request: strict check, in");
+  record("COST person with an invite link in the bio", "declined with the reason; changed the bio, ordinary check, in");
 });
 
 test("the audit cannot finish (the avatar model times out): the strict check, not the ordinary one", async () => {
@@ -294,34 +290,37 @@ test("the audit cannot finish (the avatar model times out): the strict check, no
   record("audit could not finish (model down)", "strict check instead of the ordinary one");
 });
 
-test("an ad account joins an open group and says nothing: held, then removed when it does not pass", async () => {
+test("an ad account joins an open group and says nothing: muted, told why, removed a minute later", async () => {
   // 2026-11-18, "s大 p胖": same bio, joined 小米玩机交流群 directly at 00:33; Kitan judged the
   // profile an ad and did nothing; an admin kicked it at 07:30.
   const w = new World();
   adModels(w);
   w.bios.set(23, INVITE_BIO);
-  await w.join(23, A);
+  await w.join(23, A, { id: 23 }, { language_code: "zh-hans" });
   expect(actionsOn(w, 23)).toEqual([`restrictChatMember@${A}`]);
-  await w.expire(Date.now() + 9 * 60_000);
+  const notice = w.callsTo("sendMessage").find((c) => c.params.ephemeral_message_parameters)!.params;
+  expect(notice.text).toContain("一分钟后会被移出");
+  expect(notice.reply_markup).toBeUndefined(); // no check can undo an ad profile
+  await w.expire(Date.now() + 30_000);
   expect(w.callsTo("banChatMember")).toHaveLength(0);
-  await w.expire(Date.now() + 11 * 60_000);
+  await w.expire(Date.now() + 61_000);
   expect(actionsOn(w, 23)).toEqual([`restrictChatMember@${A}`, `banChatMember@${A}`, `unbanChatMember@${A}`]);
   expect(w.callsTo("unbanChatMember")[0].params.only_if_banned).toBe(true);
-  expect(w.events(23, "action").map((a) => a.detail.action)).toEqual(["hold", "kick"]);
+  expect(w.events(23, "action").map((a) => a.detail.action)).toEqual(["remove", "kick"]);
   await w.expire(Date.now() + 60 * 60_000);
   expect(w.callsTo("banChatMember")).toHaveLength(1); // removed once
 
-  // It asks to join instead: that counts as asking again, so the strict check, not a decline.
+  // Asking to join instead changes nothing while the profile is the same.
   await w.requestJoin(23, A, { bio: INVITE_BIO });
-  expect(JSON.parse(w.latestAttempt(23, A).challenge).steps).toHaveLength(3);
-  record("silent ad account via open group", "muted, told why; removed after 10 min; a later request gets the strict check");
+  expect(w.latestAttempt(23, A)).toMatchObject({ status: "declined", error: "ad_profile" });
+  record("silent ad account via open group", "muted, told why, removed after a minute; a request is declined too");
 });
 
-test("cost: a person with an ad-looking bio joins an open group, passes the strict check in time, and stays", async () => {
+test("cost: a person whose bio has a listed word joins an open group, passes the strict check in time, and stays", async () => {
   const w = new World();
-  adModels(w);
-  w.bios.set(24, INVITE_BIO);
+  w.bios.set(24, "和朋友长期合作做设计，来这里学习");
   await w.join(24, A, { id: 24 }, { language_code: "zh-hans" });
+  expect(w.events(24, "verdict")[0].detail).toMatchObject({ verdict: "suspect", action: "hold" });
   const notice = w.callsTo("sendMessage").find((c) => c.params.ephemeral_message_parameters)!.params;
   expect(notice.text).toContain("10 分钟内");
   const token = (notice.reply_markup.inline_keyboard[0][0].url as string).split("start=")[1];
@@ -333,17 +332,33 @@ test("cost: a person with an ad-looking bio joins an open group, passes the stri
   expect(w.callsTo("restrictChatMember").at(-1)!.params.permissions.can_send_messages).toBe(true);
   await w.expire(Date.now() + 11 * 60_000);
   expect(w.callsTo("banChatMember")).toHaveLength(0);
-  record("COST person with an ad-looking bio, open group", "muted, told why, passed the strict check in time, stays");
+  record("COST person with a listed word in the bio, open group", "muted, told why, passed the strict check in time, stays");
 });
 
 test("a held joiner removed for not passing cannot lift anything afterwards", async () => {
   const w = new World();
-  adModels(w);
-  w.bios.set(27, INVITE_BIO);
+  w.bios.set(27, "长期合作");
   await w.join(27, A);
   const token = (w.callsTo("sendMessage").find((c) => c.params.ephemeral_message_parameters)!.params.reply_markup.inline_keyboard[0][0].url as string).split("start=")[1];
   await w.expire(Date.now() + 11 * 60_000);
   expect(await w.appeal(27, token)).toBe(410);
+});
+
+test("a held joiner whose audit was incomplete is read again on passing: an ad is removed, not let in", async () => {
+  // 2026-11-18, "oopay负责人": a gambling wallet's business account passed the strict check in
+  // 52 s. Passing proves a person, not an honest one.
+  const w = new World();
+  adModels(w);
+  w.db.run("INSERT INTO spend (hour, neurons) VALUES (?, 7000)", [Math.floor(Date.now() / 3_600_000)]);
+  w.bios.set(28, INVITE_BIO);
+  await w.join(28, A);
+  expect(w.events(28, "verdict")[0].detail).toMatchObject({ verdict: "suspect", missing: ["text"], action: "hold" });
+  const token = (w.callsTo("sendMessage").find((c) => c.params.ephemeral_message_parameters)!.params.reply_markup.inline_keyboard[0][0].url as string).split("start=")[1];
+  w.db.run("DELETE FROM spend");
+  w.db.run("DELETE FROM profiles");
+  expect((await w.appealSteps(28, token)).status).toBe(403);
+  expect(actionsOn(w, 28)).toEqual([`restrictChatMember@${A}`, `banChatMember@${A}`, `unbanChatMember@${A}`]);
+  record("human-run ad account, audit incomplete at join", "passed the strict check; audit finished on passing; removed");
 });
 
 test("someone an admin added is left alone, whatever their bio", async () => {
@@ -356,17 +371,14 @@ test("someone an admin added is left alone, whatever their bio", async () => {
   record("ad-looking profile added by an admin", "left alone (the admin vouched)");
 });
 
-test("gap: a human-run ad account asks again and passes the strict check", async () => {
+test("a human-run ad account asks again and again: declined every time, never given a check to pass", async () => {
   // 2026-11-17, "收各种al官key": passed the strict check in 25 s; an admin kicked it 4 min later.
   const w = new World();
   adModels(w);
-  await w.requestJoin(26, A, { bio: INVITE_BIO });
-  await w.requestJoin(26, A, { bio: INVITE_BIO });
-  expect(await w.completeCheck(26, A)).toBe(200);
-  w.calls = [];
-  await w.say(26, A, "进群获取资料 t.me/+2NJhA-Iug6c1Yjc6");
-  expect(w.methods()).toContain("restrictChatMember");
-  record("GAP human-run ad account", "in after the strict check; muted on its first ad");
+  for (let i = 0; i < 3; i++) await w.requestJoin(26, A, { bio: INVITE_BIO });
+  expect(w.callsTo("declineChatJoinRequest")).toHaveLength(3);
+  expect(w.db.query("SELECT count(*) AS n FROM attempts WHERE user_id = '26' AND challenge IS NOT NULL").get()).toEqual({ n: 0 });
+  record("human-run ad account (was a GAP)", "declined with the reason each time; no check to pass");
 });
 
 afterAll(() => {

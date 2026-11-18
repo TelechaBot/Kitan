@@ -135,7 +135,7 @@ function buildCases(): Case[] {
 type Outcome = "turn_away" | "strict" | "ordinary" | "hold" | "allow";
 interface Policy {
   name: string;
-  decide: (c: Case, turnedAwayBefore: boolean) => Outcome;
+  decide: (c: Case) => Outcome;
 }
 
 const lexiconOf = (c: Case) => bannedWords([c.name, c.username, c.bio, c.channel].filter(Boolean).join(" "));
@@ -155,11 +155,11 @@ const baseline: Policy = {
 };
 
 // What the code in src/ does now, through its own functions: screening() for the verdict,
-// the join state machine for a request, and a hold for any non-clean direct joiner.
-// The direct door does not read the avatar.
+// the join state machine for a request, directDoor() for a direct joiner (which does not
+// read the avatar). A strict check whose audit is finished later is counted as strict.
 const current: Policy = {
   name: "current",
-  decide(c, turnedAwayBefore) {
+  decide(c) {
     const needText = needsText(c);
     const needAvatar = c.door === "request" && c.photo;
     const verdict: Screening = screening({
@@ -170,8 +170,11 @@ const current: Policy = {
       avatar: needAvatar ? c.avatar : null,
       lexicon: lexiconOf(c).length,
     }).verdict;
-    if (c.door === "join") return directDoor(verdict);
-    const result = step(screeningAttempt(c), { type: "screened", verdict, repeat: turnedAwayBefore, strict: createStrictChallenge(), at: c.at });
+    if (c.door === "join") {
+      const door = directDoor(verdict);
+      return door === "remove" ? "turn_away" : door;
+    }
+    const result = step(screeningAttempt(c), { type: "screened", verdict, recheck: false, strict: createStrictChallenge(), at: c.at });
     if (!result.ok) throw new Error(`state machine refused ${c.id}`);
     return result.next.status === "declined" ? "turn_away" : result.next.challenge ? "strict" : "ordinary";
   },
@@ -194,18 +197,8 @@ function screeningAttempt(c: Case): Attempt {
 
 const POLICIES = [baseline, current];
 
-// Runs a policy over the cases in time order, remembering whom it turned away (a week).
 function run(policy: Policy, cases: Case[]): Map<string, Outcome> {
-  const away = new Map<string, number>();
-  const out = new Map<string, Outcome>();
-  for (const c of cases) {
-    const key = `${c.chat}:${c.user}`;
-    const before = (away.get(key) ?? -Infinity) > c.at - 7 * 86_400_000;
-    const o = policy.decide(c, before);
-    if (o === "turn_away" || o === "hold") away.set(key, c.at);
-    out.set(c.id, o);
-  }
-  return out;
+  return new Map(cases.map((c) => [c.id, policy.decide(c)]));
 }
 
 // ---------- statistics ----------

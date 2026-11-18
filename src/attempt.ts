@@ -6,13 +6,14 @@ export type Delivery =
   | { kind: "guard"; queryId: string }
   | { kind: "dm"; token: string; messageId: number | null };
 
-// ad_profile: the profile reads as an ad; asking again within AD_REPEAT_MS gets the strict check.
+// ad_profile: the profile reads as an ad. Passing a check proves a person, not an honest
+// one, so no check undoes it; a changed profile is audited afresh on the next request.
 export type DeclineReason = "kitan_blocklist" | "lols_banned" | "ad_profile";
 
-// What the profile audit concluded, by the weight of the evidence. "ad": a model is confident.
-// "suspect": weaker evidence (a listed word alone), or a model the profile needed did not
-// answer (timeout, error, spent budget), which is not evidence of a person either. A suspect
-// gets the strict check; only an ad is turned away.
+// What the profile audit concluded, by the weight of the evidence. "ad": a model is confident;
+// turned away. "suspect": weaker evidence (a listed word alone), or a model the profile needed
+// did not answer (timeout, error, spent budget); the strict check, and when a model was
+// missing the audit is finished before approval (recheck).
 export type Screening = "ad" | "suspect" | "clean";
 
 interface Base {
@@ -37,6 +38,7 @@ export interface ChallengeState {
   steps: StepKind[];
   index: number;
   math: { question: string; answer: number };
+  recheck?: true; // the audit was incomplete: finish it before letting them in
 }
 
 // What the Mini App is told about the current step. Never the answer or future steps.
@@ -105,7 +107,9 @@ export type Attempt =
 export type NewAttempt = Attempt extends infer A ? (A extends Attempt ? Omit<A, "id"> : never) : never;
 
 export type JoinEvent =
-  | { type: "screened"; verdict: Screening; repeat: boolean; strict: ChallengeState; at: number }
+  | { type: "screened"; verdict: Screening; recheck: boolean; strict: ChallengeState; at: number }
+  // They passed the check, but the finished audit reads the profile as an ad.
+  | { type: "rejected"; at: number }
   | { type: "challenged"; messageId: number | null }
   // `refused`: Telegram forbids the bot to start this conversation (see telegram.ts).
   | { type: "challenge_failed"; error: string; refused: boolean; at: number }
@@ -145,8 +149,6 @@ export const MISS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 // The audit runs after the webhook answers; a Worker evicted mid-audit leaves the attempt
 // screening, and the cron declines it after this so the person can ask again.
 export const SCREEN_TTL_MS = 2 * 60 * 1000;
-// A second request within this long after an ad_profile decline gets the strict check.
-export const AD_REPEAT_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function patience(baseMs: number, capMs: number, misses: number): number {
   return Math.min(baseMs * 3 ** misses, capMs);
@@ -193,15 +195,15 @@ export function step(a: Attempt, e: JoinEvent): Step {
   switch (e.type) {
     case "screened": {
       if (a.status !== "screening") return refuse(a);
-      if (e.verdict === "ad" && !e.repeat) {
-        return ok(
-          { ...a, status: "declined", decidedAt: e.at, reason: "ad_profile" },
-          { type: "notify_ad" },
-          { type: "answer", result: "decline" },
-        );
-      }
-      const challenge = e.verdict === "clean" ? null : e.strict;
+      if (e.verdict === "ad") return declineAd(a, e.at);
+      const challenge = e.verdict === "clean" ? null : e.recheck ? { ...e.strict, recheck: true as const } : e.strict;
       return ok({ ...a, status: "pending", challenge, expiresAt: e.at + checkTtl(a) }, { type: "challenge" });
+    }
+
+    case "rejected": {
+      const refusal = openForUser(a, e.at);
+      if (refusal) return { ok: false, reason: refusal };
+      return declineAd(a, e.at);
     }
 
     case "challenged":
@@ -261,6 +263,14 @@ export function openForUser(a: Attempt, at: number): Refusal | null {
   if (a.status === "approved") return "already_verified";
   if (a.status !== "pending" || at > a.expiresAt) return "closed";
   return null;
+}
+
+function declineAd(a: Attempt, at: number): Step {
+  return ok(
+    { ...a, status: "declined", decidedAt: at, reason: "ad_profile" },
+    { type: "notify_ad" },
+    { type: "answer", result: "decline" },
+  );
 }
 
 function toPending(a: Attempt): Attempt {

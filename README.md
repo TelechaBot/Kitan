@@ -23,9 +23,9 @@ bot approves the request. If they do nothing, the bot declines it, and they can
 ask to join again. Each time they come back within a week they get three times
 as long (15 minutes, then 45, up to 6 hours), so someone who missed the message
 is not hurried, while bulk accounts, which rarely ask twice, keep the short
-limit. Most people see one Cloudflare check; a profile that looks like an ad
-is turned away once with the reason, and gets two checks and a simple sum if
-it asks again (see below).
+limit. Most people see one Cloudflare check; a profile that looks like an ad is
+turned away with the reason, and a doubtful one gets two checks and a simple
+sum (see below).
 
 ### If someone gets no message
 
@@ -80,23 +80,25 @@ so Kitan makes each spam attempt cost an account:
   - **ad** — a confident text verdict (decision ≥ 0.9 and written verdict at
     confidence ≥ 0.85) or a confident avatar verdict (≥ 0.9). The request is
     declined, and the person is told why in a private
-    message and that asking again gets a longer check. Asking again within a
-    week gets the **strict check: two Cloudflare Turnstile checks and one
-    simple sum, in a shuffled order**. A wrong sum gets a fresh question; only
-    the current step is ever checked, so a token spent on an earlier one is no
-    use.
+    message, every time they ask. No check undoes it, because passing a check
+    proves a person, not an honest one (human-run ad accounts pass the strict
+    check in under a minute). The way back for a mistake is the profile:
+    changed, it is audited afresh on the next request; or the group's admins.
   - **suspect** — weaker evidence: a keyword match alone, or a model the
     profile needed did not answer (error, timeout, or the day's model budget is
-    spent). The strict check: neither is proof of an ad, nor of a person.
+    spent). The **strict check: two Cloudflare Turnstile checks and one simple
+    sum, in a shuffled order**. A wrong sum gets a fresh question; only the
+    current step is ever checked. When a model had not answered, the audit is
+    finished after the check and before approval, and an ad is still declined.
   - **clean** — the ordinary single Turnstile check.
 - **People who join directly** (an open group, an invite link, another bot's
   check) never meet the door, so Kitan audits their profile when they join, with
-  the keyword list and the text model (not the avatar, for the budget). Anything
-  short of clean is **held**: muted, told privately why, and given the strict
-  check; not passed within 10 minutes, they are removed from the group (not
-  banned) and may join again. There is no first decline here, because a removed
-  member cannot be told why. People Kitan admitted were audited at the door, and
-  people an admin added or approved are left alone.
+  the keyword list and the text model (not the avatar, for the budget), and
+  treats them as a join request would be. An ad profile is muted at once, told
+  privately why, and removed (not banned) a minute later. A suspect is **held**:
+  muted, told privately why, and given the strict check; not passed within 10
+  minutes, they are removed and may join again. People Kitan admitted were
+  audited at the door, and people an admin added or approved are left alone.
 - **Inside a group**, Kitan reviews only non-admin members with **fewer than
   seven clean messages in the last seven days in that group**. A message counts
   only when Kitan did not delete it, and an edited message never counts, so

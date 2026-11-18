@@ -561,25 +561,6 @@ export async function recordNotice(db: D1Database, notice: string, chatId: strin
     .run();
 }
 
-// ---------- turned away for an ad profile ----------
-
-// Each time an ad profile was kept out of a group: a join request declined, or a direct
-// joiner removed. The next attempt within the window is treated as "maybe a person".
-export async function recordTurnedAway(db: D1Database, chatId: string, userId: string, door: "request" | "join", now: number) {
-  await db
-    .prepare(`INSERT INTO turned_away (chat_id, user_id, door, at) VALUES (?, ?, ?, ?)`)
-    .bind(chatId, userId, door, now)
-    .run();
-}
-
-export async function turnedAwaySince(db: D1Database, chatId: string, userId: string, since: number): Promise<boolean> {
-  const row = await db
-    .prepare(`SELECT 1 FROM turned_away WHERE chat_id = ? AND user_id = ? AND at > ? LIMIT 1`)
-    .bind(chatId, userId, since)
-    .first();
-  return row !== null;
-}
-
 // ---------- appeals ----------
 
 export interface Appeal {
@@ -810,5 +791,4 @@ export async function prune(
   await db.prepare(`DELETE FROM spend WHERE hour < ?`).bind(Math.floor(Date.now() / HOUR_MS) - 48).run();
   // Kept as long as offenses: a passed appeal limits the next one for 30 days.
   await db.prepare(`DELETE FROM appeals WHERE created_at <= ?`).bind(before.offenses).run();
-  await db.prepare(`DELETE FROM turned_away WHERE at <= ?`).bind(before.offenses).run();
 }

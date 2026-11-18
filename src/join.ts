@@ -2,7 +2,6 @@
 // performs the effects. Performing an effect is the only place the guard-bot
 // and DM paths differ.
 import {
-  AD_REPEAT_MS,
   type Attempt,
   type JoinEffect,
   type JoinEvent,
@@ -20,9 +19,7 @@ import {
   insertAttempt,
   noteChat,
   recordEvent,
-  recordTurnedAway,
   save,
-  turnedAwaySince,
   unreachableFor,
   waitingDue,
 } from "./db";
@@ -32,7 +29,7 @@ import { BAN_AT, OFFENSE_WINDOW_MS, isBlocked } from "./probation";
 import { auditProfile, type ProfileAudit } from "./screen";
 import { callTelegram, isRefused, log, messageOf } from "./telegram";
 import { accountYears } from "./trajectory";
-import type { ChatJoinRequest, Env, Message } from "./types";
+import type { ChatJoinRequest, Env, Message, TelegramUser } from "./types";
 
 // Where the DM goes: the join request's user_chat_id, or the private chat the person opened.
 interface Recipient {
@@ -102,35 +99,82 @@ export async function onJoinRequest(
 // gets the strict check: a request is never let through on the ordinary check unread.
 async function screen(env: Env, attempt: Attempt, request: ChatJoinRequest, reach: Reach, now: number): Promise<void> {
   const { chatId, userId } = attempt;
-  const name = [request.from.first_name, request.from.last_name].filter(Boolean).join(" ");
-  let dossier: Dossier = { group: attempt.chatTitle ?? undefined, name, username: request.from.username, bio: request.bio, kind: "none", edited: false, text: "(they are asking to join and have not posted yet)" };
-  let audit: ProfileAudit | null = null;
-  try {
-    const profile = await profileOf(env, request.from, now, !request.bio).catch(() => null);
-    dossier = {
-      ...dossier,
-      bio: request.bio || profile?.bio || undefined,
-      personalChat: profile?.personal_chat ?? undefined,
-      accountYears: Math.round(accountYears(request.from.id, now) * 10) / 10,
-    };
-    const avatarId = profile?.has_photo !== false ? await avatarFileId(env, request.from.id) : null;
-    audit = await auditProfile(env, dossier, avatarId, now);
-  } catch (error) {
-    log("join_audit_failed", { chat_id: chatId, user_id: userId, error: messageOf(error) });
-  }
+  const { audit, dossier } = await auditRequester(env, attempt, request.from, request.bio, now);
   const verdict: Screening = audit?.verdict ?? "suspect";
-  const repeat = verdict === "ad" && (await turnedAwaySince(env.DB, chatId, userId, now - AD_REPEAT_MS));
+  const recheck = verdict === "suspect" && (audit === null || audit.missing.length > 0);
   const at = Date.now();
-  const outcome = await advance(env, attempt, { type: "screened", verdict, repeat, strict: createStrictChallenge(), at }, reach);
-  if (outcome.ok && outcome.next.status === "declined") await recordTurnedAway(env.DB, chatId, userId, "request", at);
+  const outcome = await advance(env, attempt, { type: "screened", verdict, recheck, strict: createStrictChallenge(), at }, reach);
   await recordEvent(env.DB, {
     chatId,
     userId,
     kind: "verdict",
-    detail: { on: "join_request", ...(audit ?? { verdict, failed: true }), skipped: audit?.decision || audit?.text_model || audit?.avatar_model ? undefined : "no_model", repeat, outcome: outcome.ok ? outcome.next.status : outcome.reason, dossier },
+    detail: {
+      on: "join_request",
+      ...(audit ?? { verdict, failed: true }),
+      skipped: audit?.decision || audit?.text_model || audit?.avatar_model ? undefined : "no_model",
+      outcome: outcome.ok ? outcome.next.status : outcome.reason,
+      dossier,
+    },
   }, at).catch((error) => log("footprint_failed", { kind: "join_request_verdict", error: messageOf(error) }));
-  log("join_screened", { ...describe(attempt), verdict, repeat });
+  log("join_screened", { ...describe(attempt), verdict });
 }
+
+// The profile as the models see it, and their verdict; null audit when it could not run.
+async function auditRequester(
+  env: Env,
+  attempt: Attempt,
+  from: TelegramUser,
+  bio: string | undefined,
+  now: number,
+  timeoutMs?: number,
+): Promise<{ audit: ProfileAudit | null; dossier: Dossier }> {
+  const name = [from.first_name, from.last_name].filter(Boolean).join(" ");
+  let dossier: Dossier = {
+    group: attempt.chatTitle ?? undefined,
+    name,
+    username: from.username,
+    bio,
+    kind: "none",
+    edited: false,
+    text: "(they are asking to join and have not posted yet)",
+  };
+  try {
+    const profile = await profileOf(env, from, now, !bio).catch(() => null);
+    dossier = {
+      ...dossier,
+      bio: bio || profile?.bio || undefined,
+      personalChat: profile?.personal_chat ?? undefined,
+      accountYears: Math.round(accountYears(from.id, now) * 10) / 10,
+    };
+    const avatarId = profile?.has_photo !== false ? await avatarFileId(env, from.id) : null;
+    return { audit: await auditProfile(env, dossier, avatarId, now, timeoutMs), dossier };
+  } catch (error) {
+    log("join_audit_failed", { chat_id: attempt.chatId, user_id: attempt.userId, error: messageOf(error) });
+    return { audit: null, dossier };
+  }
+}
+
+// After a strict check whose audit was incomplete: finish the audit before approval. True
+// when the profile turned out to be an ad, and the request was declined instead. A second
+// failure to read it lets them in: they proved a person twice over, and the message rules
+// still watch every newcomer.
+export async function rejectedOnRecheck(env: Env, attempt: Attempt, user: TelegramUser, now: number): Promise<boolean> {
+  const { audit, dossier } = await auditRequester(env, attempt, user, undefined, now, RECHECK_TIMEOUT_MS);
+  await recordEvent(env.DB, {
+    chatId: attempt.chatId,
+    userId: attempt.userId,
+    kind: "verdict",
+    detail: { on: "recheck", ...(audit ?? { verdict: "suspect", failed: true }), dossier },
+  }, now).catch((error) => log("footprint_failed", { kind: "recheck_verdict", error: messageOf(error) }));
+  if (audit?.verdict !== "ad") return false;
+  const lang = pickLang(user.language_code);
+  const outcome = await advance(env, attempt, { type: "rejected", at: now }, { to: { dmChat: user.id, lang }, origin: "" });
+  log("join_rejected_on_recheck", describe(attempt));
+  return outcome.ok;
+}
+
+// The person is waiting on the last step of the check, so the recheck gets less time.
+const RECHECK_TIMEOUT_MS = 8_000;
 
 // The person pressed Start in the bot, so it may now message them: reopen every
 // recent request it could not DM about and send the check. Returns how many.
