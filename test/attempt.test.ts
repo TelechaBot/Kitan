@@ -4,6 +4,8 @@ import { describe, expect, test } from "bun:test";
 import {
   type Attempt,
   DM_TTL_MS,
+  SCREEN_TTL_MS,
+  type Screening,
   GUARD_TTL_MS,
   type Intake,
   type JoinEvent,
@@ -17,7 +19,8 @@ import {
 
 const T0 = 1_000_000;
 
-function admit(overrides: Partial<Intake> = {}) {
+// A new join request, before its profile audit.
+function arrive(overrides: Partial<Intake> = {}) {
   const first = intake({
     chatId: "-100",
     chatTitle: "G",
@@ -32,6 +35,19 @@ function admit(overrides: Partial<Intake> = {}) {
   return { attempt: { ...first.attempt, id: 1 } as Attempt, effects: first.effects };
 }
 
+function screened(a: Attempt, verdict: Screening, repeat = false, at = T0) {
+  return step(a, { type: "screened", verdict, repeat, strict: createStrictChallenge(), at });
+}
+
+// A request whose audit came back with `verdict` at T0; declined requests stay as they arrived.
+function admit(overrides: Partial<Intake> = {}, verdict: Screening = "clean") {
+  const first = arrive(overrides);
+  if (first.attempt.status !== "screening") return first;
+  const result = screened(first.attempt, verdict);
+  if (!result.ok) throw new Error("screening refused");
+  return { attempt: result.next, effects: result.effects };
+}
+
 // Runs events in order; a refused event leaves the state unchanged, as the store would.
 function play(start: Attempt, events: JoinEvent[]): string[] {
   let state = start;
@@ -39,15 +55,20 @@ function play(start: Attempt, events: JoinEvent[]): string[] {
     const result = step(state, event);
     if (!result.ok) return `${event.type}: refused (${result.reason})`;
     state = result.next;
-    const effects = result.effects.map((e) => e.result);
+    const effects = result.effects.map((e) => (e.type === "answer" ? e.result : e.type));
     return `${event.type}: ${state.status}${effects.length ? ` -> ${effects.join(",")}` : ""}`;
   });
 }
 
 describe("intake", () => {
-  test("a clean requester is pending a challenge, with the path's time limit", () => {
+  test("a new requester is screened first, with nothing sent yet", () => {
+    expect(arrive().attempt).toMatchObject({ status: "screening", challenge: null, expiresAt: T0 + SCREEN_TTL_MS });
+    expect(arrive().effects).toEqual([]);
+  });
+
+  test("a clean requester is then sent the ordinary check, with the path's time limit", () => {
     expect(admit().attempt.status).toBe("pending");
-    expect(admit().effects).toEqual([]);
+    expect(admit().effects).toEqual([{ type: "challenge" }]);
     expect(admit().attempt.expiresAt).toBe(T0 + DM_TTL_MS);
     expect(admit({ delivery: { kind: "guard", queryId: "Q" } }).attempt.expiresAt).toBe(T0 + GUARD_TTL_MS);
   });
@@ -55,7 +76,7 @@ describe("intake", () => {
   test("blocked or lols-listed accounts are declined without a challenge; Kitan's own record wins", () => {
     expect(admit({ lols: true }).attempt).toMatchObject({ status: "declined", reason: "lols_banned" });
     expect(admit({ blocked: true, lols: true }).attempt).toMatchObject({ status: "declined", reason: "kitan_blocklist" });
-    expect(admit({ blocked: true }).effects).toEqual([{ type: "answer", result: "decline" }]);
+    expect(arrive({ blocked: true }).effects).toEqual([{ type: "answer", result: "decline" }]);
   });
 
   test("an unreachable lols does not decline anyone", () => {
@@ -112,10 +133,52 @@ describe("strict challenges", () => {
     expect(JSON.stringify(last)).not.toContain("answer");
   });
 
-  test("intake carries the strict challenge, or null for the ordinary check", () => {
-    const strict = createStrictChallenge();
-    expect(admit({ challenge: strict }).attempt.challenge).toEqual(strict);
-    expect(admit().attempt.challenge).toBeNull();
+});
+
+describe("screening", () => {
+  const { attempt } = arrive();
+
+  test("an ad profile asking for the first time is told why and declined, in that order", () => {
+    const result = screened(attempt, "ad");
+    expect(result.ok && result.next).toMatchObject({ status: "declined", reason: "ad_profile" });
+    expect(result.ok && result.effects).toEqual([{ type: "notify_ad" }, { type: "answer", result: "decline" }]);
+  });
+
+  test("an ad profile asking again gets the strict check, not another decline", () => {
+    const result = screened(attempt, "ad", true);
+    expect(result.ok && result.next.status).toBe("pending");
+    expect(result.ok && result.next.challenge?.steps).toHaveLength(3);
+    expect(result.ok && result.effects).toEqual([{ type: "challenge" }]);
+  });
+
+  test("an audit that could not finish gets the strict check: unread is not clean", () => {
+    const result = screened(attempt, "unknown");
+    expect(result.ok && result.next.challenge?.steps).toHaveLength(3);
+  });
+
+  test("a clean profile gets the ordinary check, even after an earlier ad decline", () => {
+    const result = screened(attempt, "clean", true);
+    expect(result.ok && result.next.challenge).toBeNull();
+  });
+
+  test("the check's time limit starts when screening ends, not when the request came in", () => {
+    const result = screened(attempt, "clean", false, T0 + 20_000);
+    expect(result.ok && result.next.expiresAt).toBe(T0 + 20_000 + DM_TTL_MS);
+  });
+
+  test("nobody can verify while screening, and an audit lost with its Worker is declined so they can ask again", () => {
+    expect(
+      play(attempt, [
+        { type: "verified", at: T0 + 1 },
+        { type: "tick", at: T0 + SCREEN_TTL_MS - 1 },
+        { type: "tick", at: T0 + SCREEN_TTL_MS },
+      ]),
+    ).toEqual(["verified: refused (closed)", "tick: refused (not_due)", "tick: expired -> decline"]);
+  });
+
+  test("a late audit result after the sweep changes nothing", () => {
+    const swept = step(attempt, { type: "tick", at: T0 + SCREEN_TTL_MS });
+    expect(swept.ok && screened(swept.next, "ad").ok).toBe(false);
   });
 });
 

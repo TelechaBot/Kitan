@@ -3,7 +3,9 @@
 // passing it lifts the mute at once. No rule is sure, so a person should not have to wait
 // out a mistake; an ad account can pass it too, but only once in 30 days, and the offense
 // still counts towards the next penalty. Bans have no such way back: they take a score of
-// 5, which this check cannot argue with.
+// 5, which this check cannot argue with. A direct joiner muted for an ad profile gets the
+// strict check here (two Turnstile checks and one sum), as a second join request would.
+import type { ChallengeState } from "./attempt";
 import { appealsPassedSince, chatTitle, findAppeal, insertAppeal, markAppealPassed, recordEvent, type Appeal } from "./db";
 import { pickLang, t } from "./i18n";
 import { botUsername, callTelegram, log, messageOf, sendPermissions } from "./telegram";
@@ -20,11 +22,20 @@ export function isAppealToken(token: string | undefined): token is string {
 // bot's username can be read to link to it.
 export async function offerAppeal(
   env: Env,
-  mute: { chatId: string; userId: string; rule: string; score: number; until: number; lang: string | undefined },
+  mute: { chatId: string; userId: string; rule: string; score: number; until: number; lang: string | undefined; challenge?: ChallengeState },
   now: number,
 ): Promise<{ text: string; url: string } | null> {
   const token = PREFIX + [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
-  await insertAppeal(env.DB, { token, chatId: mute.chatId, userId: mute.userId, rule: mute.rule, score: mute.score, createdAt: now, until: mute.until });
+  await insertAppeal(env.DB, {
+    token,
+    chatId: mute.chatId,
+    userId: mute.userId,
+    rule: mute.rule,
+    score: mute.score,
+    createdAt: now,
+    until: mute.until,
+    challenge: mute.challenge ?? null,
+  });
   const bot = await botUsername(env).catch(() => null);
   return bot ? { text: t(pickLang(mute.lang), "unmuteButton"), url: `https://t.me/${bot}?start=${token}` } : null;
 }

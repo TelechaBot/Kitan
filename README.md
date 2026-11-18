@@ -24,7 +24,8 @@ ask to join again. Each time they come back within a week they get three times
 as long (15 minutes, then 45, up to 6 hours), so someone who missed the message
 is not hurried, while bulk accounts, which rarely ask twice, keep the short
 limit. Most people see one Cloudflare check; a profile that looks like an ad
-may instead get two checks and a simple sum (see below).
+is turned away once with the reason, and gets two checks and a simple sum if
+it asks again (see below).
 
 ### If someone gets no message
 
@@ -71,17 +72,31 @@ is the account itself, about US$0.89 each
 so Kitan makes each spam attempt cost an account:
 
 - **Before the check**, Kitan declines accounts listed by
-  [lols.bot](https://lols.bot) and accounts it has blocked itself. For everyone
-  else it checks the profile against the keyword list (`bannedWords`), then
-  runs Workers AI models on the bio/name/channel (when they point somewhere)
-  and on the profile avatar. A keyword match, a high-confidence text verdict
-  (decision ≥ 0.9 and written ad verdict at confidence ≥ 0.85), or a
-  high-confidence avatar ad verdict (confidence ≥ 0.9) makes the check stricter:
-  **two Cloudflare Turnstile checks and one simple arithmetic question, in a
-  shuffled order**. A wrong sum gets a fresh question; only that step is ever
-  checked, so a token spent on an earlier one is no use. Any model error, a
-  4-second timeout, or a spent daily model budget falls back to the ordinary
-  single Turnstile check, so a slow model never turns a person away.
+  [lols.bot](https://lols.bot) and accounts it has blocked itself. Everyone
+  else's profile is audited after the webhook has answered (up to 20 seconds
+  per model): the keyword list (`bannedWords`) on the name, username, bio and
+  channel, a Workers AI text model when they point somewhere, and an image
+  model on the avatar. The audit ends in one of three answers:
+  - **ad** — a keyword match, a confident text verdict (decision ≥ 0.9 and
+    written verdict at confidence ≥ 0.85) or a confident avatar verdict
+    (≥ 0.9). The request is declined, and the person is told why in a private
+    message and that asking again gets a longer check. Asking again within a
+    week gets the **strict check: two Cloudflare Turnstile checks and one
+    simple sum, in a shuffled order**. A wrong sum gets a fresh question; only
+    the current step is ever checked, so a token spent on an earlier one is no
+    use.
+  - **unknown** — a model the profile needed did not answer (error, timeout,
+    or the day's model budget is spent). The strict check: an unread profile
+    is not a clean one.
+  - **clean** — the ordinary single Turnstile check.
+- **People who join directly** (an open group, an invite link, another bot's
+  check) never meet the door, so Kitan audits their profile when they join, with
+  the keyword list and the text model (not the avatar, for the budget). An ad
+  profile is removed from the group without a ban; joining again within a week
+  keeps them muted for up to a week, with a private notice whose button opens
+  the strict check, and passing it lifts the mute. People Kitan admitted were
+  audited at the door, and people an admin added or approved are left alone.
+- **Inside a group**, Kitan reviews only non-admin members with **fewer than
   seven clean messages in the last seven days in that group**. A message counts
   only when Kitan did not delete it, and an edited message never counts, so
   spam cannot buy its way out. Once a member reaches seven clean messages

@@ -40,8 +40,9 @@ function decode(row: AttemptRow): Attempt {
   };
   const decidedAt = row.decided_at ?? row.created_at;
   switch (row.status) {
+    case "screening":
     case "pending":
-      return { ...base, status: "pending" };
+      return { ...base, status: row.status };
     case "approved":
     case "expired":
       return { ...base, status: row.status, decidedAt };
@@ -75,7 +76,7 @@ function encode(a: NewAttempt) {
   return {
     status: a.status,
     expires_at: a.expiresAt,
-    decided_at: a.status === "pending" ? null : a.decidedAt,
+    decided_at: a.status === "pending" || a.status === "screening" ? null : a.decidedAt,
     error:
       a.status === "failed" || a.status === "unreachable" || a.status === "queued"
         ? a.error.slice(0, 300)
@@ -90,18 +91,18 @@ function encode(a: NewAttempt) {
 // ---------- attempts ----------
 
 // Returns null when the request is already handled: a redelivered guard query,
-// or a DM challenge still open for this user and chat.
+// or a DM request still being screened or checked for this user and chat.
 export async function insertAttempt(
   db: D1Database,
   a: NewAttempt,
   lols: boolean | null,
   now: number,
 ): Promise<Attempt | null> {
-  if (a.delivery.kind === "dm" && a.status === "pending") {
+  if (a.delivery.kind === "dm" && a.status === "screening") {
     const open = await db
       .prepare(
         `SELECT 1 FROM attempts
-         WHERE chat_id = ? AND user_id = ? AND delivery = 'dm' AND status = 'pending' AND expires_at > ?`,
+         WHERE chat_id = ? AND user_id = ? AND delivery = 'dm' AND status IN ('screening', 'pending') AND expires_at > ?`,
       )
       .bind(a.chatId, a.userId, now)
       .first();
@@ -189,7 +190,7 @@ export async function waitingDue(db: D1Database, now: number): Promise<Attempt[]
   const { results } = await db
     .prepare(
       `SELECT * FROM attempts
-       WHERE status IN ('pending', 'unreachable', 'queued') AND expires_at <= ? LIMIT 50`,
+       WHERE status IN ('screening', 'pending', 'unreachable', 'queued') AND expires_at <= ? LIMIT 50`,
     )
     .bind(now)
     .all<AttemptRow>();
@@ -560,6 +561,25 @@ export async function recordNotice(db: D1Database, notice: string, chatId: strin
     .run();
 }
 
+// ---------- turned away for an ad profile ----------
+
+// Each time an ad profile was kept out of a group: a join request declined, or a direct
+// joiner removed. The next attempt within the window is treated as "maybe a person".
+export async function recordTurnedAway(db: D1Database, chatId: string, userId: string, door: "request" | "join", now: number) {
+  await db
+    .prepare(`INSERT INTO turned_away (chat_id, user_id, door, at) VALUES (?, ?, ?, ?)`)
+    .bind(chatId, userId, door, now)
+    .run();
+}
+
+export async function turnedAwaySince(db: D1Database, chatId: string, userId: string, since: number): Promise<boolean> {
+  const row = await db
+    .prepare(`SELECT 1 FROM turned_away WHERE chat_id = ? AND user_id = ? AND at > ? LIMIT 1`)
+    .bind(chatId, userId, since)
+    .first();
+  return row !== null;
+}
+
 // ---------- appeals ----------
 
 export interface Appeal {
@@ -572,12 +592,13 @@ export interface Appeal {
   until: number;
   openedAt: number | null;
   passedAt: number | null;
+  challenge: ChallengeState | null; // null: one Turnstile check
 }
 
 export async function insertAppeal(db: D1Database, a: Omit<Appeal, "openedAt" | "passedAt">): Promise<void> {
   await db
-    .prepare(`INSERT INTO appeals (token, chat_id, user_id, rule, score, created_at, until) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .bind(a.token, a.chatId, a.userId, a.rule, a.score, a.createdAt, a.until)
+    .prepare(`INSERT INTO appeals (token, chat_id, user_id, rule, score, created_at, until, challenge) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(a.token, a.chatId, a.userId, a.rule, a.score, a.createdAt, a.until, a.challenge ? JSON.stringify(a.challenge) : null)
     .run();
 }
 
@@ -594,6 +615,7 @@ export async function findAppeal(db: D1Database, token: string): Promise<Appeal 
         until: row.until,
         openedAt: row.opened_at,
         passedAt: row.passed_at,
+        challenge: decodeChallenge(row.challenge),
       }
     : null;
 }
@@ -615,6 +637,15 @@ export async function recordAppealTry(db: D1Database, token: string, solveMs: nu
     .prepare(`UPDATE appeals SET tries = tries + 1, solve_ms = coalesce(solve_ms, ?) WHERE token = ?`)
     .bind(solveMs, token)
     .run();
+}
+
+// Moves an appeal's strict check to its next step while it is unused; false if it was used.
+export async function saveAppealChallenge(db: D1Database, token: string, challenge: ChallengeState): Promise<boolean> {
+  const row = await db
+    .prepare(`UPDATE appeals SET challenge = ? WHERE token = ? AND passed_at IS NULL RETURNING token`)
+    .bind(JSON.stringify(challenge), token)
+    .first();
+  return row !== null;
 }
 
 // Marks the appeal passed once; false if it already was.
@@ -750,4 +781,5 @@ export async function prune(
   await db.prepare(`DELETE FROM spend WHERE hour < ?`).bind(Math.floor(Date.now() / HOUR_MS) - 48).run();
   // Kept as long as offenses: a passed appeal limits the next one for 30 days.
   await db.prepare(`DELETE FROM appeals WHERE created_at <= ?`).bind(before.offenses).run();
+  await db.prepare(`DELETE FROM turned_away WHERE at <= ?`).bind(before.offenses).run();
 }

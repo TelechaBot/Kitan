@@ -6,7 +6,12 @@ export type Delivery =
   | { kind: "guard"; queryId: string }
   | { kind: "dm"; token: string; messageId: number | null };
 
-export type DeclineReason = "kitan_blocklist" | "lols_banned";
+// ad_profile: the profile reads as an ad; asking again within AD_REPEAT_MS gets the strict check.
+export type DeclineReason = "kitan_blocklist" | "lols_banned" | "ad_profile";
+
+// What the profile audit concluded. "unknown": a model the profile needed did not answer
+// (timeout, error, spent budget); that is not evidence of a person, so it gets the strict check.
+export type Screening = "ad" | "unknown" | "clean";
 
 interface Base {
   id: number;
@@ -78,12 +83,14 @@ export function publicStep(c: ChallengeState): PublicStep {
     : { kind, index: c.index, total: c.steps.length };
 }
 
+// "screening": the profile audit is running in the background; nothing is sent yet.
 // Waiting states have a deadline like pending ones, because a join request
 // nobody answers locks the person out: they cannot ask again until it is
 // declined. "unreachable": Telegram would not let the bot DM this person
 // first; pressing Start in the bot before the deadline resumes the check.
 // "queued": the check could not be sent; the admins may decide first.
 export type Attempt =
+  | (Base & { status: "screening" })
   | (Base & { status: "pending" })
   | (Base & { status: "unreachable"; decidedAt: number; error: string })
   | (Base & { status: "queued"; decidedAt: number; error: string })
@@ -96,6 +103,7 @@ export type Attempt =
 export type NewAttempt = Attempt extends infer A ? (A extends Attempt ? Omit<A, "id"> : never) : never;
 
 export type JoinEvent =
+  | { type: "screened"; verdict: Screening; repeat: boolean; strict: ChallengeState; at: number }
   | { type: "challenged"; messageId: number | null }
   // `refused`: Telegram forbids the bot to start this conversation (see telegram.ts).
   | { type: "challenge_failed"; error: string; refused: boolean; at: number }
@@ -107,7 +115,13 @@ export type JoinEvent =
 // The answer Telegram gets for the join request; "queue" hands it to the group's
 // admins. `queryUsed`: the guard-bot query was already answered with "queue",
 // so the request must be answered directly.
-export type JoinEffect = { type: "answer"; result: "approve" | "decline" | "queue"; queryUsed?: true };
+// "challenge": send the check. "notify_ad": tell the person why they were turned away and
+// that asking again gets the strict check; it must go before the decline, because the bot
+// may write to a requester only until the request is answered.
+export type JoinEffect =
+  | { type: "answer"; result: "approve" | "decline" | "queue"; queryUsed?: true }
+  | { type: "challenge" }
+  | { type: "notify_ad" };
 
 export type Step = { ok: true; next: Attempt; effects: JoinEffect[] } | { ok: false; reason: Refusal };
 
@@ -126,6 +140,11 @@ export const CHECK_CAP_MS = 6 * 60 * 60 * 1000;
 export const WAIT_TTL_MS = 60 * 60 * 1000;
 export const WAIT_CAP_MS = 24 * 60 * 60 * 1000;
 export const MISS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+// The audit runs after the webhook answers; a Worker evicted mid-audit leaves the attempt
+// screening, and the cron declines it after this so the person can ask again.
+export const SCREEN_TTL_MS = 2 * 60 * 1000;
+// A second request within this long after an ad_profile decline gets the strict check.
+export const AD_REPEAT_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function patience(baseMs: number, capMs: number, misses: number): number {
   return Math.min(baseMs * 3 ** misses, capMs);
@@ -140,11 +159,10 @@ export interface Intake {
   lols: boolean | null;
   misses: number;
   at: number;
-  challenge?: ChallengeState | null;
 }
 
-// The first state of a new join request: declined at the door, or pending, which
-// the caller answers by sending the challenge.
+// The first state of a new join request: declined at the door, or screening, which the
+// audit's "screened" event moves on.
 export function intake(input: Intake): { attempt: NewAttempt; effects: JoinEffect[] } {
   const base = {
     chatId: input.chatId,
@@ -152,10 +170,9 @@ export function intake(input: Intake): { attempt: NewAttempt; effects: JoinEffec
     userId: input.userId,
     delivery: input.delivery,
     createdAt: input.at,
-    expiresAt:
-      input.at + patience(input.delivery.kind === "guard" ? GUARD_TTL_MS : DM_TTL_MS, CHECK_CAP_MS, input.misses),
+    expiresAt: input.at + SCREEN_TTL_MS,
     misses: input.misses,
-    challenge: input.challenge ?? null,
+    challenge: null,
   };
   const reason: DeclineReason | null = input.blocked ? "kitan_blocklist" : input.lols ? "lols_banned" : null;
   return reason
@@ -163,11 +180,28 @@ export function intake(input: Intake): { attempt: NewAttempt; effects: JoinEffec
         attempt: { ...base, status: "declined", decidedAt: input.at, reason },
         effects: [{ type: "answer", result: "decline" }],
       }
-    : { attempt: { ...base, status: "pending" }, effects: [] };
+    : { attempt: { ...base, status: "screening" }, effects: [] };
+}
+
+function checkTtl(a: Attempt): number {
+  return patience(a.delivery.kind === "guard" ? GUARD_TTL_MS : DM_TTL_MS, CHECK_CAP_MS, a.misses);
 }
 
 export function step(a: Attempt, e: JoinEvent): Step {
   switch (e.type) {
+    case "screened": {
+      if (a.status !== "screening") return refuse(a);
+      if (e.verdict === "ad" && !e.repeat) {
+        return ok(
+          { ...a, status: "declined", decidedAt: e.at, reason: "ad_profile" },
+          { type: "notify_ad" },
+          { type: "answer", result: "decline" },
+        );
+      }
+      const challenge = e.verdict === "clean" ? null : e.strict;
+      return ok({ ...a, status: "pending", challenge, expiresAt: e.at + checkTtl(a) }, { type: "challenge" });
+    }
+
     case "challenged":
       if (a.status !== "pending") return refuse(a);
       return a.delivery.kind === "dm"
@@ -217,7 +251,7 @@ export function step(a: Attempt, e: JoinEvent): Step {
 
 // States that hold an open join request on Telegram and so must end by their deadline.
 export function isWaiting(a: Attempt): boolean {
-  return a.status === "pending" || a.status === "unreachable" || a.status === "queued";
+  return a.status === "screening" || a.status === "pending" || a.status === "unreachable" || a.status === "queued";
 }
 
 // Whether the user can still open and submit the check; the reason when not.

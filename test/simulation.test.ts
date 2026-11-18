@@ -239,6 +239,114 @@ test("a member from before Kitan is left alone once their seven clean messages a
   record("member from before Kitan", "reviewed for 7 clean messages, then left alone");
 });
 
+// ---------- ad profiles: the profile is the ad ----------
+
+const INVITE_BIO = "六合内幕每期更新 实时直播录屏开奖 https://t.me/+2NJhA-Iug6c1Yjc6 进群获取资料";
+
+function adModels(w: World) {
+  w.decision = (prompt) => (prompt.includes("t.me/+") ? 0.99 : 0.01);
+  w.model = (prompt) =>
+    prompt.includes("t.me/+")
+      ? { ad: true, confidence: 0.95, kind: "diversion", reason: "invite link in the bio" }
+      : { ad: false, confidence: 0.9, kind: "none", reason: "chat" };
+}
+
+test("an ad account asks to join: told why and declined, and it does not ask again", async () => {
+  const w = new World();
+  adModels(w);
+  await w.requestJoin(20, A, { bio: INVITE_BIO });
+  expect(w.latestAttempt(20, A)).toMatchObject({ status: "declined", error: "ad_profile" });
+  expect(w.methods()).toEqual(["getChat", "sendMessage", "declineChatJoinRequest"]);
+  record("ad account via join request", "told why, declined; never challenged");
+});
+
+test("cost: a person whose bio looks like an ad is declined once, asks again, and passes the strict check", async () => {
+  const w = new World();
+  adModels(w);
+  await w.requestJoin(21, A, { bio: "我的群 https://t.me/+myfriends 欢迎", lang: "zh-hans" });
+  expect(w.latestAttempt(21, A).status).toBe("declined");
+  const reason = w.callsTo("sendMessage")[0].params.text as string;
+  expect(reason).toContain("再申请一次");
+
+  await w.requestJoin(21, A, { bio: "我的群 https://t.me/+myfriends 欢迎" });
+  const second = w.latestAttempt(21, A);
+  expect(second.status).toBe("pending");
+  expect(JSON.parse(second.challenge).steps).toHaveLength(3);
+  expect(await w.completeCheck(21, A)).toBe(200);
+  await w.say(21, A, "谢谢，我是来问问题的");
+  expect(w.methods()).not.toContain("restrictChatMember");
+  record("COST person with a link in the bio", "declined once with the reason; second request: strict check, in");
+});
+
+test("the audit cannot finish (the avatar model times out): the strict check, not the ordinary one", async () => {
+  // 2026-11-18, "o张 k宝": no bio, an avatar, the 4-second audit timed out twice and the
+  // account came in on the ordinary check both times; an admin kicked it six hours later.
+  const w = new World();
+  w.avatars.set(22, [{ file_id: "av", width: 320, height: 320 }]);
+  w.model = () => {
+    throw new Error("timeout");
+  };
+  await w.requestJoin(22, A, { queryId: "Q22" });
+  expect(JSON.parse(w.latestAttempt(22, A).challenge).steps).toHaveLength(3);
+  expect(w.events(22, "verdict")[0].detail).toMatchObject({ verdict: "unknown", missing: ["avatar"] });
+  record("audit could not finish (model down)", "strict check instead of the ordinary one");
+});
+
+test("an ad account joins an open group and says nothing: removed at once, may come back", async () => {
+  // 2026-11-18, "s大 p胖": same bio, joined 小米玩机交流群 directly at 00:33; Kitan judged the
+  // profile an ad and did nothing; an admin kicked it at 07:30.
+  const w = new World();
+  adModels(w);
+  w.bios.set(23, INVITE_BIO);
+  await w.join(23, A);
+  expect(actionsOn(w, 23)).toEqual([`banChatMember@${A}`, `unbanChatMember@${A}`]);
+  expect(w.callsTo("unbanChatMember")[0].params.only_if_banned).toBe(true);
+  expect(w.events(23, "action")[0].detail).toMatchObject({ rule: "ad_profile", action: "kick" });
+  record("silent ad account via open group", "removed on joining (not banned)");
+});
+
+test("cost: an ad-looking profile joins an open group twice: muted the second time, lifts it with the strict check", async () => {
+  const w = new World();
+  adModels(w);
+  w.bios.set(24, INVITE_BIO);
+  await w.join(24, A);
+  await w.memberUpdate(24, A, "left", { id: 24, username: "self" });
+  w.calls = [];
+  await w.join(24, A, { id: 24 }, { language_code: "zh-hans" });
+  expect(actionsOn(w, 24)).toEqual([`restrictChatMember@${A}`]);
+  const notice = w.callsTo("sendMessage").find((c) => c.params.ephemeral_message_parameters)!.params;
+  expect(notice.text).toContain("两次人机验证和一道算术题");
+  const token = (notice.reply_markup.inline_keyboard[0][0].url as string).split("start=")[1];
+  const lifted = await w.appealSteps(24, token);
+  expect(lifted.status).toBe(200);
+  expect(lifted.kinds.sort()).toEqual(["cf", "cf", "math"]);
+  expect(w.callsTo("restrictChatMember").at(-1)!.params.permissions.can_send_messages).toBe(true);
+  record("COST ad-looking profile, joins twice", "removed, then muted with a strict check to lift it");
+});
+
+test("someone an admin added is left alone, whatever their bio", async () => {
+  const w = new World();
+  adModels(w);
+  w.bios.set(25, INVITE_BIO);
+  await w.join(25, A, { id: 999, username: "an_admin" });
+  expect(actionsOn(w, 25)).toEqual([]);
+  expect(w.aiCalls).toHaveLength(0);
+  record("ad-looking profile added by an admin", "left alone (the admin vouched)");
+});
+
+test("gap: a human-run ad account asks again and passes the strict check", async () => {
+  // 2026-11-17, "收各种al官key": passed the strict check in 25 s; an admin kicked it 4 min later.
+  const w = new World();
+  adModels(w);
+  await w.requestJoin(26, A, { bio: INVITE_BIO });
+  await w.requestJoin(26, A, { bio: INVITE_BIO });
+  expect(await w.completeCheck(26, A)).toBe(200);
+  w.calls = [];
+  await w.say(26, A, "进群获取资料 t.me/+2NJhA-Iug6c1Yjc6");
+  expect(w.methods()).toContain("restrictChatMember");
+  record("GAP human-run ad account", "in after the strict check; muted on its first ad");
+});
+
 afterAll(() => {
   console.log("\nSimulation outcomes");
   console.table(outcomes);

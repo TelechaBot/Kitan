@@ -105,22 +105,22 @@ test("the same contact card again and again is a flood too", async () => {
 
 test("the models are asked only when their answer could matter, and within the day's budget", async () => {
   // Nowhere to send people: no ad to act on, so no paid call.
-  await w.join(47, GROUP, KITAN);
+  await w.join(47, GROUP);
   await w.say(47, GROUP, "大家好");
   expect(w.aiCalls).toHaveLength(0);
-  expect(w.events(47, "verdict").map((v) => v.detail.skipped)).toEqual(["no_target", "no_target"]);
+  expect(w.events(47, "verdict").map((v) => v.detail.skipped)).toEqual(["no_model", "no_target"]);
 
   // Pointing somewhere: the profile and three distinct messages, then enough is known.
   w.bios.set(48, "公群 https://t.me/+abc");
-  await w.join(48, GROUP, KITAN);
+  await w.join(48, GROUP);
   for (const text of ["一", "二", "三", "四"]) await w.say(48, GROUP, text);
   expect(w.events(48, "verdict").map((v) => v.detail.skipped ?? "asked")).toEqual(["asked", "asked", "asked", "asked", "judged_enough"]);
 
-  // Near the day's allowance, nothing more is asked.
+  // Near the day's allowance, nothing more is asked, and an unread profile is not acted on.
   w.db.run("UPDATE spend SET neurons = 6999");
   w.bios.set(49, "公群 https://t.me/+abc");
-  await w.join(49, GROUP, KITAN);
-  expect(w.events(49, "verdict")[0].detail.skipped).toBe("budget");
+  await w.join(49, GROUP);
+  expect(w.events(49, "verdict")[0].detail).toMatchObject({ verdict: "unknown", missing: ["text"], action: null });
 });
 
 test("an offer with nowhere to point is the keyword layer's: muted without asking a model", async () => {
@@ -307,11 +307,16 @@ test("the hourly job prunes what retention allows", async () => {
 
 test("the profile is read at join: bio and who admitted them", async () => {
   w.bios.set(25, "日入过万 私我进群");
-  await w.join(25, GROUP, KITAN, { first_name: "景初" });
+  await w.join(25, GROUP, { id: 25 }, { first_name: "景初" });
   expect(w.events(25, "profile")[0].detail).toMatchObject({ bio: "日入过万 私我进群", name: "景初" });
   const verdict = w.events(25, "verdict")[0].detail;
-  expect(verdict.lexicon).toEqual(expect.arrayContaining(["私我进群"]));
-  expect(verdict.dossier).toMatchObject({ bio: "日入过万 私我进群", admittedBy: "Kitan's check (a captcha)", minutesSinceJoin: 0 });
+  expect(verdict.lexicon).toEqual(expect.arrayContaining(["日入过万"]));
+  expect(verdict.dossier).toMatchObject({ bio: "日入过万 私我进群", admittedBy: "themselves (open group)", minutesSinceJoin: 0 });
+
+  // Kitan's own approvals were audited at the door; they are not audited twice.
+  w.bios.set(26, "日入过万 私我进群");
+  await w.join(26, GROUP, KITAN);
+  expect(w.events(26, "verdict")).toHaveLength(0);
 });
 
 test("every model sees the sender's file: group title, bio, how they came in, what they sent", async () => {

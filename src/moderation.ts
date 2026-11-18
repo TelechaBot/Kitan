@@ -26,6 +26,8 @@ import {
   readStanding,
   readTrajectory,
   recordEvent,
+  recordTurnedAway,
+  turnedAwaySince,
   recordJoin,
   revokeRecentAt,
   writeStanding,
@@ -56,9 +58,14 @@ import {
   strong,
 } from "./probation";
 import { offerAppeal } from "./appeal";
+import { AD_REPEAT_MS, createStrictChallenge } from "./attempt";
+import { DAILY_NEURONS, auditProfile } from "./screen";
 import { callTelegram, log, messageOf, sendPermissions } from "./telegram";
 import { type Trajectory, accountYears, social, step } from "./trajectory";
 import type { ChatMemberUpdated, Env, Message, PhotoSize, TelegramChat, TelegramUser } from "./types";
+
+// How long a direct joiner with an ad profile stays muted unless they pass the strict check.
+const AD_HOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
 // A profile read from Telegram is reused for a week; spam accounts do change their bio.
 const PROFILE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -108,11 +115,16 @@ export async function onMemberUpdate(env: Env, update: ChatMemberUpdated, ctx: C
   }
 }
 
-// Bio, profile channel and photo: where "say nothing, the profile is the ad" accounts advertise.
+// Direct joiners (an open group, an invite link, another bot's check) never met Kitan's door,
+// so their profile is audited here, where "say nothing, the profile is the ad" accounts sit.
+// Kitan's own approvals were audited at the door; a person an admin added or approved is
+// vouched for. An ad profile is removed (it may join again); joining again within a week
+// keeps them muted until they pass the strict check, mirroring a declined join request.
 async function screenProfile(env: Env, update: ChatMemberUpdated, now: number) {
   const user = update.new_chat_member.user;
   const chatId = String(update.chat.id);
-  // A join request just read the profile, so reuse it there; refresh only a stale one.
+  const userId = String(user.id);
+  if (update.from.id === botId(env) || (update.from.id !== user.id && !update.from.is_bot)) return;
   const profile = await profileOf(env, user, now, false);
   const dossier: Dossier = {
     ...(await dossierOf(env, chatId, user, { profile, joinedAt: now }, now)),
@@ -120,21 +132,57 @@ async function screenProfile(env: Env, update: ChatMemberUpdated, now: number) {
     kind: "none",
     text: "(they have just joined and not posted yet)",
   };
-  const targets = targetsOf(dossier);
-  const skipped = await modelsWorthAsking(env, String(user.id), targets, null, 0, now);
-  const [decision, textModel] = skipped
-    ? [null, null]
-    : await Promise.all([decideText(env, forModels(dossier)), judgeText(env, forModels(dossier))]);
-  if (!skipped) await recordSpend(env.DB, NEURONS.decision + NEURONS.verdict, now);
-  await footprint(env, chatId, String(user.id), "verdict", {
-    on: "profile",
-    lexicon: profileWords([dossier.name, user.username, profile?.bio, profile?.personal_chat].filter(Boolean).join(" ")),
-    targets,
-    skipped,
-    decision,
-    text_model: textModel,
-    dossier,
-  }, Date.now());
+  // The text model only: avatars of every direct joiner would cost ~3,800 neurons a day
+  // (255 joiners with a photo a day, 2026-11-13..18), more than half the daily budget.
+  const audit = await auditProfile(env, dossier, null, now);
+  let action: string | null = null;
+  if (audit.verdict === "ad" && !(await isAdmin(env, chatId, user.id))) {
+    action = (await turnedAwaySince(env.DB, chatId, userId, now - AD_REPEAT_MS))
+      ? await holdForCheck(env, chatId, user, now)
+      : await turnAway(env, chatId, userId, now);
+  }
+  // A verdict without a model answer does not count towards JUDGED_PER_ACCOUNT (judgedSince).
+  const skipped = audit.decision === null && audit.text_model === null ? "no_model" : undefined;
+  await footprint(env, chatId, userId, "verdict", { on: "profile", ...audit, skipped, action, dossier }, Date.now());
+}
+
+// Removes them without a ban, so they can come back, and remembers it.
+async function turnAway(env: Env, chatId: string, userId: string, now: number): Promise<string> {
+  await act(env, "banChatMember", { chat_id: chatId, user_id: userId });
+  await act(env, "unbanChatMember", { chat_id: chatId, user_id: userId, only_if_banned: true });
+  await recordTurnedAway(env.DB, chatId, userId, "join", now);
+  await footprint(env, chatId, userId, "action", { rule: "ad_profile", action: "kick" }, now);
+  log("ad_profile_removed", { chat_id: chatId, user_id: userId });
+  return "kick";
+}
+
+// Back within a week: muted until they pass the strict check, which the private notice links to.
+async function holdForCheck(env: Env, chatId: string, user: TelegramUser, now: number): Promise<string> {
+  const until = now + AD_HOLD_MS;
+  await act(env, "restrictChatMember", {
+    chat_id: chatId,
+    user_id: user.id,
+    permissions: sendPermissions(false),
+    use_independent_chat_permissions: true,
+    until_date: Math.floor(until / 1000),
+  });
+  const button = await offerAppeal(
+    env,
+    { chatId, userId: String(user.id), rule: "ad_profile", score: 0, until, lang: user.language_code, challenge: createStrictChallenge() },
+    now,
+  ).catch((error) => {
+    log("appeal_offer_failed", { error: messageOf(error) });
+    return null;
+  });
+  await act(env, "sendMessage", {
+    chat_id: chatId,
+    text: t(pickLang(user.language_code), "adHeld"),
+    ephemeral_message_parameters: { receiver_user_id: user.id },
+    ...(button ? { reply_markup: { inline_keyboard: [[button]] } } : {}),
+  });
+  await footprint(env, chatId, String(user.id), "action", { rule: "ad_profile", action: "mute", until }, now);
+  log("ad_profile_held", { chat_id: chatId, user_id: user.id });
+  return "mute";
 }
 
 // The person's profile, from Telegram when Kitan has none, it is a week old, or `fresh` asks;
@@ -518,7 +566,6 @@ async function shadow(
 // their answer could matter, and within the free plan's 10,000 neurons a day: on
 // 2026-11-13 these gates would have cut 612 calls in ten hours to 130. Returns why not.
 const JUDGED_PER_ACCOUNT = 4; // the profile and three distinct messages
-export const DAILY_NEURONS = 7000; // leaves room for bench runs under the 10,000 allowance
 
 async function modelsWorthAsking(
   env: Env,

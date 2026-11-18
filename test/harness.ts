@@ -268,12 +268,28 @@ export class World {
     });
   }
 
-  // Opens the check from a mute notice's button and passes it. Returns the HTTP status.
-  async appeal(userId: number, token: string): Promise<number> {
+  // Opens the check from a mute notice's button and passes every step. Returns the HTTP
+  // status and the kinds of the steps it was asked.
+  async appealSteps(userId: number, token: string): Promise<{ status: number; kinds: string[] }> {
     const body = { initData: await this.initData(userId), token };
     const opened = await this.post("/api/open", body);
-    if (!opened.ok) return opened.status;
-    return (await this.post("/api/verify", { ...body, turnstileToken: "t", solveMs: 2000 })).status;
+    if (!opened.ok) return { status: opened.status, kinds: [] };
+    let step = readStep(await opened.json());
+    const kinds: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      kinds.push(step?.kind ?? "cf");
+      const extra = step?.kind === "math" ? { answer: answerFor(step.question!) } : { turnstileToken: "t" };
+      const response = await this.post("/api/verify", { ...body, ...extra, solveMs: 2000 });
+      if (response.status !== 200) return { status: response.status, kinds };
+      const result = readVerify(await response.json());
+      if (result.done !== false) return { status: 200, kinds };
+      step = result.step;
+    }
+    return { status: 500, kinds };
+  }
+
+  async appeal(userId: number, token: string): Promise<number> {
+    return (await this.appealSteps(userId, token)).status;
   }
 
   memberUpdate(userId: number, chatId: number, status: string, by = { id: 999, username: "an_admin" }): Promise<Response> {

@@ -40,6 +40,8 @@ export const MESSAGES = {
     unmutedNotice: "You can post here again.",
     appealUsed: "You've already used this check in the last 30 days, so this limit stays until it ends. A group admin can lift it sooner.",
     appealNone: "There's nothing to lift: you can already post, or this link has expired.",
+    adDeclined: "Your request to join {chat} was declined: your name, bio or profile photo looks like an ad. If you're not advertising, ask to join again; this time you'll get a longer check (two human checks and one sum).",
+    adHeld: "Your name, bio or profile photo looks like an ad, so you can't post here for now. If you're not advertising, press the button below and finish a longer check (two human checks and one sum) to post right away.",
   },
   zh: {
     title: "加入「{chat}」",
@@ -75,6 +77,8 @@ export const MESSAGES = {
     unmutedNotice: "你可以在这里发言了。",
     appealUsed: "30 天内你已经用过一次这个验证，这次的限制会持续到结束。群管理员可以提前帮你解除。",
     appealNone: "没有需要解除的限制：你已经可以发言，或者这个链接已经过期。",
+    adDeclined: "你加入「{chat}」的申请被拒绝了：你的名字、简介或头像看起来像广告。如果你没有打广告，请再申请一次，这次会请你完成一个更长的验证（两次人机验证和一道算术题）。",
+    adHeld: "你的名字、简介或头像看起来像广告，所以暂时不能在这里发言。如果你没有打广告，点下面的按钮完成一个更长的验证（两次人机验证和一道算术题），就能马上发言。",
   },
   "zh-hant": {
     title: "加入「{chat}」",
@@ -110,6 +114,8 @@ export const MESSAGES = {
     unmutedNotice: "你可以在這裡發言了。",
     appealUsed: "30 天內你已經用過一次這個驗證，這次的限制會持續到結束。群管理員可以提前幫你解除。",
     appealNone: "沒有需要解除的限制：你已經可以發言，或者這個連結已經過期。",
+    adDeclined: "你加入「{chat}」的申請被拒絕了：你的名字、簡介或頭像看起來像廣告。如果你沒有打廣告，請再申請一次，這次會請你完成一個更長的驗證（兩次人機驗證和一道算術題）。",
+    adHeld: "你的名字、簡介或頭像看起來像廣告，所以暫時不能在這裡發言。如果你沒有打廣告，點下面的按鈕完成一個更長的驗證（兩次人機驗證和一道算術題），就能馬上發言。",
   },
   ja: {
     title: "「{chat}」に参加",
@@ -145,6 +151,8 @@ export const MESSAGES = {
     unmutedNotice: "ここで再び投稿できます。",
     appealUsed: "この確認は30日以内にすでに一度使われているため、今回の制限は期限まで続きます。グループの管理者なら早めに解除できます。",
     appealNone: "解除する制限はありません。すでに投稿できるか、このリンクの期限が切れています。",
+    adDeclined: "{chat} への参加リクエストは却下されました。名前、自己紹介、またはプロフィール写真が広告のように見えます。広告でなければ、もう一度参加をリクエストしてください。次回は長めの確認（人間確認 2 回と計算 1 問）があります。",
+    adHeld: "名前、自己紹介、またはプロフィール写真が広告のように見えるため、今はここに投稿できません。広告でなければ、下のボタンを押して長めの確認（人間確認 2 回と計算 1 問）を終えると、すぐに投稿できます。",
   },
   ru: {
     title: "Вступление в «{chat}»",
@@ -180,6 +188,8 @@ export const MESSAGES = {
     unmutedNotice: "Вы снова можете писать здесь.",
     appealUsed: "Вы уже проходили эту проверку за последние 30 дней, поэтому ограничение останется до конца срока. Администратор группы может снять его раньше.",
     appealNone: "Снимать нечего: вы уже можете писать, или срок действия ссылки истёк.",
+    adDeclined: "Ваша заявка на вступление в {chat} отклонена: ваше имя, описание или фото профиля похожи на рекламу. Если вы не рекламируете, подайте заявку ещё раз — в этот раз будет проверка подлиннее (две проверки на человека и один пример).",
+    adHeld: "Ваше имя, описание или фото профиля похожи на рекламу, поэтому пока писать здесь нельзя. Если вы не рекламируете, нажмите кнопку ниже и пройдите проверку подлиннее (две проверки на человека и один пример), чтобы сразу писать.",
   },
   es: {
     title: "Unirte a {chat}",
@@ -215,6 +225,8 @@ export const MESSAGES = {
     unmutedNotice: "Ya puedes volver a escribir aquí.",
     appealUsed: "Ya usaste esta verificación en los últimos 30 días, así que esta restricción sigue hasta que termine. Un administrador del grupo puede quitarla antes.",
     appealNone: "No hay nada que quitar: ya puedes escribir o este enlace ha caducado.",
+    adDeclined: "Tu solicitud para unirte a {chat} fue rechazada: tu nombre, biografía o foto de perfil parecen un anuncio. Si no estás haciendo publicidad, vuelve a solicitarlo; esta vez tendrás una verificación más larga (dos comprobaciones humanas y una suma).",
+    adHeld: "Tu nombre, biografía o foto de perfil parecen un anuncio, así que por ahora no puedes escribir aquí. Si no estás haciendo publicidad, pulsa el botón de abajo y completa una verificación más larga (dos comprobaciones humanas y una suma) para escribir ya.",
   },
   ar: {
     title: "الانضمام إلى {chat}",
@@ -250,6 +262,8 @@ export const MESSAGES = {
     unmutedNotice: "يمكنك الكتابة هنا مجددًا.",
     appealUsed: "استخدمت هذا التحقق مرة خلال آخر 30 يومًا، لذا يبقى هذا القيد حتى ينتهي. يمكن لمشرف المجموعة رفعه قبل ذلك.",
     appealNone: "لا يوجد قيد لرفعه: يمكنك الكتابة بالفعل، أو انتهت صلاحية هذا الرابط.",
+    adDeclined: "تم رفض طلبك للانضمام إلى {chat}: اسمك أو نبذتك أو صورة ملفك تبدو كإعلان. إن لم تكن تعلن، فاطلب الانضمام مرة أخرى؛ ستحصل هذه المرة على تحقق أطول (تحققان بشريان ومسألة جمع واحدة).",
+    adHeld: "اسمك أو نبذتك أو صورة ملفك تبدو كإعلان، لذا لا يمكنك الكتابة هنا حاليًا. إن لم تكن تعلن، فاضغط الزر أدناه وأكمل تحققًا أطول (تحققان بشريان ومسألة جمع واحدة) لتكتب فورًا.",
   },
   hi: {
     title: "{chat} से जुड़ें",
@@ -285,6 +299,8 @@ export const MESSAGES = {
     unmutedNotice: "अब आप यहाँ फिर से लिख सकते हैं।",
     appealUsed: "पिछले 30 दिनों में आप यह जाँच एक बार इस्तेमाल कर चुके हैं, इसलिए यह रोक अपने समय तक रहेगी। ग्रुप एडमिन इसे पहले हटा सकते हैं।",
     appealNone: "हटाने के लिए कोई रोक नहीं है: आप पहले से लिख सकते हैं, या इस लिंक की अवधि खत्म हो गई है।",
+    adDeclined: "{chat} में शामिल होने का आपका अनुरोध अस्वीकार कर दिया गया: आपका नाम, बायो या प्रोफ़ाइल फ़ोटो विज्ञापन जैसा दिखता है। अगर आप विज्ञापन नहीं कर रहे हैं, तो फिर से अनुरोध करें; इस बार एक लंबी जाँच होगी (दो मानव जाँच और एक जोड़)।",
+    adHeld: "आपका नाम, बायो या प्रोफ़ाइल फ़ोटो विज्ञापन जैसा दिखता है, इसलिए अभी आप यहाँ नहीं लिख सकते। अगर आप विज्ञापन नहीं कर रहे हैं, तो नीचे का बटन दबाएँ और एक लंबी जाँच (दो मानव जाँच और एक जोड़) पूरी करें, फिर तुरंत लिख सकेंगे।",
   },
   bn: {
     title: "{chat}-এ যোগ দিন",
@@ -320,6 +336,8 @@ export const MESSAGES = {
     unmutedNotice: "এখন আপনি এখানে আবার লিখতে পারেন।",
     appealUsed: "গত ৩০ দিনে আপনি এই যাচাই একবার ব্যবহার করেছেন, তাই এই বিধিনিষেধ মেয়াদ শেষ হওয়া পর্যন্ত থাকবে। গ্রুপের অ্যাডমিন আগেই তুলে দিতে পারেন।",
     appealNone: "তোলার মতো কোনো বিধিনিষেধ নেই: আপনি ইতিমধ্যে লিখতে পারেন, অথবা এই লিঙ্কের মেয়াদ শেষ হয়েছে।",
+    adDeclined: "{chat}-এ যোগদানের আপনার অনুরোধ প্রত্যাখ্যান করা হয়েছে: আপনার নাম, বায়ো বা প্রোফাইল ছবি বিজ্ঞাপনের মতো দেখাচ্ছে। আপনি বিজ্ঞাপন না দিলে আবার অনুরোধ করুন; এবার একটি লম্বা যাচাই হবে (দুটি মানব যাচাই ও একটি যোগ)।",
+    adHeld: "আপনার নাম, বায়ো বা প্রোফাইল ছবি বিজ্ঞাপনের মতো দেখাচ্ছে, তাই আপাতত এখানে লিখতে পারবেন না। আপনি বিজ্ঞাপন না দিলে নিচের বোতাম চেপে একটি লম্বা যাচাই (দুটি মানব যাচাই ও একটি যোগ) শেষ করুন, তাহলে এখনই লিখতে পারবেন।",
   },
 } as const;
 

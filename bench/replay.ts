@@ -140,7 +140,7 @@ function samples(a: Account): Event[] {
 // ---------- commands ----------
 
 if (command === "export") {
-  for (const table of ["events", "chats", "speakers", "trajectories", "offenses", "profiles"]) {
+  for (const table of ["events", "chats", "speakers", "trajectories", "offenses", "profiles", "attempts"]) {
     const out = execFileSync("bunx", ["wrangler", "d1", "execute", "kitan", "--remote", "--json", "--command", `SELECT * FROM ${table}`], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],

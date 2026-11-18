@@ -2,37 +2,59 @@
 // performs the effects. Performing an effect is the only place the guard-bot
 // and DM paths differ.
 import {
+  AD_REPEAT_MS,
   type Attempt,
-  type ChallengeState,
   type JoinEffect,
   type JoinEvent,
   MISS_WINDOW_MS,
   type Refusal,
+  type Screening,
   createStrictChallenge,
   intake,
   step,
 } from "./attempt";
+import type { Dossier } from "./classify";
 import {
-  type Decision,
-  type Dossier,
-  type ModelVerdict,
-  NEURONS,
-  decideText,
-  forModels,
-  judgeAvatar,
-  judgeText,
-  modelsPaused,
-} from "./classify";
-import { countBans, countMisses, insertAttempt, noteChat, recordEvent, recordSpend, save, spentToday, unreachableFor, waitingDue } from "./db";
+  countBans,
+  countMisses,
+  insertAttempt,
+  noteChat,
+  recordEvent,
+  recordTurnedAway,
+  save,
+  turnedAwaySince,
+  unreachableFor,
+  waitingDue,
+} from "./db";
 import { type Lang, pickLang, t } from "./i18n";
-import { bannedWords } from "./lexicon";
-import { DAILY_NEURONS, avatarFileId, profileOf } from "./moderation";
-import { BAN_AT, OFFENSE_WINDOW_MS, diversionTargets, isBlocked, strong } from "./probation";
+import { avatarFileId, profileOf } from "./moderation";
+import { BAN_AT, OFFENSE_WINDOW_MS, isBlocked } from "./probation";
+import { auditProfile, type ProfileAudit } from "./screen";
 import { callTelegram, isRefused, log, messageOf } from "./telegram";
 import { accountYears } from "./trajectory";
 import type { ChatJoinRequest, Env, Message } from "./types";
 
-export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: string, now: number): Promise<void> {
+// Where the DM goes: the join request's user_chat_id, or the private chat the person opened.
+interface Recipient {
+  dmChat: number;
+  lang: Lang;
+}
+
+// What performing a "challenge" or "notify_ad" effect needs; absent where neither can occur.
+interface Reach {
+  to: Recipient;
+  origin: string;
+}
+
+// A join request: declined at the door, or screened in the background (`background` runs
+// after the webhook has answered), then declined as an ad or sent the check.
+export async function onJoinRequest(
+  env: Env,
+  request: ChatJoinRequest,
+  origin: string,
+  now: number,
+  background: (work: Promise<unknown>) => void,
+): Promise<void> {
   const userId = String(request.from.id);
   const chatId = String(request.chat.id);
   const { title, username, type } = request.chat;
@@ -53,7 +75,6 @@ export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: 
     lolsBanned(userId),
     countMisses(env.DB, chatId, userId, now - MISS_WINDOW_MS),
   ]);
-  const strict = await auditProfile(env, request, userId, chatId, bans, lols, now);
   const first = intake({
     chatId,
     chatTitle: request.chat.title ?? null,
@@ -65,132 +86,50 @@ export async function onJoinRequest(env: Env, request: ChatJoinRequest, origin: 
     lols,
     misses,
     at: now,
-    challenge: strict,
   });
   const attempt = await insertAttempt(env.DB, first.attempt, lols, now);
   if (!attempt) return;
-  if (attempt.status === "pending") {
-    const recipient = { dmChat: request.user_chat_id, lang: pickLang(request.from.language_code) };
-    await challenge(env, attempt, recipient, origin, now);
-  } else {
+  if (attempt.status !== "screening") {
     log("join_declined", describe(attempt));
     await perform(env, attempt, first.effects);
+    return;
   }
+  const reach = { to: { dmChat: request.user_chat_id, lang: pickLang(request.from.language_code) }, origin };
+  background(screen(env, attempt, request, reach, now));
 }
 
-// Before the check: check the profile against the keyword list, then ask the models
-// about the bio (when it points somewhere) and the avatar. Any match escalates to two
-// Turnstile checks and one sum; errors, timeouts or spent budget fall back to normal.
-async function auditProfile(
-  env: Env,
-  request: ChatJoinRequest,
-  userId: string,
-  chatId: string,
-  bans: number,
-  lols: boolean | null,
-  now: number,
-): Promise<ChallengeState | null> {
-  if (isBlocked(bans) || lols) return null;
-  const profile = await profileOf(env, request.from, now, !request.bio).catch(() => null);
-  const bio = request.bio || profile?.bio || null;
+// Audits the requester's profile and moves the attempt on. Any failure is "unknown", which
+// gets the strict check: a request is never let through on the ordinary check unread.
+async function screen(env: Env, attempt: Attempt, request: ChatJoinRequest, reach: Reach, now: number): Promise<void> {
+  const { chatId, userId } = attempt;
   const name = [request.from.first_name, request.from.last_name].filter(Boolean).join(" ");
-  const personalChat = profile?.personal_chat ?? undefined;
-  const lexicon = bannedWords([name, request.from.username, bio, personalChat].filter(Boolean).join(" "));
-  const targets = diversionTargets({ name, bio: bio ?? undefined, channel: personalChat });
-  const dossier: Dossier = {
-    group: request.chat.title ?? undefined,
-    name,
-    username: request.from.username,
-    bio: bio ?? undefined,
-    personalChat,
-    accountYears: Math.round(accountYears(request.from.id, now) * 10) / 10,
-    kind: "none",
-    edited: false,
-    text: "(they are asking to join and have not posted yet)",
-  };
-
-  if (lexicon.length > 0) {
-    await footprint(env, chatId, userId, "verdict", {
-      on: "join_request",
-      lexicon,
-      targets,
-      escalated: true,
-      dossier,
-    }, now).catch((error) => log("footprint_failed", { kind: "join_request_verdict", error: messageOf(error) }));
-    return createStrictChallenge();
-  }
-
+  let dossier: Dossier = { group: attempt.chatTitle ?? undefined, name, username: request.from.username, bio: request.bio, kind: "none", edited: false, text: "(they are asking to join and have not posted yet)" };
+  let audit: ProfileAudit | null = null;
   try {
-    if (modelsPaused(now)) return null;
-    const spent = await spentToday(env.DB, now);
-    const hasTarget = targets.some(strong);
-    const wantText = hasTarget && spent + NEURONS.decision + NEURONS.verdict <= DAILY_NEURONS;
+    const profile = await profileOf(env, request.from, now, !request.bio).catch(() => null);
+    dossier = {
+      ...dossier,
+      bio: request.bio || profile?.bio || undefined,
+      personalChat: profile?.personal_chat ?? undefined,
+      accountYears: Math.round(accountYears(request.from.id, now) * 10) / 10,
+    };
     const avatarId = profile?.has_photo !== false ? await avatarFileId(env, request.from.id) : null;
-    const textCost = wantText ? NEURONS.decision + NEURONS.verdict : 0;
-    const wantAvatar = avatarId !== null && spent + textCost + NEURONS.image <= DAILY_NEURONS;
-    if (!wantText && !wantAvatar) return null;
-
-    const answer = await boundedAudit(env, dossier, wantText, wantAvatar ? avatarId : null);
-    await recordSpend(env.DB, textCost + (wantAvatar ? NEURONS.image : 0), now);
-    const [decision, verdict, avatar] = answer ?? [null, null, null];
-    const textAd = decision !== null && decision.p >= 0.9 && verdict !== null && verdict.ad && verdict.confidence >= 0.85;
-    const avatarAd = avatar !== null && avatar.ad && avatar.confidence >= 0.9;
-    const escalated = textAd || avatarAd;
-    await footprint(env, chatId, userId, "verdict", {
-      on: "join_request",
-      lexicon,
-      targets,
-      timed_out: answer === null,
-      decision,
-      text_model: verdict,
-      avatar_model: avatar,
-      escalated,
-      dossier,
-    }, now).catch((error) => log("footprint_failed", { kind: "join_request_verdict", error: messageOf(error) }));
-    return escalated ? createStrictChallenge() : null;
+    audit = await auditProfile(env, dossier, avatarId, now);
   } catch (error) {
     log("join_audit_failed", { chat_id: chatId, user_id: userId, error: messageOf(error) });
-    return null;
   }
-}
-
-// The models must never stall a webhook: after four seconds the normal check is used.
-const AUDIT_TIMEOUT_MS = 4_000;
-
-async function boundedAudit(
-  env: Env,
-  dossier: Dossier,
-  wantText: boolean,
-  avatarId: string | null,
-): Promise<[Decision | null, ModelVerdict | null, ModelVerdict | null] | null> {
-  let resolveTimer!: () => void;
-  const timer = setTimeout(() => resolveTimer(), AUDIT_TIMEOUT_MS);
-  const view = forModels(dossier);
-  try {
-    return await Promise.race([
-      Promise.all([
-        wantText ? decideText(env, view) : null,
-        wantText ? judgeText(env, view) : null,
-        avatarId ? judgeAvatar(env, avatarId, view) : null,
-      ]),
-      new Promise<null>((resolve) => {
-        resolveTimer = () => resolve(null);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function footprint(
-  env: Env,
-  chatId: string,
-  userId: string,
-  kind: string,
-  detail: Record<string, unknown>,
-  now: number,
-): Promise<void> {
-  await recordEvent(env.DB, { chatId, userId, kind, detail }, now);
+  const verdict: Screening = audit?.verdict ?? "unknown";
+  const repeat = verdict === "ad" && (await turnedAwaySince(env.DB, chatId, userId, now - AD_REPEAT_MS));
+  const at = Date.now();
+  const outcome = await advance(env, attempt, { type: "screened", verdict, repeat, strict: createStrictChallenge(), at }, reach);
+  if (outcome.ok && outcome.next.status === "declined") await recordTurnedAway(env.DB, chatId, userId, "request", at);
+  await recordEvent(env.DB, {
+    chatId,
+    userId,
+    kind: "verdict",
+    detail: { on: "join_request", ...(audit ?? { verdict, failed: true }), skipped: audit?.decision || audit?.text_model || audit?.avatar_model ? undefined : "no_model", repeat, outcome: outcome.ok ? outcome.next.status : outcome.reason, dossier },
+  }, at).catch((error) => log("footprint_failed", { kind: "join_request_verdict", error: messageOf(error) }));
+  log("join_screened", { ...describe(attempt), verdict, repeat });
 }
 
 // The person pressed Start in the bot, so it may now message them: reopen every
@@ -200,7 +139,7 @@ export async function resumeFor(env: Env, userId: number, lang: Lang, origin: st
   for (const attempt of await unreachableFor(env.DB, String(userId))) {
     const outcome = await advance(env, attempt, { type: "resumed", at: now });
     if (!outcome.ok) continue;
-    await challenge(env, outcome.next, { dmChat: userId, lang }, origin, now);
+    await challenge(env, outcome.next, { to: { dmChat: userId, lang }, origin }, now);
     log("join_resumed", describe(attempt));
     resumed += 1;
   }
@@ -212,12 +151,12 @@ export type Outcome = { ok: false; reason: Refusal } | { ok: true; next: Attempt
 // Applies an event, saves it, and performs its effects. A lost race to another
 // worker reads as "closed". `error` is set when Telegram rejected an approval,
 // so the caller can step the saved attempt back.
-export async function advance(env: Env, attempt: Attempt, event: JoinEvent): Promise<Outcome> {
+export async function advance(env: Env, attempt: Attempt, event: JoinEvent, reach?: Reach): Promise<Outcome> {
   const result = step(attempt, event);
   if (!result.ok) return result;
   if (!(await save(env.DB, attempt, result.next))) return { ok: false, reason: "closed" };
   try {
-    await perform(env, result.next, result.effects);
+    await perform(env, result.next, result.effects, reach);
     return { ok: true, next: result.next };
   } catch (error) {
     return { ok: true, next: result.next, error };
@@ -234,8 +173,17 @@ export async function expirePending(env: Env, now: number): Promise<void> {
   }
 }
 
-async function perform(env: Env, attempt: Attempt, effects: JoinEffect[]): Promise<void> {
+async function perform(env: Env, attempt: Attempt, effects: JoinEffect[], reach?: Reach): Promise<void> {
   for (const effect of effects) {
+    if (effect.type === "challenge") {
+      if (reach) await challenge(env, attempt, reach, Date.now());
+      else log("challenge_unreachable", describe(attempt));
+      continue;
+    }
+    if (effect.type === "notify_ad") {
+      if (reach) await notifyAd(env, attempt, reach.to);
+      continue;
+    }
     // An approve failure must reach the caller, which steps the attempt back.
     const call = answer(env, attempt, effect);
     if (effect.result === "approve") await call;
@@ -243,13 +191,15 @@ async function perform(env: Env, attempt: Attempt, effects: JoinEffect[]): Promi
   }
 }
 
-// Where the DM goes: the join request's user_chat_id, or the private chat the person opened.
-interface Recipient {
-  dmChat: number;
-  lang: Lang;
+// Why they were turned away and that asking again gets the strict check. Best effort: the
+// person may have closed their DMs, and the decline must go out regardless.
+async function notifyAd(env: Env, attempt: Attempt, to: Recipient): Promise<void> {
+  await callTelegram(env, "sendMessage", { chat_id: to.dmChat, text: t(to.lang, "adDeclined", { chat: attempt.chatTitle ?? "" }) }).catch(
+    (error) => log("ad_notice_failed", { ...describe(attempt), error: messageOf(error) }),
+  );
 }
 
-async function challenge(env: Env, attempt: Attempt, to: Recipient, origin: string, now: number): Promise<void> {
+async function challenge(env: Env, attempt: Attempt, { to, origin }: Reach, now: number): Promise<void> {
   try {
     let messageId: number | null = null;
     if (attempt.delivery.kind === "guard") {
@@ -281,7 +231,7 @@ async function challenge(env: Env, attempt: Attempt, to: Recipient, origin: stri
 // On the DM path "queue" leaves the request pending for the admins; the guard
 // path tells Telegram to hand it to them, after which the query is spent and
 // the request is answered like any other.
-async function answer(env: Env, attempt: Attempt, { result, queryUsed }: JoinEffect): Promise<void> {
+async function answer(env: Env, attempt: Attempt, { result, queryUsed }: Extract<JoinEffect, { type: "answer" }>): Promise<void> {
   const delivery = attempt.delivery;
   if (delivery.kind === "guard" && !queryUsed) {
     await callTelegram(env, "answerChatJoinRequestQuery", { chat_join_request_query_id: delivery.queryId, result });

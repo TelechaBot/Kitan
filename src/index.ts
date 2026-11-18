@@ -1,7 +1,19 @@
 import { type Attempt, type ChallengeState, type Refusal, newMathQuestion, openForUser, publicStep } from "./attempt";
 import { constantTimeEqual, verifyInitData } from "./crypto";
 import { checkAppeal, isAppealToken, passAppeal, startAppeal } from "./appeal";
-import { type Appeal, chatTitle, chatsSeen, findAttempt, markAppealOpened, markOpened, recordAppealTry, recordTry, recordTurnstileError, saveChallenge } from "./db";
+import {
+  type Appeal,
+  chatTitle,
+  chatsSeen,
+  findAttempt,
+  markAppealOpened,
+  markOpened,
+  recordAppealTry,
+  recordTry,
+  recordTurnstileError,
+  saveAppealChallenge,
+  saveChallenge,
+} from "./db";
 import { pickLang, t } from "./i18n";
 import { advance, expirePending, onJoinRequest, resumeFor } from "./join";
 import { type Context, hourly, onGroupMessage, onMemberUpdate } from "./moderation";
@@ -94,7 +106,7 @@ async function handleWebhook(request: Request, env: Env, origin: string, executi
   const ctx: Context = { now, edited: false, background };
   try {
     if (update.chat_join_request) {
-      await onJoinRequest(env, update.chat_join_request, origin, now);
+      await onJoinRequest(env, update.chat_join_request, origin, now, background);
     } else if (update.chat_member) {
       await onMemberUpdate(env, update.chat_member, ctx);
     } else if (update.message) {
@@ -199,7 +211,11 @@ async function handleOpen(request: Request, env: Env): Promise<Response> {
   if (isAppealToken(body.token)) {
     const appeal = await appealFor(env, body.token, data, now);
     await markAppealOpened(env.DB, appeal.token, now);
-    return json({ chat_title: await chatTitle(env.DB, appeal.chatId), expires_at: 0 });
+    return json({
+      chat_title: await chatTitle(env.DB, appeal.chatId),
+      expires_at: 0,
+      ...(appeal.challenge ? { step: publicStep(appeal.challenge) } : {}),
+    });
   }
   const attempt = await attemptFor(env, body, data);
   await markOpened(env.DB, attempt.id, now);
@@ -219,19 +235,45 @@ async function handleVerify(request: Request, env: Env, hostname: string): Promi
   if (isAppealToken(body.token)) {
     const appeal = await appealFor(env, body.token, data, now);
     await recordAppealTry(env.DB, appeal.token, solveMs);
+    const lift = async () => {
+      if (!(await passAppeal(env, appeal, data.user, solveMs, now))) throw new HttpError(409, "Already lifted.");
+    };
+    if (appeal.challenge) {
+      return verifyStep(appeal.challenge, body, passed, {
+        save: async (next) => {
+          if (!(await saveAppealChallenge(env.DB, appeal.token, next))) throw new HttpError(409, "Already lifted.");
+        },
+        turnstileFailed: async (error) => log("turnstile_failed", { appeal: appeal.token, error }),
+        finish: lift,
+      });
+    }
     const failure = await passed();
     if (failure) {
       log("turnstile_failed", { appeal: appeal.token, error: failure });
       throw new HttpError(400, "The check failed. Try again.");
     }
-    if (!(await passAppeal(env, appeal, data.user, solveMs, now))) throw new HttpError(409, "Already lifted.");
+    await lift();
     return json({ ok: true });
   }
 
   const attempt = await attemptFor(env, body, data);
   await recordTry(env.DB, attempt.id, now, solveMs);
   const challenge = attempt.challenge;
-  if (challenge) return verifyStep(env, attempt, challenge, body, passed, now);
+  if (challenge) {
+    return verifyStep(challenge, body, passed, {
+      save: async (next) => {
+        if (!(await saveChallenge(env.DB, attempt.id, next))) throw refusal("closed");
+      },
+      turnstileFailed: async (error) => {
+        await recordTurnstileError(env.DB, attempt.id, error);
+        log("turnstile_failed", { attempt: attempt.id, error });
+      },
+      finish: async () => {
+        await approveAttempt(env, attempt, now);
+        log("join_approved", { chat_id: attempt.chatId, user_id: attempt.userId, delivery: attempt.delivery.kind });
+      },
+    });
+  }
 
   const failure = await passed();
   if (failure) {
@@ -245,22 +287,26 @@ async function handleVerify(request: Request, env: Env, hostname: string): Promi
   return json({ ok: true });
 }
 
-// One step of a strict check: a Turnstile solve or the sum, then the next step or approval.
+// Where a strict check is stored and what passing it does: a join attempt or an appeal.
+interface StrictHolder {
+  save: (next: ChallengeState) => Promise<void>; // throws when it is no longer open
+  turnstileFailed: (error: string) => Promise<void>;
+  finish: () => Promise<void>;
+}
+
+// One step of a strict check: a Turnstile solve or the sum, then the next step or the finish.
 // Only the current step is looked at, so a token spent on an earlier one is no use here.
 async function verifyStep(
-  env: Env,
-  attempt: Attempt,
   challenge: ChallengeState,
   body: ClientBody,
   passed: () => Promise<string | null>,
-  now: number,
+  holder: StrictHolder,
 ): Promise<Response> {
   const kind = challenge.steps[challenge.index];
   if (kind === "cf") {
     const failure = await passed();
     if (failure) {
-      await recordTurnstileError(env.DB, attempt.id, failure);
-      log("turnstile_failed", { attempt: attempt.id, error: failure });
+      await holder.turnstileFailed(failure);
       throw new HttpError(400, "The check failed. Try again.");
     }
   } else {
@@ -269,20 +315,19 @@ async function verifyStep(
     if (numeric !== challenge.math.answer) {
       // A wrong sum gets a fresh question, so a guess cannot be replayed.
       const updated: ChallengeState = { ...challenge, math: newMathQuestion() };
-      if (!(await saveChallenge(env.DB, attempt.id, updated))) throw refusal("closed");
-      log("math_failed", { attempt: attempt.id });
+      await holder.save(updated);
+      log("math_failed", {});
       return json({ error: "The check failed. Try again.", step: publicStep(updated) }, 400);
     }
   }
 
   if (challenge.index + 1 < challenge.steps.length) {
     const next: ChallengeState = { ...challenge, index: challenge.index + 1 };
-    if (!(await saveChallenge(env.DB, attempt.id, next))) throw refusal("closed");
+    await holder.save(next);
     return json({ ok: true, done: false, step: publicStep(next) });
   }
 
-  await approveAttempt(env, attempt, now);
-  log("join_approved", { chat_id: attempt.chatId, user_id: attempt.userId, delivery: attempt.delivery.kind });
+  await holder.finish();
   return json({ ok: true, done: true });
 }
 

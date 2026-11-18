@@ -63,14 +63,26 @@ test("the DM speaks the requester's language", async () => {
   expect(dm.params.reply_markup.inline_keyboard[0][0].text).toBe("开始验证");
 });
 
-test("an ad bio escalates before admission to two Turnstile checks and a sum, in a shuffled order", async () => {
+test("an ad bio is declined with a reason first; asking again gets two Turnstile checks and a sum, shuffled", async () => {
   w.decision = () => 0.95;
   w.model = () => ({ ad: true, confidence: 0.9, kind: "diversion", reason: "invite in the bio" });
-  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "私我 t.me/+abc" });
-  expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
-  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ on: "join_request", decision: { p: 0.95 } });
+  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "私我 t.me/+abc", lang: "zh-hans" });
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "declined", error: "ad_profile" });
+  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ on: "join_request", verdict: "ad", decision: { p: 0.95 }, outcome: "declined" });
+  // The reason goes out while the bot may still write to them, before the decline.
+  const told = w.methods().indexOf("sendMessage");
+  expect(told).toBeGreaterThanOrEqual(0);
+  expect(w.methods().indexOf("answerChatJoinRequestQuery")).toBeGreaterThan(told);
+  expect(w.callsTo("sendMessage")[0].params).toMatchObject({ chat_id: USER });
+  expect(w.callsTo("sendMessage")[0].params.text).toContain("再申请一次");
+  expect(w.callsTo("answerChatJoinRequestQuery")[0].params).toEqual({ chat_join_request_query_id: "Q1", result: "decline" });
+  expect(w.callsTo("sendChatJoinRequestWebApp")).toHaveLength(0);
 
-  const data = await w.initData(USER, { chat_join_request_query_id: "Q1" });
+  await w.requestJoin(USER, CHAT, { queryId: "Q2", bio: "私我 t.me/+abc" });
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "pending" });
+  expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
+
+  const data = await w.initData(USER, { chat_join_request_query_id: "Q2" });
   const opened = await w.post("/api/open", { initData: data });
   expect(opened.status).toBe(200);
   let step = readStep(await opened.json());
@@ -103,7 +115,7 @@ test("an ad bio escalates before admission to two Turnstile checks and a sum, in
   expect(w.latestAttempt(USER, CHAT).status).toBe("approved");
   expect(w.calls.at(-1)).toEqual({
     method: "answerChatJoinRequestQuery",
-    params: { chat_join_request_query_id: "Q1", result: "approve" },
+    params: { chat_join_request_query_id: "Q2", result: "approve" },
   });
 });
 
@@ -113,7 +125,7 @@ test("the audit reads the profile when the request has no bio", async () => {
   w.model = () => ({ ad: true, confidence: 0.95, kind: "diversion", reason: "ad profile" });
   await w.requestJoin(USER, CHAT, { queryId: "Q1" });
   expect(w.callsTo("getChat").length).toBeGreaterThan(0);
-  expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "declined", error: "ad_profile" });
 });
 
 test("a clean bio keeps the ordinary single check", async () => {
@@ -129,42 +141,59 @@ test("a clean bio keeps the ordinary single check", async () => {
   expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "approved", challenge: null });
 });
 
-test("a spent model budget fails open, never at the door", async () => {
+test("a spent model budget gives a profile that points somewhere the strict check, not a free pass", async () => {
   w.decision = () => 0.99;
   w.model = () => ({ ad: true, confidence: 0.99, kind: "diversion", reason: "ad" });
   w.db.run("INSERT INTO spend (hour, neurons) VALUES (?, 7000)", [Math.floor(Date.now() / 3_600_000)]);
   await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "私我 t.me/+abc" });
-  expect(w.latestAttempt(USER, CHAT).challenge).toBeNull();
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "pending" });
+  expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
   expect(w.aiCalls).toHaveLength(0);
+  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ verdict: "unknown", missing: ["text"] });
 });
 
-test("both signals must be confident: an ad verdict alone does not escalate", async () => {
+test("a model that errors is unknown, not clean", async () => {
+  w.model = () => {
+    throw new Error("upstream 500");
+  };
+  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "私我 t.me/+abc" });
+  expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
+});
+
+test("both signals must be confident: an ad verdict alone does not decline", async () => {
   w.decision = () => 0.95;
   w.model = () => ({ ad: true, confidence: 0.5, kind: "diversion", reason: "not sure" });
   await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "私我 t.me/+abc" });
-  expect(w.latestAttempt(USER, CHAT).challenge).toBeNull();
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "pending", challenge: null });
 });
 
-test("a profile matching the keyword list escalates to the strict check without asking a model", async () => {
+test("a profile matching the keyword list is declined without asking a model", async () => {
   await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "日入过万 私我" });
-  expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "declined", error: "ad_profile" });
   expect(w.aiCalls).toHaveLength(0);
-  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ on: "join_request", lexicon: ["日入过万"], escalated: true });
+  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ on: "join_request", lexicon: ["日入过万"], verdict: "ad" });
 });
 
-test("an ad avatar escalates to the strict check even with a clean bio; an ordinary avatar does not", async () => {
+test("betting 'inside tips' names are on the keyword list, however they are spaced", async () => {
+  await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "足球，篮 球*一手内-幕" });
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "declined", error: "ad_profile" });
+  await w.requestJoin(43, CHAT, { queryId: "Q2" });
+  expect(w.latestAttempt(43, CHAT).status).toBe("pending");
+});
+
+test("an ad avatar is declined even with a clean bio; an ordinary avatar is not", async () => {
   w.avatars.set(USER, [{ file_id: "av_s", width: 160, height: 160 }, { file_id: "av_m", width: 320, height: 320 }]);
   w.model = () => ({ ad: true, confidence: 0.95, kind: "diversion", reason: "QR code to group", transcript: "扫码进群" });
   await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "hello" });
   expect(w.callsTo("getFile").map((c) => c.params.file_id)).toEqual(["av_m"]);
-  expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
-  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ on: "join_request", escalated: true, avatar_model: { ad: true } });
+  expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "declined", error: "ad_profile" });
+  expect(w.events(USER, "verdict")[0].detail).toMatchObject({ on: "join_request", verdict: "ad", avatar_model: { ad: true } });
 
   const other = 43;
   w.avatars.set(other, [{ file_id: "av_ok", width: 320, height: 320 }]);
   w.model = () => ({ ad: false, confidence: 0.96, kind: "none", reason: "anime portrait" });
   await w.requestJoin(other, CHAT, { queryId: "Q2", bio: "hello" });
-  expect(w.latestAttempt(other, CHAT).challenge).toBeNull();
+  expect(w.latestAttempt(other, CHAT)).toMatchObject({ status: "pending", challenge: null });
 });
 
 test("every language has every message", () => {
