@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { hmacSha256, toHex } from "../src/crypto";
 import worker from "../src/index";
 import { expirePending } from "../src/join";
-import { hourly, sweepHolds } from "../src/moderation";
+import { hourly } from "../src/moderation";
 import type { Env } from "../src/types";
 
 const TOKEN = "123:test-bot-token";
@@ -343,10 +343,9 @@ export class World {
     return 500;
   }
 
-  // What the cron does every minute: expire checks nobody finished, remove expired holds.
-  async expire(at: number): Promise<void> {
-    await expirePending(this.env, at);
-    await sweepHolds(this.env, at);
+  // What the cron does every minute: expire checks nobody finished.
+  expire(at: number): Promise<void> {
+    return expirePending(this.env, at);
   }
 
   // What the cron does on the hour: pruning expired rows.

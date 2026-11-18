@@ -24,7 +24,7 @@ import { type Attempt, type Screening, createStrictChallenge, step } from "../sr
 import type { Decision, ModelVerdict } from "../src/classify";
 import { bannedWords } from "../src/lexicon";
 import { diversionTargets, strong } from "../src/probation";
-import { directDoor, screening } from "../src/screen";
+import { screening } from "../src/screen";
 
 const [command = "score", arg] = process.argv.slice(2);
 const dir = process.env.KITAN_BENCH ?? join(process.env.HOME ?? ".", ".cache/kitan-bench/prod");
@@ -132,7 +132,7 @@ function buildCases(): Case[] {
 
 // ---------- policies ----------
 
-type Outcome = "turn_away" | "strict" | "ordinary" | "hold" | "allow";
+type Outcome = "turn_away" | "strict" | "ordinary" | "allow";
 interface Policy {
   name: string;
   decide: (c: Case) => Outcome;
@@ -154,14 +154,15 @@ const baseline: Policy = {
   },
 };
 
-// What the code in src/ does now, through its own functions: screening() for the verdict,
-// the join state machine for a request, directDoor() for a direct joiner (which does not
-// read the avatar). A strict check whose audit is finished later is counted as strict.
+// What the code in src/ does now, through its own functions: screening() for the verdict and
+// the join state machine for a request. A direct joiner came through the admins' door and is
+// left to the message rules, as before. A strict check whose audit is finished after the
+// check is counted as strict.
 const current: Policy = {
   name: "current",
   decide(c) {
     const needText = needsText(c);
-    const needAvatar = c.door === "request" && c.photo;
+    const needAvatar = c.photo;
     const verdict: Screening = screening({
       needText,
       needAvatar,
@@ -170,10 +171,7 @@ const current: Policy = {
       avatar: needAvatar ? c.avatar : null,
       lexicon: lexiconOf(c).length,
     }).verdict;
-    if (c.door === "join") {
-      const door = directDoor(verdict);
-      return door === "remove" ? "turn_away" : door;
-    }
+    if (c.door === "join") return "allow";
     const result = step(screeningAttempt(c), { type: "screened", verdict, recheck: false, strict: createStrictChallenge(), at: c.at });
     if (!result.ok) throw new Error(`state machine refused ${c.id}`);
     return result.next.status === "declined" ? "turn_away" : result.next.challenge ? "strict" : "ordinary";
@@ -255,13 +253,10 @@ if (command === "cases") {
   const subsets: [string, (c: Case) => boolean][] = [
     ["Join requests", (c) => c.door === "request" && !c.upstream],
     ["Join requests, every needed model answer on record", (c) => c.door === "request" && !c.upstream && complete(c)],
-    ["Direct joins", (c) => c.door === "join"],
-    ["Direct joins, every needed model answer on record", (c) => c.door === "join" && complete(c)],
   ];
   const upstreamCount = cases.filter((c) => c.upstream).length;
   lines.push(`${upstreamCount} requests declined before the audit (lols.bot, blocklist) are left out: every policy here declines them.`, "");
   for (const [title, keep] of subsets) {
-    const door = title.startsWith("Join") ? "request" : "join";
     const here = cases.filter(keep);
     const spam = here.filter((c) => c.label === "spam");
     const ham = here.filter((c) => c.label === "ham");
@@ -275,15 +270,15 @@ if (command === "cases") {
     for (const { policy, out } of runs) {
       const count = (xs: Case[], os: Outcome[]) => xs.filter((c) => os.includes(out.get(c.id)!)).length;
       const away: Outcome[] = ["turn_away"];
-      const stopped: Outcome[] = ["turn_away", "strict", "hold"];
-      const challenged: Outcome[] = ["strict", "hold"];
+      const stopped: Outcome[] = ["turn_away", "strict"];
+      const challenged: Outcome[] = ["strict"];
       lines.push(
         `| ${policy.name} | ${pct(count(spam, away), spam.length)} | ${pct(count(spam, stopped), spam.length)} | ${pct(count(ham, away), ham.length)} | ${pct(count(ham, challenged), ham.length)} |`,
       );
     }
     // Paired: of the spam where the two policies differ, which one stops more?
     const [a, b] = runs;
-    const stops = (o: Outcome) => o === "turn_away" || o === "strict" || o === "hold";
+    const stops = (o: Outcome) => o === "turn_away" || o === "strict";
     const onlyB = spam.filter((c) => stops(b.out.get(c.id)!) && !stops(a.out.get(c.id)!)).length;
     const onlyA = spam.filter((c) => stops(a.out.get(c.id)!) && !stops(b.out.get(c.id)!)).length;
     const missing = here.filter((c) => !complete(c)).length;
@@ -295,8 +290,22 @@ if (command === "cases") {
         : "",
       "",
     );
-    void door;
   }
+  // Direct joins are the admins' door: Kitan only records the profile audit, as evidence for
+  // the penalty of a first ad and for the owner's invite-link note. How good is that evidence?
+  const joins = cases.filter((c) => c.door === "join");
+  const readAsAd = (c: Case) =>
+    screening({ needText: needsText(c), needAvatar: false, decision: c.decision, text: c.text, avatar: null, lexicon: lexiconOf(c).length }).verdict === "ad";
+  const jSpam = joins.filter((c) => c.label === "spam");
+  const jHam = joins.filter((c) => c.label === "ham");
+  lines.push(
+    `### Direct joins: ${joins.length} cases, spam ${jSpam.length}, ham ${jHam.length}. Profile read as an ad (evidence only; no action)`,
+    "",
+    "| spam read as ad | ham read as ad |",
+    "|---|---|",
+    `| ${pct(jSpam.filter(readAsAd).length, jSpam.length)} | ${pct(jHam.filter(readAsAd).length, jHam.length)} |`,
+    "",
+  );
   console.log(lines.join("\n"));
 } else if (command === "sheet") {
   const cases: Case[] = read(CASES);
@@ -333,11 +342,6 @@ if (command === "cases") {
       "Direct joins by verdict and action",
       `SELECT json_extract(detail,'$.verdict') AS verdict, json_extract(detail,'$.action') AS action, json_extract(detail,'$.missing') AS missing, count(*) AS n
        FROM events WHERE kind='verdict' AND json_extract(detail,'$.on')='profile' AND at > ${since} AND json_extract(detail,'$.verdict') IS NOT NULL GROUP BY 1,2,3 ORDER BY n DESC`,
-    ],
-    [
-      "Holds: passed in time, removed, still waiting",
-      `SELECT sum(passed_at IS NOT NULL) AS passed, sum(kicked_at IS NOT NULL) AS removed, sum(passed_at IS NULL AND kicked_at IS NULL) AS waiting, count(*) AS n
-       FROM appeals WHERE kick_at IS NOT NULL AND created_at > ${since}`,
     ],
     [
       "Strict checks at the door: passed, lapsed, other",

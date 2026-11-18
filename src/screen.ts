@@ -57,14 +57,6 @@ export function screening(a: Answers & { lexicon: number }): { verdict: Screenin
   return { verdict, missing };
 }
 
-// The direct door, by the same evidence as a join request. An ad is removed (told why first,
-// while they can still read it), with no check to undo it: a check proves a person, not an
-// honest one. A suspect is held: muted, told privately, given the strict check, and removed
-// if it is not passed in time.
-export function directDoor(verdict: Screening): "remove" | "hold" | "allow" {
-  return verdict === "ad" ? "remove" : verdict === "suspect" ? "hold" : "allow";
-}
-
 export async function auditProfile(
   env: Env,
   dossier: Dossier,

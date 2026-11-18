@@ -92,13 +92,12 @@ so Kitan makes each spam attempt cost an account:
     finished after the check and before approval, and an ad is still declined.
   - **clean** — the ordinary single Turnstile check.
 - **People who join directly** (an open group, an invite link, another bot's
-  check) never meet the door, so Kitan audits their profile when they join, with
-  the keyword list and the text model (not the avatar, for the budget), and
-  treats them as a join request would be. An ad profile is muted at once, told
-  privately why, and removed (not banned) a minute later. A suspect is **held**:
-  muted, told privately why, and given the strict check; not passed within 10
-  minutes, they are removed and may join again. People Kitan admitted were
-  audited at the door, and people an admin added or approved are left alone.
+  check) came through a door the admins opened, so Kitan does not overrule them
+  on a profile: inside the group, only what people post is moderated, as in the
+  Python bot. Their profile is still read on joining and kept as evidence: one
+  that points somewhere weighs on the penalty of a first ad, and an invite link
+  that brings in mostly ad accounts, silent ones included, earns the owner a
+  note on how to route it through the check.
 - **Inside a group**, Kitan reviews only non-admin members with **fewer than
   seven clean messages in the last seven days in that group**. A message counts
   only when Kitan did not delete it, and an edited message never counts, so

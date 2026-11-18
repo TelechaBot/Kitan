@@ -11,17 +11,16 @@ import {
   recordAppealTry,
   recordTry,
   recordTurnstileError,
-  saveAppealChallenge,
   saveChallenge,
 } from "./db";
 import { pickLang, t } from "./i18n";
 import { advance, expirePending, onJoinRequest, rejectedOnRecheck, resumeFor } from "./join";
-import { type Context, hourly, onGroupMessage, onMemberUpdate, removedOnRecheck, sweepHolds } from "./moderation";
+import { type Context, hourly, onGroupMessage, onMemberUpdate } from "./moderation";
 import { noticeInviteLinks, notifyAdmins } from "./notice";
 import { renderPage } from "./page";
 import { botUsername, callTelegram, isGone, log, messageOf } from "./telegram";
 import { verifyTurnstile } from "./turnstile";
-import type { Env, InitData, Message, Update } from "./types";
+import type { Env, InitData, Message, TelegramUser, Update } from "./types";
 
 const INIT_DATA_MAX_AGE_S = 15 * 60;
 const ALLOWED_UPDATES = ["chat_join_request", "chat_member", "message", "edited_message"];
@@ -88,7 +87,6 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     const now = Date.now();
     await expirePending(env, now);
-    await sweepHolds(env, now);
     const at = new Date(now);
     if (at.getUTCMinutes() === 0) await hourly(env, now);
     // Once a day, at 17:00 in China where most groups are, while owners are awake.
@@ -216,11 +214,7 @@ async function handleOpen(request: Request, env: Env): Promise<Response> {
   if (isAppealToken(body.token)) {
     const appeal = await appealFor(env, body.token, data, now);
     await markAppealOpened(env.DB, appeal.token, now);
-    return json({
-      chat_title: await chatTitle(env.DB, appeal.chatId),
-      expires_at: 0,
-      ...(appeal.challenge ? { step: publicStep(appeal.challenge) } : {}),
-    });
+    return json({ chat_title: await chatTitle(env.DB, appeal.chatId), expires_at: 0 });
   }
   const attempt = await attemptFor(env, body, data);
   await markOpened(env.DB, attempt.id, now);
@@ -240,49 +234,19 @@ async function handleVerify(request: Request, env: Env, hostname: string): Promi
   if (isAppealToken(body.token)) {
     const appeal = await appealFor(env, body.token, data, now);
     await recordAppealTry(env.DB, appeal.token, solveMs);
-    const lift = async () => {
-      if (!(await passAppeal(env, appeal, data.user, solveMs, now))) throw new HttpError(409, "Already lifted.");
-    };
-    if (appeal.challenge) {
-      return verifyStep(appeal.challenge, body, passed, {
-        save: async (next) => {
-          if (!(await saveAppealChallenge(env.DB, appeal.token, next))) throw new HttpError(409, "Already lifted.");
-        },
-        turnstileFailed: async (error) => log("turnstile_failed", { appeal: appeal.token, error }),
-        finish: async () => {
-          if (appeal.challenge?.recheck && (await removedOnRecheck(env, appeal, data.user, now))) throw AD_PROFILE();
-          await lift();
-        },
-      });
-    }
     const failure = await passed();
     if (failure) {
       log("turnstile_failed", { appeal: appeal.token, error: failure });
       throw new HttpError(400, "The check failed. Try again.");
     }
-    await lift();
+    if (!(await passAppeal(env, appeal, data.user, solveMs, now))) throw new HttpError(409, "Already lifted.");
     return json({ ok: true });
   }
 
   const attempt = await attemptFor(env, body, data);
   await recordTry(env.DB, attempt.id, now, solveMs);
   const challenge = attempt.challenge;
-  if (challenge) {
-    return verifyStep(challenge, body, passed, {
-      save: async (next) => {
-        if (!(await saveChallenge(env.DB, attempt.id, next))) throw refusal("closed");
-      },
-      turnstileFailed: async (error) => {
-        await recordTurnstileError(env.DB, attempt.id, error);
-        log("turnstile_failed", { attempt: attempt.id, error });
-      },
-      finish: async () => {
-        if (challenge.recheck && (await rejectedOnRecheck(env, attempt, data.user, now))) throw AD_PROFILE();
-        await approveAttempt(env, attempt, now);
-        log("join_approved", { chat_id: attempt.chatId, user_id: attempt.userId, delivery: attempt.delivery.kind });
-      },
-    });
-  }
+  if (challenge) return verifyStep(env, attempt, challenge, body, data.user, passed, now);
 
   const failure = await passed();
   if (failure) {
@@ -296,26 +260,24 @@ async function handleVerify(request: Request, env: Env, hostname: string): Promi
   return json({ ok: true });
 }
 
-// Where a strict check is stored and what passing it does: a join attempt or an appeal.
-interface StrictHolder {
-  save: (next: ChallengeState) => Promise<void>; // throws when it is no longer open
-  turnstileFailed: (error: string) => Promise<void>;
-  finish: () => Promise<void>;
-}
-
-// One step of a strict check: a Turnstile solve or the sum, then the next step or the finish.
+// One step of a strict check: a Turnstile solve or the sum, then the next step or approval.
 // Only the current step is looked at, so a token spent on an earlier one is no use here.
+// An incomplete audit is finished before approval: passing proves a person, not an honest one.
 async function verifyStep(
+  env: Env,
+  attempt: Attempt,
   challenge: ChallengeState,
   body: ClientBody,
+  user: TelegramUser,
   passed: () => Promise<string | null>,
-  holder: StrictHolder,
+  now: number,
 ): Promise<Response> {
   const kind = challenge.steps[challenge.index];
   if (kind === "cf") {
     const failure = await passed();
     if (failure) {
-      await holder.turnstileFailed(failure);
+      await recordTurnstileError(env.DB, attempt.id, failure);
+      log("turnstile_failed", { attempt: attempt.id, error: failure });
       throw new HttpError(400, "The check failed. Try again.");
     }
   } else {
@@ -324,19 +286,21 @@ async function verifyStep(
     if (numeric !== challenge.math.answer) {
       // A wrong sum gets a fresh question, so a guess cannot be replayed.
       const updated: ChallengeState = { ...challenge, math: newMathQuestion() };
-      await holder.save(updated);
-      log("math_failed", {});
+      if (!(await saveChallenge(env.DB, attempt.id, updated))) throw refusal("closed");
+      log("math_failed", { attempt: attempt.id });
       return json({ error: "The check failed. Try again.", step: publicStep(updated) }, 400);
     }
   }
 
   if (challenge.index + 1 < challenge.steps.length) {
     const next: ChallengeState = { ...challenge, index: challenge.index + 1 };
-    await holder.save(next);
+    if (!(await saveChallenge(env.DB, attempt.id, next))) throw refusal("closed");
     return json({ ok: true, done: false, step: publicStep(next) });
   }
 
-  await holder.finish();
+  if (challenge.recheck && (await rejectedOnRecheck(env, attempt, user, now))) throw AD_PROFILE();
+  await approveAttempt(env, attempt, now);
+  log("join_approved", { chat_id: attempt.chatId, user_id: attempt.userId, delivery: attempt.delivery.kind });
   return json({ ok: true, done: true });
 }
 

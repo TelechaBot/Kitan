@@ -41,9 +41,7 @@ export const MESSAGES = {
     appealUsed: "You've already used this check in the last 30 days, so this limit stays until it ends. A group admin can lift it sooner.",
     appealNone: "There's nothing to lift: you can already post, or this link has expired.",
     adDeclined: "Your request to join {chat} was declined: your name, bio or profile photo looks like an ad. If that's a mistake, change it and ask to join again (it will be checked afresh), or contact the group's admins.",
-    adRemoved: "Your name or bio looks like an ad, so you'll be removed from this group in a minute. If that's a mistake, change it and join again (it will be checked afresh), or contact the group's admins.",
     adRejected: "You finished the check, but your name, bio or profile photo looks like an ad, so you can't join. If that's a mistake, change it and ask to join again, or contact the group's admins.",
-    adHeld: "Your name or bio looks like an ad, so you can't post here until you pass a check. Press the button below within 10 minutes and finish it (two human checks and one sum); otherwise you'll be removed from the group, and you can join again.",
   },
   zh: {
     title: "加入「{chat}」",
@@ -80,9 +78,7 @@ export const MESSAGES = {
     appealUsed: "30 天内你已经用过一次这个验证，这次的限制会持续到结束。群管理员可以提前帮你解除。",
     appealNone: "没有需要解除的限制：你已经可以发言，或者这个链接已经过期。",
     adDeclined: "你加入「{chat}」的申请被拒绝了：你的名字、简介或头像看起来像广告。如果这是误判，请修改后重新申请（会重新审核），或联系群管理员。",
-    adRemoved: "你的名字或简介看起来像广告，一分钟后会被移出本群。如果这是误判，请修改后重新加入（会重新审核），或联系群管理员。",
     adRejected: "验证已完成，但你的名字、简介或头像看起来像广告，所以不能加入。如果这是误判，请修改后重新申请，或联系群管理员。",
-    adHeld: "你的名字或简介看起来像广告，通过验证前不能在这里发言。请在 10 分钟内点下面的按钮完成验证（两次人机验证和一道算术题），否则会被移出本群，之后可以重新加入。",
   },
   "zh-hant": {
     title: "加入「{chat}」",
@@ -119,9 +115,7 @@ export const MESSAGES = {
     appealUsed: "30 天內你已經用過一次這個驗證，這次的限制會持續到結束。群管理員可以提前幫你解除。",
     appealNone: "沒有需要解除的限制：你已經可以發言，或者這個連結已經過期。",
     adDeclined: "你加入「{chat}」的申請被拒絕了：你的名字、簡介或頭像看起來像廣告。如果這是誤判，請修改後重新申請（會重新審核），或聯絡群管理員。",
-    adRemoved: "你的名字或簡介看起來像廣告，一分鐘後會被移出本群。如果這是誤判，請修改後重新加入（會重新審核），或聯絡群管理員。",
     adRejected: "驗證已完成，但你的名字、簡介或頭像看起來像廣告，所以不能加入。如果這是誤判，請修改後重新申請，或聯絡群管理員。",
-    adHeld: "你的名字或簡介看起來像廣告，通過驗證前不能在這裡發言。請在 10 分鐘內點下面的按鈕完成驗證（兩次人機驗證和一道算術題），否則會被移出本群，之後可以重新加入。",
   },
   ja: {
     title: "「{chat}」に参加",
@@ -158,9 +152,7 @@ export const MESSAGES = {
     appealUsed: "この確認は30日以内にすでに一度使われているため、今回の制限は期限まで続きます。グループの管理者なら早めに解除できます。",
     appealNone: "解除する制限はありません。すでに投稿できるか、このリンクの期限が切れています。",
     adDeclined: "{chat} への参加リクエストは却下されました。名前、自己紹介、またはプロフィール写真が広告のように見えます。誤りであれば、変更してからもう一度リクエストする（改めて確認されます）か、グループの管理者に連絡してください。",
-    adRemoved: "名前または自己紹介が広告のように見えるため、1 分後にこのグループから外されます。誤りであれば、変更してからもう一度参加する（改めて確認されます）か、グループの管理者に連絡してください。",
     adRejected: "確認は完了しましたが、名前、自己紹介、またはプロフィール写真が広告のように見えるため参加できません。誤りであれば、変更してからもう一度リクエストするか、グループの管理者に連絡してください。",
-    adHeld: "名前または自己紹介が広告のように見えるため、確認を終えるまでここには投稿できません。10 分以内に下のボタンを押して確認（人間確認 2 回と計算 1 問）を終えてください。終えないとグループから外されますが、また参加できます。",
   },
   ru: {
     title: "Вступление в «{chat}»",
@@ -197,9 +189,7 @@ export const MESSAGES = {
     appealUsed: "Вы уже проходили эту проверку за последние 30 дней, поэтому ограничение останется до конца срока. Администратор группы может снять его раньше.",
     appealNone: "Снимать нечего: вы уже можете писать, или срок действия ссылки истёк.",
     adDeclined: "Ваша заявка на вступление в {chat} отклонена: ваше имя, описание или фото профиля похожи на рекламу. Если это ошибка, измените их и подайте заявку снова (проверка будет заново) или напишите администраторам группы.",
-    adRemoved: "Ваше имя или описание похожи на рекламу, поэтому через минуту вас удалят из группы. Если это ошибка, измените их и вступите снова (проверка будет заново) или напишите администраторам группы.",
     adRejected: "Вы прошли проверку, но ваше имя, описание или фото профиля похожи на рекламу, поэтому вступить нельзя. Если это ошибка, измените их и подайте заявку снова или напишите администраторам группы.",
-    adHeld: "Ваше имя или описание похоже на рекламу, поэтому писать здесь можно только после проверки. Нажмите кнопку ниже в течение 10 минут и пройдите её (две проверки на человека и один пример); иначе вас удалят из группы, но вы сможете вступить снова.",
   },
   es: {
     title: "Unirte a {chat}",
@@ -236,9 +226,7 @@ export const MESSAGES = {
     appealUsed: "Ya usaste esta verificación en los últimos 30 días, así que esta restricción sigue hasta que termine. Un administrador del grupo puede quitarla antes.",
     appealNone: "No hay nada que quitar: ya puedes escribir o este enlace ha caducado.",
     adDeclined: "Tu solicitud para unirte a {chat} fue rechazada: tu nombre, biografía o foto de perfil parecen un anuncio. Si es un error, cámbialos y vuelve a solicitarlo (se revisará de nuevo) o contacta con los administradores del grupo.",
-    adRemoved: "Tu nombre o biografía parecen un anuncio, así que saldrás de este grupo en un minuto. Si es un error, cámbialos y vuelve a unirte (se revisará de nuevo) o contacta con los administradores del grupo.",
     adRejected: "Completaste la verificación, pero tu nombre, biografía o foto de perfil parecen un anuncio, así que no puedes unirte. Si es un error, cámbialos y vuelve a solicitarlo o contacta con los administradores del grupo.",
-    adHeld: "Tu nombre o biografía parecen un anuncio, así que no puedes escribir aquí hasta pasar una verificación. Pulsa el botón de abajo en 10 minutos y complétala (dos comprobaciones humanas y una suma); si no, saldrás del grupo y podrás volver a unirte.",
   },
   ar: {
     title: "الانضمام إلى {chat}",
@@ -275,9 +263,7 @@ export const MESSAGES = {
     appealUsed: "استخدمت هذا التحقق مرة خلال آخر 30 يومًا، لذا يبقى هذا القيد حتى ينتهي. يمكن لمشرف المجموعة رفعه قبل ذلك.",
     appealNone: "لا يوجد قيد لرفعه: يمكنك الكتابة بالفعل، أو انتهت صلاحية هذا الرابط.",
     adDeclined: "تم رفض طلبك للانضمام إلى {chat}: اسمك أو نبذتك أو صورة ملفك تبدو كإعلان. إن كان هذا خطأً، فغيّرها واطلب الانضمام مجددًا (سيُعاد الفحص)، أو تواصل مع مشرفي المجموعة.",
-    adRemoved: "اسمك أو نبذتك تبدو كإعلان، لذا ستُزال من هذه المجموعة بعد دقيقة. إن كان هذا خطأً، فغيّرها وانضم مجددًا (سيُعاد الفحص)، أو تواصل مع مشرفي المجموعة.",
     adRejected: "أكملت التحقق، لكن اسمك أو نبذتك أو صورة ملفك تبدو كإعلان، لذا لا يمكنك الانضمام. إن كان هذا خطأً، فغيّرها واطلب الانضمام مجددًا، أو تواصل مع مشرفي المجموعة.",
-    adHeld: "اسمك أو نبذتك تبدو كإعلان، لذا لا يمكنك الكتابة هنا حتى تجتاز تحققًا. اضغط الزر أدناه خلال 10 دقائق وأكمله (تحققان بشريان ومسألة جمع واحدة)؛ وإلا ستُزال من المجموعة، ويمكنك الانضمام مجددًا.",
   },
   hi: {
     title: "{chat} से जुड़ें",
@@ -314,9 +300,7 @@ export const MESSAGES = {
     appealUsed: "पिछले 30 दिनों में आप यह जाँच एक बार इस्तेमाल कर चुके हैं, इसलिए यह रोक अपने समय तक रहेगी। ग्रुप एडमिन इसे पहले हटा सकते हैं।",
     appealNone: "हटाने के लिए कोई रोक नहीं है: आप पहले से लिख सकते हैं, या इस लिंक की अवधि खत्म हो गई है।",
     adDeclined: "{chat} में शामिल होने का आपका अनुरोध अस्वीकार कर दिया गया: आपका नाम, बायो या प्रोफ़ाइल फ़ोटो विज्ञापन जैसा दिखता है। अगर यह गलती है, तो इसे बदलकर फिर से अनुरोध करें (दोबारा जाँच होगी), या ग्रुप के एडमिन से संपर्क करें।",
-    adRemoved: "आपका नाम या बायो विज्ञापन जैसा दिखता है, इसलिए एक मिनट में आपको इस ग्रुप से हटा दिया जाएगा। अगर यह गलती है, तो इसे बदलकर फिर से जुड़ें (दोबारा जाँच होगी), या ग्रुप के एडमिन से संपर्क करें।",
     adRejected: "आपने जाँच पूरी कर ली, लेकिन आपका नाम, बायो या प्रोफ़ाइल फ़ोटो विज्ञापन जैसा दिखता है, इसलिए आप शामिल नहीं हो सकते। अगर यह गलती है, तो इसे बदलकर फिर से अनुरोध करें, या ग्रुप के एडमिन से संपर्क करें।",
-    adHeld: "आपका नाम या बायो विज्ञापन जैसा दिखता है, इसलिए जाँच पूरी होने तक आप यहाँ नहीं लिख सकते। 10 मिनट के भीतर नीचे का बटन दबाकर जाँच (दो मानव जाँच और एक जोड़) पूरी करें; नहीं तो आपको ग्रुप से हटा दिया जाएगा, और आप फिर से जुड़ सकते हैं।",
   },
   bn: {
     title: "{chat}-এ যোগ দিন",
@@ -353,9 +337,7 @@ export const MESSAGES = {
     appealUsed: "গত ৩০ দিনে আপনি এই যাচাই একবার ব্যবহার করেছেন, তাই এই বিধিনিষেধ মেয়াদ শেষ হওয়া পর্যন্ত থাকবে। গ্রুপের অ্যাডমিন আগেই তুলে দিতে পারেন।",
     appealNone: "তোলার মতো কোনো বিধিনিষেধ নেই: আপনি ইতিমধ্যে লিখতে পারেন, অথবা এই লিঙ্কের মেয়াদ শেষ হয়েছে।",
     adDeclined: "{chat}-এ যোগদানের আপনার অনুরোধ প্রত্যাখ্যান করা হয়েছে: আপনার নাম, বায়ো বা প্রোফাইল ছবি বিজ্ঞাপনের মতো দেখাচ্ছে। এটি ভুল হলে বদলে আবার অনুরোধ করুন (নতুন করে যাচাই হবে), অথবা গ্রুপের অ্যাডমিনের সঙ্গে যোগাযোগ করুন।",
-    adRemoved: "আপনার নাম বা বায়ো বিজ্ঞাপনের মতো দেখাচ্ছে, তাই এক মিনিটের মধ্যে আপনাকে এই গ্রুপ থেকে সরানো হবে। এটি ভুল হলে বদলে আবার যোগ দিন (নতুন করে যাচাই হবে), অথবা গ্রুপের অ্যাডমিনের সঙ্গে যোগাযোগ করুন।",
     adRejected: "আপনি যাচাই শেষ করেছেন, কিন্তু আপনার নাম, বায়ো বা প্রোফাইল ছবি বিজ্ঞাপনের মতো দেখাচ্ছে, তাই যোগ দিতে পারবেন না। এটি ভুল হলে বদলে আবার অনুরোধ করুন, অথবা গ্রুপের অ্যাডমিনের সঙ্গে যোগাযোগ করুন।",
-    adHeld: "আপনার নাম বা বায়ো বিজ্ঞাপনের মতো দেখাচ্ছে, তাই যাচাই শেষ না হওয়া পর্যন্ত এখানে লিখতে পারবেন না। ১০ মিনিটের মধ্যে নিচের বোতাম চেপে যাচাই (দুটি মানব যাচাই ও একটি যোগ) শেষ করুন; না হলে আপনাকে গ্রুপ থেকে সরানো হবে, পরে আবার যোগ দিতে পারবেন।",
   },
 } as const;
 

@@ -524,25 +524,31 @@ export interface LinkTally {
   creator: string | null; // "user:@name" or "user:<id>", as footprints record it
   joined: number;
   removed: number; // of those, muted or banned by Kitan in that group since
+  adProfiles: number; // of the rest, whose profile Kitan read as an ad when they joined
 }
 
-// Invite links that brought in mostly ad accounts lately: at least `minRemoved` of the
-// people who joined through them since `since`, and at least half.
-export async function inviteLinksWithAds(db: D1Database, since: number, minRemoved: number): Promise<LinkTally[]> {
+// Invite links that brought in mostly ad accounts lately: at least `minAds` of the people
+// who joined through them since `since`, and at least half. An ad account is one Kitan
+// removed or muted there for posting ads, or one whose profile was an ad on joining.
+export async function inviteLinksWithAds(db: D1Database, since: number, minAds: number): Promise<LinkTally[]> {
   const { results } = await db
     .prepare(
       `SELECT j.chat_id, json_extract(j.detail, '$.invite_link') AS link, json_extract(j.detail, '$.invite_link_creator') AS creator,
-              count(DISTINCT j.user_id) AS joined, count(DISTINCT o.user_id) AS removed
+              count(DISTINCT j.user_id) AS joined,
+              count(DISTINCT o.user_id) AS removed,
+              count(DISTINCT CASE WHEN o.user_id IS NULL THEN v.user_id END) AS ad_profiles
        FROM events j
        LEFT JOIN offenses o ON o.user_id = j.user_id AND o.chat_id = j.chat_id AND o.at >= j.at
+       LEFT JOIN events v ON v.user_id = j.user_id AND v.chat_id = j.chat_id AND v.kind = 'verdict' AND v.at >= j.at
+            AND json_extract(v.detail, '$.on') = 'profile' AND json_extract(v.detail, '$.verdict') = 'ad'
        WHERE j.kind = 'join' AND j.at > ? AND json_extract(j.detail, '$.invite_link') IS NOT NULL
        GROUP BY 1, 2, 3
-       HAVING removed >= ? AND removed * 2 >= joined
-       ORDER BY 1, removed DESC`,
+       HAVING removed + ad_profiles >= ? AND (removed + ad_profiles) * 2 >= joined
+       ORDER BY 1, removed + ad_profiles DESC`,
     )
-    .bind(since, minRemoved)
-    .all<{ chat_id: string; link: string; creator: string | null; joined: number; removed: number }>();
-  return results.map((r) => ({ chatId: r.chat_id, link: r.link, creator: r.creator, joined: r.joined, removed: r.removed }));
+    .bind(since, minAds)
+    .all<{ chat_id: string; link: string; creator: string | null; joined: number; removed: number; ad_profiles: number }>();
+  return results.map((r) => ({ chatId: r.chat_id, link: r.link, creator: r.creator, joined: r.joined, removed: r.removed, adProfiles: r.ad_profiles }));
 }
 
 // When the owner of this group last heard about this link.
@@ -573,15 +579,12 @@ export interface Appeal {
   until: number;
   openedAt: number | null;
   passedAt: number | null;
-  challenge: ChallengeState | null; // null: one Turnstile check
-  kickAt: number | null; // a hold: removed from the group then unless passed
-  kickedAt: number | null;
 }
 
-export async function insertAppeal(db: D1Database, a: Omit<Appeal, "openedAt" | "passedAt" | "kickedAt">): Promise<void> {
+export async function insertAppeal(db: D1Database, a: Omit<Appeal, "openedAt" | "passedAt">): Promise<void> {
   await db
-    .prepare(`INSERT INTO appeals (token, chat_id, user_id, rule, score, created_at, until, challenge, kick_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(a.token, a.chatId, a.userId, a.rule, a.score, a.createdAt, a.until, a.challenge ? JSON.stringify(a.challenge) : null, a.kickAt)
+    .prepare(`INSERT INTO appeals (token, chat_id, user_id, rule, score, created_at, until) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(a.token, a.chatId, a.userId, a.rule, a.score, a.createdAt, a.until)
     .run();
 }
 
@@ -598,17 +601,13 @@ export async function findAppeal(db: D1Database, token: string): Promise<Appeal 
         until: row.until,
         openedAt: row.opened_at,
         passedAt: row.passed_at,
-        challenge: decodeChallenge(row.challenge),
-        kickAt: row.kick_at ?? null,
-        kickedAt: row.kicked_at ?? null,
       }
     : null;
 }
 
-// Passed appeals of the ordinary check only: the strict check stands on its own.
 export async function appealsPassedSince(db: D1Database, userId: string, since: number): Promise<number> {
   const row = await db
-    .prepare(`SELECT count(*) AS n FROM appeals WHERE user_id = ? AND passed_at > ? AND challenge IS NULL`)
+    .prepare(`SELECT count(*) AS n FROM appeals WHERE user_id = ? AND passed_at > ?`)
     .bind(userId, since)
     .first<{ n: number }>();
   return row?.n ?? 0;
@@ -625,43 +624,10 @@ export async function recordAppealTry(db: D1Database, token: string, solveMs: nu
     .run();
 }
 
-// Moves an appeal's strict check to its next step while it is unused; false if it was used.
-export async function saveAppealChallenge(db: D1Database, token: string, challenge: ChallengeState): Promise<boolean> {
-  const row = await db
-    .prepare(`UPDATE appeals SET challenge = ? WHERE token = ? AND passed_at IS NULL RETURNING token`)
-    .bind(JSON.stringify(challenge), token)
-    .first();
-  return row !== null;
-}
-
 // Marks the appeal passed once; false if it already was.
 export async function markAppealPassed(db: D1Database, token: string, now: number): Promise<boolean> {
-  const result = await db
-    .prepare(`UPDATE appeals SET passed_at = ? WHERE token = ? AND passed_at IS NULL AND kicked_at IS NULL`)
-    .bind(now, token)
-    .run();
+  const result = await db.prepare(`UPDATE appeals SET passed_at = ? WHERE token = ? AND passed_at IS NULL`).bind(now, token).run();
   return (result.meta.changes ?? 0) > 0;
-}
-
-// Holds past their deadline, not passed and not yet removed.
-export async function holdsDue(db: D1Database, now: number): Promise<{ token: string; chatId: string; userId: string }[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT token, chat_id, user_id FROM appeals
-       WHERE kick_at IS NOT NULL AND kick_at <= ? AND kicked_at IS NULL AND passed_at IS NULL LIMIT 50`,
-    )
-    .bind(now)
-    .all<{ token: string; chat_id: string; user_id: string }>();
-  return results.map((r) => ({ token: r.token, chatId: r.chat_id, userId: r.user_id }));
-}
-
-// Claims a due hold for removal; false if it was passed or claimed meanwhile.
-export async function claimHold(db: D1Database, token: string, now: number): Promise<boolean> {
-  const row = await db
-    .prepare(`UPDATE appeals SET kicked_at = ? WHERE token = ? AND kicked_at IS NULL AND passed_at IS NULL RETURNING token`)
-    .bind(now, token)
-    .first();
-  return row !== null;
 }
 
 // ---------- model budget ----------

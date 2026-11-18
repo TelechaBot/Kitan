@@ -80,22 +80,24 @@ export async function notifyAdmins(env: Env, send: boolean, now: number) {
 // ---------- invite links that bring in ads ----------
 
 // Invite links let people in without the bot's check, by design: an admin hands them to
-// people they trust. Rarely, a link travels further and brings mostly ad accounts; then,
-// and only then, the owner hears about it, once in 30 days per link. On 2026-11-13 four
-// links in one group had brought 85 people in a week, 69 of whom the bot removed.
+// people they trust, and Kitan does not overrule that on anyone's profile. Rarely, a link
+// travels further and brings mostly ad accounts; then, and only then, the owner hears about
+// it, once in 30 days per link. On 2026-11-13 four links in one group had brought 85 people
+// in a week, 69 of whom the bot removed; silent ones whose profile is the ad count too.
 const LINK_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const LINK_MIN_REMOVED = 10;
+const LINK_MIN_ADS = 10;
 const LINK_QUIET_MS = 30 * 24 * 60 * 60 * 1000;
 
 function linkNoticeText(bot: string, group: string, links: LinkTally[]): string {
   const lines = links.map((l) => {
     const by = l.creator ? `, made by ${l.creator.replace(/^(user|bot):/, "")}` : "";
-    return `• "${l.link}"${by}: ${l.joined} joined, ${l.removed} removed or muted`;
+    const quiet = l.adProfiles > 0 ? `, ${l.adProfiles} more with an ad as their profile` : "";
+    return `• "${l.link}"${by}: ${l.joined} joined, ${l.removed} removed or muted for posting ads${quiet}`;
   });
   return [
     `Hi! A note from @${bot} about ${group}.`,
     "",
-    `In the last 7 days, most people who joined through ${links.length === 1 ? "this invite link were" : "these invite links were"} ad accounts, which the bot removed or muted for posting ads:`,
+    `In the last 7 days, most people who joined through ${links.length === 1 ? "this invite link were" : "these invite links were"} ad accounts. The bot removes or mutes those who post ads; it leaves the rest to you, since you let them in:`,
     ...lines,
     "",
     "People who join through an invite link don't go through the bot's join check. If a link has travelled " +
@@ -109,7 +111,7 @@ function linkNoticeText(bot: string, group: string, links: LinkTally[]): string 
 // Run daily. Each group's owner gets one note listing its links that crossed the line.
 export async function noticeInviteLinks(env: Env, now: number): Promise<void> {
   const byChat = new Map<string, LinkTally[]>();
-  for (const tally of await inviteLinksWithAds(env.DB, now - LINK_WINDOW_MS, LINK_MIN_REMOVED)) {
+  for (const tally of await inviteLinksWithAds(env.DB, now - LINK_WINDOW_MS, LINK_MIN_ADS)) {
     const last = await lastNoticeAt(env.DB, `invite-link:${tally.link}`, tally.chatId);
     if (last !== null && now - last < LINK_QUIET_MS) continue;
     byChat.set(tally.chatId, [...(byChat.get(tally.chatId) ?? []), tally]);

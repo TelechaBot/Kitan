@@ -18,11 +18,11 @@ A **case** is one way into one group: a join request, or a direct join (open gro
 link, another bot's check). Kitan's own approvals and people an admin added are not cases.
 Each policy sees only what Kitan saw then, including the model answers it actually got.
 
-| outcome | request door | direct door |
-|---|---|---|
-| turned away | declined, told why | muted, told why, removed a minute later |
-| challenged | strict check (two Turnstile, one sum) | held: muted, strict check, removed after 10 min |
-| allowed | ordinary check | nothing |
+Only a join request is Kitan's door. There a policy turns the person away (declined, told
+why), challenges them (the strict check: two Turnstile, one sum) or gives the ordinary
+check. A direct joiner came through a door the admins opened; inside the group only what
+people post is moderated, so the benchmark scores the profile audit there as evidence (it
+weighs on the penalty of a first ad and feeds the owner's invite-link note), not as an action.
 
 **Labels** never come from the policies being scored:
 
@@ -63,37 +63,23 @@ Spam stopped only by current: 25; only by baseline 249e6c2: 0; exact McNemar p =
 Spam stopped only by current: 0; only by baseline 249e6c2: 0; exact McNemar p = 1.0.
 
 
-### Direct joins: 4487 cases; spam 867 (hand 33, admin 558, lols 22, ban 254); ham 59 (hand 12, talked 47)
+### Direct joins: 4487 cases, spam 867, ham 59. Profile read as an ad (evidence only; no action)
 
-| policy | spam turned away | spam turned away or challenged | ham turned away | ham challenged |
-|---|---|---|---|---|
-| baseline 249e6c2 | 0.0% [0.0–0.4] (0/867) | 0.0% [0.0–0.4] (0/867) | 0.0% [0.0–6.1] (0/59) | 0.0% [0.0–6.1] (0/59) |
-| current | 28.0% [25.1–31.1] (243/867) | 35.2% [32.1–38.4] (305/867) | 0.0% [0.0–6.1] (0/59) | 0.0% [0.0–6.1] (0/59) |
-
-Spam stopped only by current: 305; only by baseline 249e6c2: 0; exact McNemar p = 3.1e-92.
-130 of these cases needed a model that was not asked or did not answer then; the current policy counts them as suspect, so its challenge rates are upper bounds.
-
-### Direct joins, every needed model answer on record: 4357 cases; spam 828 (hand 28, admin 547, lols 22, ban 231); ham 59 (hand 12, talked 47)
-
-| policy | spam turned away | spam turned away or challenged | ham turned away | ham challenged |
-|---|---|---|---|---|
-| baseline 249e6c2 | 0.0% [0.0–0.5] (0/828) | 0.0% [0.0–0.5] (0/828) | 0.0% [0.0–6.1] (0/59) | 0.0% [0.0–6.1] (0/59) |
-| current | 29.3% [26.3–32.5] (243/828) | 32.1% [29.0–35.4] (266/828) | 0.0% [0.0–6.1] (0/59) | 0.0% [0.0–6.1] (0/59) |
-
-Spam stopped only by current: 266; only by baseline 249e6c2: 0; exact McNemar p = 1.7e-80.
+| spam read as ad | ham read as ad |
+|---|---|
+| 28.0% [25.1–31.1] (243/867) | 0.0% [0.0–6.1] (0/59) |
 
 ## Reading it
 
-- **The direct door is where the change is**: 28% of labelled ad accounts that came in
-  directly are now removed outright and 35% removed or held (before: none), and no
-  labelled person was either. An ad profile is turned away at both doors whatever check
-  it could pass: a check proves a person, not an honest one. Of the ads still let
-  in, most have no bio and no link, which a profile audit cannot tell from a person; they
-  are left to the message rules.
 - **At the request door the check itself stops most ads** (they never finish it), so few
-  get a label. The extra challenges for people come from model answers that were missing
-  under the old 4-second limit; with every answer on record, no labelled person was
-  challenged. `live` shows how often a needed model fails to answer now.
+  get a label. Of those that do, the current policy stops 80% against 15% before; an ad
+  profile is turned away whatever check it could pass, since a check proves a person, not
+  an honest one. The extra challenges for people come from model answers missing under the
+  old 4-second limit; with every answer on record, no labelled person was challenged.
+  `live` shows how often a needed model fails to answer now.
+- **At the direct door the audit reads 28% of labelled ad accounts as ads and no labelled
+  person.** Most of the rest have no bio and no link, which no profile audit can tell from a
+  person; the message rules and the group's admins handle them.
 - **What these numbers cannot say yet**: a false-positive rate under 0.5%. With zero false
   positives in n people, the 95% upper bound is about 3/n, so a claim of < 0.5% needs at
   least 600 labelled people per door; there are 27 and 59. The same holds for any claim of
@@ -108,5 +94,5 @@ Spam stopped only by current: 266; only by baseline 249e6c2: 0; exact McNemar p 
   stay at 0 with its upper bound not rising, and spam stopped must not fall (no McNemar
   p < 0.05 in the wrong direction against the policy in production). Add the new policy to
   `POLICIES` in `door.ts`, run `score`, and paste the table here with the commit.
-- **Online**: `live` after each deploy. A held or strict-checked person who passes is the
-  closest thing to a false-positive label: label them.
+- **Online**: `live` after each deploy. A person who passes a strict check is the closest
+  thing to a false-positive label at the door: label them.
