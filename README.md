@@ -78,7 +78,7 @@ so Kitan makes each spam attempt cost an account:
   channel, a Workers AI text model when they point somewhere, and an image
   model on the avatar. The audit ends in one of three answers:
   - **ad** — a confident text verdict (decision ≥ 0.9 and written verdict at
-    confidence ≥ 0.85) or a confident avatar verdict (≥ 0.9). The request is
+    confidence ≥ 0.95) or a confident avatar verdict (≥ 0.9). The request is
     declined, and the person is told why in a private
     message, every time they ask. No check undoes it, because passing a check
     proves a person, not an honest one (human-run ad accounts pass the strict

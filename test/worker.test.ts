@@ -65,7 +65,7 @@ test("the DM speaks the requester's language", async () => {
 
 test("an ad bio is declined with the reason every time it asks; no check is offered", async () => {
   w.decision = () => 0.95;
-  w.model = () => ({ ad: true, confidence: 0.9, kind: "diversion", reason: "invite in the bio" });
+  w.model = () => ({ ad: true, confidence: 0.95, kind: "diversion", reason: "invite in the bio" });
   await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "私我 t.me/+abc", lang: "zh-hans" });
   expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "declined", error: "ad_profile" });
   expect(w.events(USER, "verdict")[0].detail).toMatchObject({ on: "join_request", verdict: "ad", decision: { p: 0.95 }, outcome: "declined" });
@@ -189,9 +189,9 @@ test("a model that errors is unknown, not clean", async () => {
   expect(w.latestAttempt(USER, CHAT).challenge).not.toBeNull();
 });
 
-test("both signals must be confident: an ad verdict alone does not decline", async () => {
+test("both signals must be confident: an ad verdict at 0.9 does not decline", async () => {
   w.decision = () => 0.95;
-  w.model = () => ({ ad: true, confidence: 0.5, kind: "diversion", reason: "not sure" });
+  w.model = () => ({ ad: true, confidence: 0.9, kind: "diversion", reason: "own channel, maybe" });
   await w.requestJoin(USER, CHAT, { queryId: "Q1", bio: "私我 t.me/+abc" });
   expect(w.latestAttempt(USER, CHAT)).toMatchObject({ status: "pending", challenge: null });
 });
@@ -203,7 +203,7 @@ test("a listed word alone is suspect: the strict check, not a decline; with a co
   expect(w.events(USER, "verdict")[0].detail).toMatchObject({ on: "join_request", lexicon: ["日入过万"], verdict: "suspect" });
 
   w.decision = () => 0.95;
-  w.model = () => ({ ad: true, confidence: 0.9, kind: "direct", reason: "money offer" });
+  w.model = () => ({ ad: true, confidence: 0.95, kind: "direct", reason: "money offer" });
   await w.requestJoin(43, CHAT, { queryId: "Q2", bio: "日入过万 私我" });
   expect(w.latestAttempt(43, CHAT)).toMatchObject({ status: "declined", error: "ad_profile" });
 });

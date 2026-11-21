@@ -44,11 +44,13 @@ export interface Answers {
 }
 
 // Ad on either model's confident answer, at the thresholds production measured with no false
-// positive. A listed word alone is suspect, not ad: "需要邀请链接的请私聊" on a fan group's
-// owner matched 私密群, and that person had to lift a mute (2026-11). So is a needed model
-// that did not answer.
+// positive. gemma-4 gives confidence in steps (0.8, 0.9, 0.95, 1); at 0.9 it still turned away
+// people whose bio points to their own channel, at 0.95 none of those in bench/models.ts
+// (2026-11-21), for 2 of 89 ads. A listed word alone is suspect, not ad: "需要邀请链接的请私聊"
+// on a fan group's owner matched 私密群, and that person had to lift a mute (2026-11). So is a
+// needed model that did not answer.
 export function screening(a: Answers & { lexicon: number }): { verdict: Screening; missing: ("text" | "avatar")[] } {
-  const textAd = a.decision !== null && a.decision.p >= 0.9 && a.text !== null && a.text.ad && a.text.confidence >= 0.85;
+  const textAd = a.decision !== null && a.decision.p >= 0.9 && a.text !== null && a.text.ad && a.text.confidence >= 0.95;
   const avatarAd = a.avatar !== null && a.avatar.ad && a.avatar.confidence >= 0.9;
   const missing: ("text" | "avatar")[] = [];
   if (a.needText && (a.decision === null || a.text === null)) missing.push("text");
@@ -84,7 +86,9 @@ export async function auditProfile(
     askText ? bounded(judgeText(env, view), timeoutMs) : null,
     askAvatar && avatarId ? bounded(judgeAvatar(env, avatarId, view), timeoutMs) : null,
   ]);
-  const cost = (askText ? textCost : 0) + (askAvatar ? NEURONS.image : 0);
+  // Only answers are billed: from 2026-11-20 a retired model failed every call, and booking those
+  // spent the day's budget on nothing, so the avatar model was skipped too.
+  const cost = (decision ? NEURONS.decision : 0) + (text ? NEURONS.verdict : 0) + (avatar ? NEURONS.image : 0);
   if (cost > 0) await recordSpend(env.DB, cost, now);
   const verdict = screening({ needText, needAvatar, decision, text, avatar, lexicon: lexicon.length });
   return { ...none, ...verdict, decision, text_model: text, avatar_model: avatar };

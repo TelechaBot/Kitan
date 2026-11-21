@@ -7,7 +7,16 @@
 import { callTelegram, log, messageOf } from "./telegram";
 import type { Env } from "./types";
 
-const TEXT_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8";
+// Workers AI retires models: qwen3-30b-a3b answered nothing from 2026-11-20 (error 5028)
+// until it was replaced. `bun bench/models.ts` compares candidates on production cases.
+export interface TextModel {
+  id: string;
+  options?: Record<string, unknown>; // e.g. turning off a reasoning model's thinking
+}
+export const TEXT_MODEL: TextModel = {
+  id: "@cf/google/gemma-4-26b-a4b-it",
+  options: { chat_template_kwargs: { enable_thinking: false } }, // else the first token is <|channel>, not yes/no
+};
 const VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
 
 export type AdKind = "none" | "direct" | "covert" | "diversion" | "adult" | "scam" | "other";
@@ -78,13 +87,16 @@ diversion to a bot, channel, private chat, WeChat/QQ or another group; adult ser
 investment, crypto or job scams. Spam accounts often post something harmless and keep
 the ad in their display name, username or bio, so judge the sender as a whole.
 An ordinary greeting or question from someone with an ordinary profile is NOT an ad.
+Nor is pointing to their own channel, social accounts or a bot for private messages, or
+mentioning someone or using a /command in conversation, unless it offers money-making,
+goods, services, adult content or a group to join.
 Reply with JSON only: {"ad": true|false, "confidence": 0..1, "kind": "none|direct|covert|diversion|adult|scam|other", "reason": "<one short sentence>"}`;
 
-export async function judgeText(env: Env, d: Dossier): Promise<ModelVerdict | null> {
-  return run(env, TEXT_MODEL, [
+export async function judgeText(env: Env, d: Dossier, model = TEXT_MODEL): Promise<ModelVerdict | null> {
+  return run(env, model.id, [
     { role: "system", content: INSTRUCTIONS },
-    { role: "user", content: `${describe(d)}\n/no_think` },
-  ]);
+    { role: "user", content: describe(d) },
+  ], 300, model.options);
 }
 
 // A decision rather than a written verdict, in the manner of typesafe.ai's jev: the model
@@ -97,7 +109,9 @@ const DECISION =
   "Is the sender of this message in a Telegram group advertising or drawing members elsewhere " +
   "(including covert ads written as personal stories, adult services, scams, or pointing people to a " +
   "bot, channel or private chat), in the message or in their name, username or bio? Ordinary " +
-  "conversation, complaints, greetings and questions from an ordinary profile are not. " +
+  "conversation, complaints, greetings and questions from an ordinary profile are not, nor is a link to " +
+  "their own channel or a bot for private messages unless it offers money-making, goods, services, adult " +
+  "content or a group to join. " +
   "Answer with exactly one word: yes or no.";
 
 // Part of the bench's cache key, so a changed prompt is asked again.
@@ -109,10 +123,10 @@ export interface Decision {
   ms: number;
 }
 
-// What each call costs, in neurons, as Cloudflare billed it on 2026-11-13 (about 0.8 for a
-// decision and 2.6 for a written verdict on qwen3, 13 for an image on llama-4-scout),
-// rounded up. Used to keep within the free plan's 10,000 a day.
-export const NEURONS = { decision: 1, verdict: 3, image: 15 };
+// What each call costs, in neurons, as Cloudflare billed it (about 1.5 for a decision and 3.5
+// for a written verdict on gemma-4 on 2026-11-21, 13 for an image on llama-4-scout on
+// 2026-11-13), rounded up. Used to keep within the free plan's 10,000 a day.
+export const NEURONS = { decision: 2, verdict: 4, image: 15 };
 
 // Once the free allowance is spent every call fails until it frees up again; after the
 // first such failure this Worker instance stops asking for half an hour.
@@ -127,33 +141,34 @@ function failed(event: string, error: unknown, model?: string) {
   log(event, { model, error: message });
 }
 
-export async function decideText(env: Env, d: Dossier): Promise<Decision | null> {
+export async function decideText(env: Env, d: Dossier, model = TEXT_MODEL): Promise<Decision | null> {
   if (modelsPaused(Date.now())) return null;
   const started = Date.now();
   const text = describe(d);
   try {
-    const out = (await env.AI.run(TEXT_MODEL as Parameters<Ai["run"]>[0], {
+    const out = (await env.AI.run(model.id as Parameters<Ai["run"]>[0], {
       messages: [
         { role: "system", content: DECISION },
-        { role: "user", content: `${text}\n/no_think` },
+        { role: "user", content: text },
       ],
       max_tokens: 8,
       logprobs: true,
       top_logprobs: 10,
+      ...model.options,
     } as never)) as { choices?: { logprobs?: { content?: { token: string; top_logprobs?: { token: string; logprob: number }[] }[] } }[] };
     const p = yesProbability(out.choices?.[0]?.logprobs?.content ?? []);
     if (p === null) {
       log("decide_unparsed", {});
       return null;
     }
-    return { model: TEXT_MODEL, p, ms: Date.now() - started };
+    return { model: model.id, p, ms: Date.now() - started };
   } catch (error) {
-    failed("decide_failed", error);
+    failed("decide_failed", error, model.id);
     return null;
   }
 }
 
-// The answer token comes after an empty <think> block; normalise P(yes) against P(no).
+// The first yes/no token is the answer; normalise P(yes) against P(no).
 export function yesProbability(tokens: { token: string; top_logprobs?: { token: string; logprob: number }[] }[]): number | null {
   const answer = tokens.find((t) => /^\s*(yes|no)\b/i.test(t.token));
   if (!answer?.top_logprobs) return null;
@@ -205,11 +220,11 @@ async function judgePhoto(env: Env, fileId: string, d: Dossier, systemPrompt: st
   ], 500);
 }
 
-async function run(env: Env, model: string, messages: unknown[], maxTokens = 300): Promise<ModelVerdict | null> {
+async function run(env: Env, model: string, messages: unknown[], maxTokens = 300, options?: Record<string, unknown>): Promise<ModelVerdict | null> {
   if (modelsPaused(Date.now())) return null;
   const started = Date.now();
   try {
-    const out = (await env.AI.run(model as Parameters<Ai["run"]>[0], { messages, max_tokens: maxTokens } as never)) as {
+    const out = (await env.AI.run(model as Parameters<Ai["run"]>[0], { messages, max_tokens: maxTokens, ...options } as never)) as {
       response?: string | Record<string, unknown>;
       choices?: { message?: { content?: string } }[];
     };

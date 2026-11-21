@@ -123,6 +123,27 @@ The one ham the written verdict flags is a member asking for help with a cloud s
 they had recommended to a friend, named in the message; with 12 ham accounts, a 0/12 rate still allows a true
 rate of up to ~25%, so these numbers are a direction, not a licence to act.
 
+## Text model replaced, 2026-11-21
+
+Workers AI retired qwen3-30b-a3b on 2026-11-20; every text call failed (error 5028) for about
+30 hours, which nobody saw because a failed model only makes the door stricter. `models.ts`
+asks candidates the production prompts on production cases (38 seed, 122 join-door
+profiles that point somewhere, 142 newcomer messages) against qwen's recorded answers:
+
+| candidate | neurons (decision + verdict) | profile ads caught | message ads caught | people flagged |
+|---|---|---|---|---|
+| gemma-4-26b-a4b-it, thinking off | 1.5 + 3.5 | 40/40 | 39/40 | 2/10 hand-judged, after the prompt fix below |
+| granite-4.0-h-micro | 0.3 + 0.9 | 34/40 | 38/40 | 3/5 profiles, 2/22 messages |
+
+granite costs a quarter but missed bare invite links with money offers ("有电脑来赚钱"), so
+gemma-4 replaced qwen. It also caught most ads qwen had passed (bare invite links on random
+names, "微信收米 一天7ooo"), which makes "qwen passed it" useless as a ham label: the 46 cases
+where the two candidates disagreed were labelled by hand instead. gemma-4 first flagged people
+whose bio points to their own channel or a bot for private messages; a sentence in both prompts
+saying that is not an ad by itself brought that to 2 of 10 hand-judged people (both a bare
+@mention, at confidence 0.9) and 34 of 36 ads. gemma's confidence comes in steps (0.8, 0.9, 0.95,
+1), so the join door now needs 0.95 to turn someone away; the message review keeps 0.85.
+
 ## Door benchmark
 
 Who gets into a group is scored separately, on production cases with independent labels,

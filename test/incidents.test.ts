@@ -3,6 +3,7 @@
 // records enough to reconstruct each case. Whether models catch them is measured
 // by bench/, against the real models; the model here is a stand-in.
 import { beforeEach, expect, test } from "bun:test";
+import { TEXT_MODEL } from "../src/classify";
 import { noticeInviteLinks } from "../src/notice";
 import { World } from "./harness";
 
@@ -40,7 +41,7 @@ test("passed Kitan's check, then a covert adult-services pitch: the decision lea
   expect(w.events(22, "join")[0].detail.approved_by).toBe("bot:@test_bot");
   const [, pitch] = w.events(22, "verdict").filter((v) => v.detail.on === "message");
   expect(pitch.detail.decision.p).toBeCloseTo(0.9, 2);
-  expect(pitch.detail.text_model).toMatchObject({ model: "@cf/qwen/qwen3-30b-a3b-fp8" });
+  expect(pitch.detail.text_model).toMatchObject({ model: TEXT_MODEL.id });
 });
 
 test("a bot-username drop, posted and then edited: caught on the post and on the edit", async () => {
@@ -220,7 +221,7 @@ test("a newcomer's message is stored with the facts the rules read, and both mod
   await w.say(26, GROUP, "现在全国夜场都要倒闭了 https://x.example", { entities: [{ type: "url", offset: 14, length: 17 }] });
   expect(w.events(26, "message")[0].detail.facts).toMatchObject({ text: "现在全国夜场都要倒闭了 https://x.example", entities: [{ type: "url" }] });
   const verdict = w.events(26, "verdict").find((v) => v.detail.on === "message")?.detail;
-  expect(verdict?.decision).toMatchObject({ model: "@cf/qwen/qwen3-30b-a3b-fp8" });
+  expect(verdict?.decision).toMatchObject({ model: TEXT_MODEL.id });
   expect(verdict?.decision.p).toBeCloseTo(0.96, 2);
 });
 
